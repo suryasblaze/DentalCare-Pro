@@ -6,7 +6,7 @@ import path from 'path';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
-    base: '/medico/', // Add this line for GitHub Pages deployment
+    base: '/DentalCare-Pro/', // Updated base path for new repo name
     plugins: [react()],
     optimizeDeps: {
       exclude: ['lucide-react'],
