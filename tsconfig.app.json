@@ -1,5 +1,7 @@
 {
+  "extends": "./tsconfig.json", // Add this line to inherit base config
   "compilerOptions": {
+    // baseUrl and paths will be inherited from tsconfig.json
     "target": "ES2020",
     "useDefineForClassFields": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
@@ -18,7 +20,8 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "composite": true // Required when using project references and extending
   },
   "include": ["src"]
 }

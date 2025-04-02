@@ -10,7 +10,12 @@ import { TreatmentPlanCard } from '../components/TreatmentPlanCard';
 import { TreatmentPlanForm } from '../components/TreatmentPlanForm';
 import { TreatmentForm } from '../components/TreatmentForm';
 import { TreatmentPlanDetails } from '../components/TreatmentPlanDetails';
-import { Loader2, Plus, Search, Stethoscope } from 'lucide-react';
+import { AITreatmentGenerator } from '@/components/AITreatmentGenerator'; // Added AI Generator import
+import { Loader2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import { Search } from 'lucide-react';
+import { Stethoscope } from 'lucide-react';
+import { Wand2 } from 'lucide-react'; // Added Wand2 icon
 
 export function TreatmentPlansPage() {
   const navigate = useNavigate();
@@ -40,6 +45,7 @@ export function TreatmentPlansPage() {
   const [showNewPlanDialog, setShowNewPlanDialog] = useState(false);
   const [showPlanDetailsDialog, setShowPlanDetailsDialog] = useState(false);
   const [showAddTreatmentDialog, setShowAddTreatmentDialog] = useState(false);
+  const [showAIGeneratorDialog, setShowAIGeneratorDialog] = useState(false); // Added state for AI dialog
   
   // Handle creating a new treatment plan
   const handleCreatePlan = async (planData: any) => {
@@ -54,11 +60,36 @@ export function TreatmentPlansPage() {
       console.error('Error creating plan:', error);
     }
   };
+
+  // Handle creating a plan from AI generator
+  const handleAIGeneratePlan = async (planData: any) => {
+    try {
+      // Assuming the AI generator returns data compatible with createTreatmentPlan
+      const newPlan = await createTreatmentPlan(planData); 
+      setShowAIGeneratorDialog(false);
+      
+      // Show the details of the new plan
+      setSelectedPlan(newPlan);
+      setShowPlanDetailsDialog(true);
+      toast({
+        title: "AI Plan Created",
+        description: `Treatment plan for ${newPlan.patient?.first_name} ${newPlan.patient?.last_name} generated successfully.`,
+      });
+    } catch (error) {
+      console.error('Error creating AI plan:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create treatment plan from AI generator.",
+        variant: "destructive",
+      });
+    }
+  };
   
   // Handle adding a treatment to the plan
   const handleAddTreatment = async (treatmentData: any) => {
     try {
-      await createTreatment(treatmentData);
+      // Reverted: Pass original data, assuming createTreatment handles mapping or expects this structure
+      await createTreatment(treatmentData); 
       setShowAddTreatmentDialog(false);
     } catch (error) {
       console.error('Error adding treatment:', error);
@@ -131,6 +162,10 @@ export function TreatmentPlansPage() {
             </SelectContent>
           </Select>
           
+          <Button variant="outline" onClick={() => setShowAIGeneratorDialog(true)}>
+            <Wand2 className="h-4 w-4 mr-2" />
+            AI Generate Plan
+          </Button>
           <Button onClick={() => setShowNewPlanDialog(true)}>
             <Plus className="h-4 w-4 mr-2" />
             New Treatment Plan
@@ -215,6 +250,15 @@ export function TreatmentPlansPage() {
           loading={loading}
         />
       )}
+
+      {/* AI Treatment Generator Dialog */}
+      <AITreatmentGenerator
+        open={showAIGeneratorDialog}
+        onOpenChange={setShowAIGeneratorDialog}
+        onSubmit={handleAIGeneratePlan}
+        patients={patients}
+        loading={loading}
+      />
     </div>
   );
 }

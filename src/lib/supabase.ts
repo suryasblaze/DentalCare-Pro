@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './database.types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -10,14 +10,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-export const supabase = createClient<Database>(
+// Shared instance with standard settings
+export const supabase: SupabaseClient<Database> = createClient<Database>(
   supabaseUrl,
   supabaseAnonKey,
   {
     auth: {
       autoRefreshToken: true,
-      persistSession: true,
+      persistSession: true, // Default: true - uses localStorage
       detectSessionInUrl: true
     }
   }
 );
+
+// Removed factory function

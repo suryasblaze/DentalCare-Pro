@@ -9,6 +9,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { PatientForm } from '@/features/patients/components/PatientForm';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
+import { globalCache } from '@/lib/utils/cache-manager'; // Import cache
+import { PatientDetailsView } from '@/features/patients/components/PatientDetailsView';
 
 interface PatientFormDialogProps {
   open: boolean;
@@ -20,7 +22,8 @@ interface PatientFormDialogProps {
 function PatientFormDialog({ open, onOpenChange, patient, onSuccess }: PatientFormDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
+      {/* Add max-height and vertical scroll */}
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto"> 
         <DialogHeader>
           <DialogTitle>{patient ? 'Edit Patient' : 'New Patient'}</DialogTitle>
         </DialogHeader>
@@ -41,9 +44,9 @@ export function Patients() {
 
 export function PatientList() {
   const navigate = useNavigate();
-  const { id } = useParams();
-  const { toast } = useToast();
-  const [patients, setPatients] = useState<any[]>([]);
+
+
+  const { toast } = useToast();  const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewPatientDialog, setShowNewPatientDialog] = useState(false);
@@ -211,8 +214,8 @@ export function PatientList() {
       )}
     </div>
   );
-}
 
+}
 export function PatientDetails() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -228,13 +231,18 @@ export function PatientDetails() {
   }, [id]);
   
   const fetchPatient = async (patientId: string) => {
+    setLoading(true); // Ensure loading state is set
     try {
+      // Invalidate cache for this specific patient before fetching
+      globalCache.invalidate(`patients:${patientId}`); 
+      
       const data = await api.patients.getById(patientId);
       setPatient(data);
-      setLoading(false);
     } catch (error) {
       console.error('Error fetching patient:', error);
-      setLoading(false);
+      // Optionally set an error state here
+    } finally {
+      setLoading(false); // Ensure loading state is unset
     }
   };
   

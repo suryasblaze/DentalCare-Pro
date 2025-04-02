@@ -45,6 +45,13 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Add your custom brand colors here
+        brand: {
+          dark: '#211C84',
+          medium: '#4D55CC',
+          light: '#7A73D1',
+          'very-light': '#B5A8D5', // Use quotes for keys with hyphens
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

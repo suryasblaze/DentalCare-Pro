@@ -19,7 +19,6 @@ const navigation = [
     name: "Appointments",
     href: "/appointments",
     icon: Calendar,
-    badge: "3",
   },
   {
     name: "Patients",
@@ -46,8 +45,8 @@ export function Sidebar() {
       <div className="flex h-full flex-col gap-2">
         <div className="flex h-14 items-center border-b px-4">
           <Link to="/" className="flex items-center gap-2 font-semibold">
-            <Calendar className="h-6 w-6" />
-            <span>DentalCare Pro</span>
+            {/* Use the custom logo image */}
+            <img src="https://i.postimg.cc/bwDhkb5H/dentalcare.png" alt="Dental Care Logo" className="h-12" /> {/* Adjust height as needed */}
           </Link>
         </div>
         <div className="flex-1 overflow-auto py-2">
@@ -65,11 +64,6 @@ export function Sidebar() {
                   >
                     <Icon className="h-4 w-4" />
                     {item.name}
-                    {item.badge && (
-                      <span className="ml-auto text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                        {item.badge}
-                      </span>
-                    )}
                   </Button>
                 </Link>
               );

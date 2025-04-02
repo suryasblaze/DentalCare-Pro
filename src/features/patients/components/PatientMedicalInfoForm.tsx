@@ -1,4 +1,4 @@
-import React from 'react';
+// Removed unused React import
 import { z } from "zod";
 import { useFormContext } from 'react-hook-form';
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
@@ -6,14 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-// Define the schema for medical info
+// Define the schema for medical info - Expecting strings for text areas
 export const medicalInfoSchema = z.object({
   blood_group: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'unknown']).optional(),
-  height: z.string().optional(),
-  weight: z.string().optional(),
+  height: z.string().optional().nullable(),
+  weight: z.string().optional().nullable(),
   allergies: z.string().optional(),
   medical_conditions: z.string().optional(),
-  current_medications: z.string().optional(),
+  current_medications: z.string().optional(), // Expect string
   notes: z.string().optional()
 });
 
@@ -21,6 +21,15 @@ export type MedicalInfoValues = z.infer<typeof medicalInfoSchema>;
 
 export function PatientMedicalInfoForm() {
   const form = useFormContext();
+
+  // Helper to ensure value passed to Textarea is a string
+  const ensureStringValue = (value: any): string => {
+    if (Array.isArray(value)) {
+      return value.join(', ');
+    }
+    return value || ''; // Return empty string for null/undefined
+  };
+
 
   return (
     <div className="space-y-6">
@@ -32,7 +41,8 @@ export function PatientMedicalInfoForm() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <FormField
+        {/* Blood Group, Height, Weight fields remain the same */}
+         <FormField
           control={form.control}
           name="blood_group"
           render={({ field }) => (
@@ -68,7 +78,12 @@ export function PatientMedicalInfoForm() {
             <FormItem>
               <FormLabel>Height (cm)</FormLabel>
               <FormControl>
-                <Input placeholder="175" {...field} />
+                <Input
+                  placeholder="175"
+                  {...field}
+                  value={field.value ?? ''}
+                  onChange={e => field.onChange(e.target.value)}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -82,7 +97,12 @@ export function PatientMedicalInfoForm() {
             <FormItem>
               <FormLabel>Weight (kg)</FormLabel>
               <FormControl>
-                <Input placeholder="70" {...field} />
+                 <Input
+                   placeholder="70"
+                   {...field}
+                   value={field.value ?? ''}
+                   onChange={e => field.onChange(e.target.value)}
+                 />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -97,9 +117,11 @@ export function PatientMedicalInfoForm() {
           <FormItem>
             <FormLabel>Allergies</FormLabel>
             <FormControl>
-              <Textarea 
-                placeholder="Enter allergies, separated by commas (e.g., Penicillin, Peanuts)" 
-                {...field} 
+              <Textarea
+                placeholder="Enter allergies, separated by commas (e.g., Penicillin, Peanuts)"
+                {...field}
+                value={ensureStringValue(field.value)} // Use helper
+                onChange={(e) => field.onChange(e.target.value)}
               />
             </FormControl>
             <FormMessage />
@@ -114,9 +136,11 @@ export function PatientMedicalInfoForm() {
           <FormItem>
             <FormLabel>Medical Conditions</FormLabel>
             <FormControl>
-              <Textarea 
-                placeholder="Enter medical conditions, separated by commas (e.g., Diabetes, Hypertension)" 
-                {...field} 
+              <Textarea
+                placeholder="Enter medical conditions, separated by commas (e.g., Diabetes, Hypertension)"
+                {...field}
+                value={ensureStringValue(field.value)} // Use helper
+                onChange={(e) => field.onChange(e.target.value)}
               />
             </FormControl>
             <FormMessage />
@@ -131,9 +155,11 @@ export function PatientMedicalInfoForm() {
           <FormItem>
             <FormLabel>Current Medications</FormLabel>
             <FormControl>
-              <Textarea 
-                placeholder="Enter current medications, dosages, and frequency" 
-                {...field} 
+              <Textarea
+                placeholder="Enter current medications, dosages, and frequency"
+                {...field}
+                value={ensureStringValue(field.value)} // Use helper
+                onChange={(e) => field.onChange(e.target.value)}
               />
             </FormControl>
             <FormMessage />
@@ -148,9 +174,10 @@ export function PatientMedicalInfoForm() {
           <FormItem>
             <FormLabel>Additional Notes</FormLabel>
             <FormControl>
-              <Textarea 
-                placeholder="Any additional information relevant to patient care" 
-                {...field} 
+              <Textarea
+                placeholder="Any additional information relevant to patient care"
+                {...field}
+                value={field.value || ''} // Ensure string for notes too
               />
             </FormControl>
             <FormMessage />

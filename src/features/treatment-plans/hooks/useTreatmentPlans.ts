@@ -9,6 +9,10 @@ import { treatmentPlanSchema } from '../components/TreatmentPlanForm';
 import { treatmentSchema } from '../components/TreatmentForm';
 
 export function useTreatmentPlans() {
+  // Define Status Types
+  type TreatmentPlanStatus = 'planned' | 'in_progress' | 'completed' | 'cancelled';
+  type TreatmentStatus = 'pending' | 'completed' | 'cancelled';
+
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [treatmentPlans, setTreatmentPlans] = useState<any[]>([]);
@@ -35,7 +39,8 @@ export function useTreatmentPlans() {
   
   // Optimistic updates
   const { update: updateTreatmentStatus, loading: updatingTreatmentStatus } = useOptimisticUpdate(
-    (data: { treatmentId: string; newStatus: string }) => 
+    // Apply TreatmentStatus type
+    (data: { treatmentId: string; newStatus: TreatmentStatus }) => 
       treatmentService.updateTreatment(data.treatmentId, { status: data.newStatus }),
     {
       onError: () => {
@@ -53,7 +58,8 @@ export function useTreatmentPlans() {
   );
   
   const { update: updatePlanStatus, loading: updatingPlanStatus } = useOptimisticUpdate(
-    (data: { planId: string; newStatus: string }) => 
+    // Apply TreatmentPlanStatus type
+    (data: { planId: string; newStatus: TreatmentPlanStatus }) => 
       treatmentService.updateTreatmentPlan(data.planId, { status: data.newStatus }),
     {
       onError: () => {
@@ -84,13 +90,14 @@ export function useTreatmentPlans() {
       setTreatmentPlans(processedPlans);
       setPatients(patientsData);
       
-      // If there's a selected plan, refresh its data
-      if (selectedPlan) {
-        const updatedPlan = processedPlans.find((p) => p.id === selectedPlan.id);
-        if (updatedPlan) {
-          setSelectedPlan(updatedPlan);
-        }
-      }
+      // Removed logic that updates selectedPlan from within fetchData
+      // // If there's a selected plan, refresh its data
+      // if (selectedPlan) {
+      //   const updatedPlan = processedPlans.find((p) => p.id === selectedPlan.id);
+      //   if (updatedPlan) {
+      //     setSelectedPlan(updatedPlan);
+      //   }
+      // }
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -101,7 +108,7 @@ export function useTreatmentPlans() {
     } finally {
       setLoading(false);
     }
-  }, [selectedPlan, toast]);
+  }, [toast]); // Removed selectedPlan from dependencies
   
   // Refresh selected plan
   const refreshSelectedPlan = useCallback(async () => {
@@ -120,10 +127,11 @@ export function useTreatmentPlans() {
     }
   }, [selectedPlan, patients]);
   
-  // Load initial data
+  // Load initial data - Run only once on mount
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Removed fetchData dependency to prevent re-running on selectedPlan change
   
   // Filter plans
   const filterPlans = useCallback((
@@ -228,8 +236,8 @@ export function useTreatmentPlans() {
         description: "Treatment added successfully"
       });
       
-      // Refresh data to get the actual database state
-      await fetchData();
+      // Refresh data to get the actual database state - Only refresh selected plan
+      // await fetchData(); // Removed redundant fetch
       await refreshSelectedPlan();
     } catch (error) {
       console.error('Error adding treatment:', error);
@@ -248,10 +256,11 @@ export function useTreatmentPlans() {
     } finally {
       setLoading(false);
     }
-  }, [fetchData, refreshSelectedPlan, selectedPlan, optimisticData, toast]);
+  }, [refreshSelectedPlan, selectedPlan, optimisticData, toast]); // Removed fetchData from dependencies
   
   // Update treatment status
-  const handleUpdateTreatmentStatus = useCallback(async (treatmentId: string, newStatus: string) => {
+  // Apply TreatmentStatus type
+  const handleUpdateTreatmentStatus = useCallback(async (treatmentId: string, newStatus: TreatmentStatus) => {
     // Store current state for potential rollback
     setOptimisticData({
       ...optimisticData,
@@ -280,7 +289,8 @@ export function useTreatmentPlans() {
   }, [selectedPlan, optimisticData, updateTreatmentStatus]);
   
   // Update plan status
-  const handleUpdatePlanStatus = useCallback(async (planId: string, newStatus: string) => {
+  // Apply TreatmentPlanStatus type
+  const handleUpdatePlanStatus = useCallback(async (planId: string, newStatus: TreatmentPlanStatus) => {
     // Store current state for potential rollback
     setOptimisticData({
       ...optimisticData,
@@ -341,8 +351,8 @@ export function useTreatmentPlans() {
         description: "Treatment deleted successfully"
       });
       
-      // Refresh data to get the actual database state
-      await fetchData();
+      // Refresh data to get the actual database state - Only refresh selected plan
+      // await fetchData(); // Removed redundant fetch
       await refreshSelectedPlan();
     } catch (error) {
       console.error('Error deleting treatment:', error);
@@ -360,7 +370,7 @@ export function useTreatmentPlans() {
     } finally {
       setLoading(false);
     }
-  }, [fetchData, refreshSelectedPlan, selectedPlan, optimisticData, toast]);
+  }, [refreshSelectedPlan, selectedPlan, optimisticData, toast]); // Removed fetchData from dependencies
   
   // Delete plan
   const deletePlan = useCallback(async (planId: string) => {

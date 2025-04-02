@@ -64,7 +64,7 @@ export function TreatmentPlanForm({
       end_date: '',
       status: 'planned',
       priority: 'medium',
-      estimated_cost: ''
+      estimated_cost: undefined // Use undefined for optional number
     }
   });
   
@@ -75,7 +75,7 @@ export function TreatmentPlanForm({
   
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create New Treatment Plan</DialogTitle>
           <DialogDescription>
@@ -84,7 +84,7 @@ export function TreatmentPlanForm({
         </DialogHeader>
         
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 pb-6">
             <FormField
               control={form.control}
               name="patient_id"
@@ -246,6 +246,7 @@ export function TreatmentPlanForm({
                       type="number"
                       placeholder="0.00"
                       {...field}
+                      value={field.value ?? ''} // Convert null/undefined to empty string for input
                       min="0"
                       step="0.01"
                     />

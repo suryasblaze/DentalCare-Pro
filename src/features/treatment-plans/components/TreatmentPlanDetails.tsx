@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react'; // Import useState and useMemo
 import { format } from 'date-fns';
 import { 
   Dialog, 
@@ -22,7 +22,9 @@ import {
   RefreshCw,
   Plus,
   FileText,
-  ArrowUpRight
+  ArrowUpRight,
+  ChevronLeft, // Added for pagination
+  ChevronRight // Added for pagination
 } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils/validation';
@@ -55,6 +57,24 @@ export function TreatmentPlanDetails({
   loading = false,
   navigateToPatient
 }: TreatmentPlanDetailsProps) {
+
+  // --- Pagination State ---
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 5; // Show 5 treatments per page
+
+  const paginatedTreatments = useMemo(() => {
+    if (!plan?.treatments) return [];
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return plan.treatments.slice(startIndex, endIndex);
+  }, [plan?.treatments, currentPage]);
+
+  const totalPages = useMemo(() => {
+    if (!plan?.treatments) return 1;
+    return Math.ceil(plan.treatments.length / ITEMS_PER_PAGE);
+  }, [plan?.treatments]);
+  // --- End Pagination State ---
+
   if (!plan) return null;
   
   // Render status badge with appropriate color
@@ -116,10 +136,12 @@ export function TreatmentPlanDetails({
           </DialogDescription>
         </DialogHeader>
         
-        <div className="space-y-6">
-          <div className="flex justify-between items-start">
-            <div>
-              <h2 className="text-xl font-semibold">{plan.title}</h2>
+        {/* Added container for scrolling */}
+        <div className="pr-6 py-4 max-h-[70vh] overflow-y-auto"> 
+          <div className="space-y-6">
+            <div className="flex justify-between items-start">
+              <div>
+                <h2 className="text-xl font-semibold">{plan.title}</h2>
               <p className="text-sm text-muted-foreground">{plan.description}</p>
             </div>
             <div className="flex items-center gap-2">
@@ -208,17 +230,45 @@ export function TreatmentPlanDetails({
             </div>
             
             {plan.treatments && plan.treatments.length > 0 ? (
-              <div className="space-y-3">
-                {plan.treatments.map((treatment: any) => (
-                  <TreatmentItem
-                    key={treatment.id}
-                    treatment={treatment}
-                    onStatusChange={onTreatmentStatusChange}
-                    onDelete={onDeleteTreatment}
-                    loading={loading}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="space-y-3">
+                  {paginatedTreatments.map((treatment: any) => (
+                    <TreatmentItem
+                      key={treatment.id}
+                      treatment={treatment}
+                      onStatusChange={onTreatmentStatusChange}
+                      onDelete={onDeleteTreatment}
+                      loading={loading}
+                    />
+                  ))}
+                </div>
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="flex justify-center items-center gap-2 mt-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1 || loading}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Previous
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages || loading}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="text-center py-6 border rounded-lg">
                 <FileText className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
@@ -237,39 +287,39 @@ export function TreatmentPlanDetails({
             )}
           </div>
           
-          <Tabs defaultValue="treatments" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="treatments">Additional Information</TabsTrigger>
-              <TabsTrigger value="financial">Financial Information</TabsTrigger>
-            </TabsList>
-            <TabsContent value="treatments" className="space-y-4">
-              <div className="border rounded-lg p-4">
-                <h4 className="font-medium">Notes</h4>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {plan.notes || "No additional notes for this treatment plan."}
-                </p>
-              </div>
-            </TabsContent>
-            <TabsContent value="financial" className="space-y-4">
-              <div className="border rounded-lg p-4">
-                <h4 className="font-medium">Financial Summary</h4>
-                <div className="mt-4 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Total Treatment Cost:</span>
-                    <span className="font-medium">{formatCurrency(plan.totalCost)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Insurance Coverage (Est.):</span>
-                    <span className="font-medium">$0.00</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Patient Responsibility:</span>
-                    <span className="font-medium">{formatCurrency(plan.totalCost)}</span>
-                  </div>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
+<Tabs defaultValue="treatments" className="w-full">
+  <TabsList className="grid w-full grid-cols-2">
+    <TabsTrigger value="treatments">Additional Information</TabsTrigger>
+    <TabsTrigger value="financial">Financial Information</TabsTrigger>
+  </TabsList>
+  <TabsContent value="treatments" className="space-y-4">
+    <div className="border rounded-lg p-4">
+      <h4 className="font-medium">Notes</h4>
+      <p className="text-sm text-muted-foreground mt-2">
+        {plan.notes || "No additional notes for this treatment plan."}
+      </p>
+    </div>
+  </TabsContent>
+  <TabsContent value="financial" className="space-y-4">
+    <div className="border rounded-lg p-4">
+      <h4 className="font-medium">Financial Summary</h4>
+      <div className="mt-4 space-y-2">
+        <div className="flex justify-between">
+          <span className="text-sm">Total Treatment Cost:</span>
+          <span className="font-medium">{formatCurrency(plan.totalCost)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-sm">Insurance Coverage (Est.):</span>
+          <span className="font-medium">$0.00</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-sm">Patient Responsibility:</span>
+          <span className="font-medium">{formatCurrency(plan.totalCost - 0)}</span>
+        </div>
+      </div>
+    </div>
+  </TabsContent>
+</Tabs>
           
           <DialogFooter className="flex justify-between">
             <div className="flex gap-2">
@@ -326,7 +376,8 @@ export function TreatmentPlanDetails({
               </Button>
             </div>
           </DialogFooter>
-        </div>
+        </div> 
+       </div> {/* End scrolling container */}
       </DialogContent>
     </Dialog>
   );

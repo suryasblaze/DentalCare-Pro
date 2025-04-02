@@ -19,67 +19,101 @@ import { useFormValidation } from '@/lib/hooks/useFormValidation';
 import { useRealTimeSubscription } from '@/lib/hooks/useRealTimeSubscription';
 import { safeNumberConversion, formatCurrency } from '@/lib/utils/validation';
 import { useToast } from '@/components/ui/use-toast';
+import { AITreatmentGenerator } from '@/components/AITreatmentGenerator';
+import { TreatmentPlanCard } from '@/components/TreatmentPlanCard'; // Added import
 import { z } from 'zod';
 import {
-  Plus,
-  Search,
-  Calendar,
-  CreditCard,
-  FileText,
-  User,
-  ChevronRight,
-  Pencil,
-  Trash2,
-  Check,
-  Clock,
-  Wallet,
-  ArrowUpRight,
-  Stethoscope,
-  Loader2,
-  RefreshCw,
-  AlertCircle
+  Plus, Search, Calendar, CreditCard, FileText, User, ChevronRight, Pencil, Trash2, Check, Clock, Wallet, ArrowUpRight, Stethoscope, Loader2, RefreshCw, AlertCircle, X
 } from 'lucide-react';
 
+// Import Database type
+import type { Database, Json } from '@/lib/database.types'; // Added Json type
+
+// Define specific types based on generated types
+type PatientRow = Database['public']['Tables']['patients']['Row'];
+// Use the generated TreatmentPlanRow which has the 'plan' JSON field
+type GeneratedTreatmentPlanRow = Database['public']['Tables']['treatment_plans']['Row'];
+type TreatmentRow = Database['public']['Tables']['treatments']['Row'];
+
+// Define a type for TreatmentPlan combining the generated row and calculated/processed fields
+// Assuming title, description, start_date etc. are DIRECT columns on treatment_plans table
+type TreatmentPlanWithDetails = GeneratedTreatmentPlanRow & {
+  // Remove the nested 'plan' assumption
+  // title, description, start_date, end_date, status, priority, estimated_cost are assumed to be direct properties of GeneratedTreatmentPlanRow
+  treatments: TreatmentRow[] | null; // Store fetched/added treatments
+  patientName: string; // Calculated field
+  totalCost: number; // Calculated field
+  progress: number; // Calculated field
+  completedTreatments: number; // Calculated field
+  totalTreatments: number; // Calculated field
+};
+
 // Validation schemas
-const treatmentPlanSchema = z.object({
+// Schema for the data sent to the API (FLAT structure)
+const treatmentPlanApiSchema = z.object({
+  patient_id: z.string().min(1, "Patient is required"),
   title: z.string().min(1, "Title is required"),
   description: z.string().min(1, "Description is required"),
-  patient_id: z.string().min(1, "Patient is required"),
   start_date: z.string().min(1, "Start date is required"),
   end_date: z.string().optional().nullable(),
   status: z.enum(["planned", "in_progress", "completed", "cancelled"]),
   priority: z.enum(["low", "medium", "high"]),
-  estimated_cost: z.string().optional().transform(val => val ? parseFloat(val) : null),
+  estimated_cost: z.number().nullable().optional(), // Keep as number for validation
 });
+
 
 const treatmentSchema = z.object({
   type: z.string().min(1, "Treatment type is required"),
   description: z.string().min(1, "Description is required"),
   status: z.enum(["pending", "completed", "cancelled"]),
-  cost: z.string().min(1, "Cost is required")
-    .refine(val => !isNaN(parseFloat(val)), "Cost must be a valid number")
-    .transform(val => parseFloat(val)),
-  estimated_duration: z.string().optional(),
+  cost: z.number().min(0, "Cost must be zero or positive"), // Expect number
+  estimated_duration: z.string().optional().nullable(), // Allow null
   priority: z.enum(["low", "medium", "high"]),
   plan_id: z.string().min(1)
 });
 
+// Define input state types separately if needed, or handle conversion before validation
+// Input state for the new plan form - keep flat for easier form handling
+interface NewPlanInputState {
+    title: string;
+    description: string;
+    patient_id: string;
+    start_date: string;
+    end_date: string;
+    // Use status/priority types directly from the table definition if available, or keep as string enums
+    status: "planned" | "in_progress" | "completed" | "cancelled";
+    priority: "low" | "medium" | "high";
+    estimated_cost: string; // Keep as string for input field
+}
+
+interface NewTreatmentInputState {
+    type: string;
+    description: string;
+    status: TreatmentRow['status']; // Status comes directly from TreatmentRow
+    cost: string; // Keep as string for input field
+    estimated_duration: string;
+    priority: TreatmentRow['priority'];
+    plan_id: string;
+}
+
+
 export function TreatmentPlans() {
+  // Hooks must be called inside the component body
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
-  const [treatmentPlans, setTreatmentPlans] = useState<any[]>([]);
-  const [patients, setPatients] = useState<any[]>([]);
+  const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanWithDetails[]>([]); // Use updated type
+  const [patients, setPatients] = useState<PatientRow[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [showNewPlanDialog, setShowNewPlanDialog] = useState(false);
   const [showPlanDetailsDialog, setShowPlanDetailsDialog] = useState(false);
   const [showAddTreatmentDialog, setShowAddTreatmentDialog] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<any>(null);
+  const [selectedPlan, setSelectedPlan] = useState<TreatmentPlanWithDetails | null>(null); // Use updated type
   const [optimisticData, setOptimisticData] = useState<{
-    plans: any[] | null;
-    selectedPlan: any | null;
+    plans: TreatmentPlanWithDetails[] | null;
+    selectedPlan: TreatmentPlanWithDetails | null;
   }>({ plans: null, selectedPlan: null });
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [conflictData, setConflictData] = useState<{
@@ -88,570 +122,535 @@ export function TreatmentPlans() {
     type: 'plan' | 'treatment';
     id: string;
   } | null>(null);
-  
-  // Form state
-  const [newPlan, setNewPlan] = useState({
+  const [selectedPatientIdForAI, setSelectedPatientIdForAI] = useState<string | null>(null);
+
+  // Form state using defined interfaces
+  const [newPlan, setNewPlan] = useState<NewPlanInputState>({
     title: '',
     description: '',
     patient_id: '',
     start_date: format(new Date(), 'yyyy-MM-dd'),
     end_date: '',
-    status: 'planned',
-    priority: 'medium',
+    status: 'planned', // No need to cast if type matches
+    priority: 'medium', // No need to cast if type matches
     estimated_cost: ''
   });
-  
-  const [newTreatment, setNewTreatment] = useState({
+
+  const [newTreatment, setNewTreatment] = useState<NewTreatmentInputState>({
     type: '',
     description: '',
-    status: 'pending',
+    status: 'pending' as TreatmentRow['status'], // Cast initial state
     cost: '',
     estimated_duration: '',
-    priority: 'medium',
+    priority: 'medium' as TreatmentRow['priority'], // Cast initial state
     plan_id: ''
   });
-  
+
   // Form validation
-  const planValidation = useFormValidation(treatmentPlanSchema);
-  const treatmentValidation = useFormValidation(treatmentSchema);
-  
+  const planValidation = useFormValidation<z.infer<typeof treatmentPlanApiSchema>>(treatmentPlanApiSchema);
+  const treatmentValidation = useFormValidation<z.infer<typeof treatmentSchema>>(treatmentSchema);
+
   // Subscribe to real-time updates
   const treatmentPlansSubscribed = useRealTimeSubscription('treatment_plans', () => {
     fetchData();
   });
-  
+
   const treatmentsSubscribed = useRealTimeSubscription('treatments', (payload) => {
-    // If the update affects the selected plan, refresh it
     if (selectedPlan && payload.new && payload.new.plan_id === selectedPlan.id) {
       refreshSelectedPlan();
     } else {
       fetchData();
     }
   });
-  
+
   // Optimistic updates
   const { update: updateTreatmentStatus, loading: updatingTreatmentStatus } = useOptimisticUpdate(
-    (data: { treatmentId: string; newStatus: string }) => 
+    (data: { treatmentId: string; newStatus: string }) =>
       api.patients.updateTreatment(data.treatmentId, { status: data.newStatus }),
     {
       onError: () => {
-        toast({
-          title: "Update Failed",
-          description: "Failed to update treatment status. Please try again.",
-          variant: "destructive"
-        });
-        // Revert optimistic update on error
-        if (selectedPlan && optimisticData.selectedPlan) {
-          setSelectedPlan({ ...optimisticData.selectedPlan });
-        }
+        toast({ title: "Update Failed", description: "Failed to update treatment status.", variant: "destructive" });
+        if (selectedPlan && optimisticData.selectedPlan) setSelectedPlan({ ...optimisticData.selectedPlan });
       }
     }
   );
-  
+
+  // Optimistic update for plan status (assuming flat structure for update)
   const { update: updatePlanStatus, loading: updatingPlanStatus } = useOptimisticUpdate(
-    (data: { planId: string; newStatus: string }) => 
-      api.patients.updateTreatmentPlan(data.planId, { status: data.newStatus }),
+    (data: { planId: string; updatedFields: Partial<GeneratedTreatmentPlanRow> }) => // Update with partial flat fields
+      api.patients.updateTreatmentPlan(data.planId, data.updatedFields),
     {
-      onError: () => {
-        toast({
-          title: "Update Failed",
-          description: "Failed to update plan status. Please try again.",
-          variant: "destructive"
-        });
-        // Revert optimistic update on error
-        if (optimisticData.plans) {
-          setTreatmentPlans([...optimisticData.plans]);
+      onError: (error) => { // Correct onError signature
+        console.error("Failed to update plan status:", error);
+        toast({ title: "Update Failed", description: "Failed to update plan status.", variant: "destructive" });
+        // Revert optimistic update - Need access to variables, maybe store them temporarily?
+        // For now, just revert the list simply. A more robust revert might be needed.
+        if (optimisticData.plans) setTreatmentPlans([...optimisticData.plans]);
+        // Reverting selectedPlan is tricky without variables here. Fetching might be safer.
+        if (selectedPlan && optimisticData.selectedPlan) { // Basic revert attempt
+             setSelectedPlan({...optimisticData.selectedPlan});
         }
       }
     }
   );
-  
-  useEffect(() => {
-    fetchData();
-  }, []);
-  
+
+  // Define fetchData before useEffect uses it
   const fetchData = async () => {
     try {
       setLoading(true);
       const [plansData, patientsData] = await Promise.all([
-        api.patients.getTreatmentPlans(null),
+        api.patients.getTreatmentPlans(null), // Assuming this fetches plans with treatments nested or joined
         api.patients.getAll()
       ]);
-      
-      // Pre-process data for display
-      const processedPlans = plansData.map((plan: any) => {
-        const patientInfo = patientsData.find((p: any) => p.id === plan.patient_id);
-        const totalCost = plan.treatments?.reduce((sum: number, t: any) => sum + parseFloat(t.cost || 0), 0) || 0;
-        const completedTreatments = plan.treatments?.filter((t: any) => t.status === 'completed').length || 0;
-        const totalTreatments = plan.treatments?.length || 0;
-        const progress = totalTreatments ? Math.round((completedTreatments / totalTreatments) * 100) : 0;
-        
-        return {
-          ...plan,
+
+      const plansTyped = plansData as GeneratedTreatmentPlanRow[]; // Use correct type
+      const patientsTyped = patientsData as PatientRow[];
+
+      // Process plans, assuming flat structure
+      const processedPlans = plansTyped.map((plan: GeneratedTreatmentPlanRow) => {
+        const patientInfo = patientsTyped.find((p) => p.id === plan.patient_id);
+        // Assuming treatments are fetched separately or joined correctly by the API call
+        const treatmentsArray = (plan as any).treatments || []; // Keep treatment fetching logic
+
+        const totalCost = treatmentsArray.reduce((sum: number, t: TreatmentRow) => sum + (t.cost ?? 0), 0);
+        const completedTreatments = treatmentsArray.filter((t: TreatmentRow) => t.status === 'completed').length;
+        const totalTreatments = treatmentsArray.length;
+        const progress = totalTreatments > 0 ? Math.round((completedTreatments / totalTreatments) * 100) : 0;
+
+        // Construct the TreatmentPlanWithDetails object (now flat)
+        const planWithDetails: TreatmentPlanWithDetails = {
+          ...plan, // Spread the original row data (which includes title, desc, etc.)
+          treatments: treatmentsArray, // Assign fetched/added treatments
           patientName: patientInfo ? `${patientInfo.first_name} ${patientInfo.last_name}` : 'Unknown Patient',
-          totalCost,
-          progress,
-          completedTreatments,
-          totalTreatments
+          totalCost: totalCost ?? 0, // Assign calculated fields
+          progress: progress ?? 0,
+          completedTreatments: completedTreatments ?? 0,
+          totalTreatments: totalTreatments ?? 0
         };
+        return planWithDetails;
       });
-      
+
+
       setTreatmentPlans(processedPlans);
-      setPatients(patientsData);
-      
-      // If there's a selected plan, refresh its data
+      setPatients(patientsTyped);
+
       if (selectedPlan) {
-        const updatedPlan = processedPlans.find((p: any) => p.id === selectedPlan.id);
+        const updatedPlan = processedPlans.find((p) => p.id === selectedPlan.id);
         if (updatedPlan) {
           setSelectedPlan(updatedPlan);
+        } else {
+           setSelectedPlan(null);
+           setShowPlanDetailsDialog(false);
         }
       }
     } catch (error) {
       console.error('Error fetching data:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load treatment plans",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "Failed to load treatment plans", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
-  
+
+   useEffect(() => {
+    fetchData();
+  }, []);
+
   const refreshSelectedPlan = async () => {
     if (!selectedPlan) return;
-    
-    try {
-      const plans = await api.patients.getTreatmentPlans(null);
-      const updatedPlan = plans.find((p: any) => p.id === selectedPlan.id);
-      
-      if (updatedPlan) {
-        const patientInfo = patients.find((p: any) => p.id === updatedPlan.patient_id);
-        const totalCost = updatedPlan.treatments?.reduce((sum: number, t: any) => sum + parseFloat(t.cost || 0), 0) || 0;
-        const completedTreatments = updatedPlan.treatments?.filter((t: any) => t.status === 'completed').length || 0;
-        const totalTreatments = updatedPlan.treatments?.length || 0;
-        const progress = totalTreatments ? Math.round((completedTreatments / totalTreatments) * 100) : 0;
-        
-        const processedPlan = {
-          ...updatedPlan,
-          patientName: patientInfo ? `${patientInfo.first_name} ${patientInfo.last_name}` : 'Unknown Patient',
-          totalCost,
-          progress,
-          completedTreatments,
-          totalTreatments
-        };
-        
-        setSelectedPlan(processedPlan);
-      }
-    } catch (error) {
-      console.error('Error refreshing plan:', error);
+    // Rely on fetchData to refresh the list which will update the selectedPlan if it still exists
+    await fetchData();
+    // Check if the plan still exists after fetch
+    const planStillExists = treatmentPlans.some(p => p.id === selectedPlan.id);
+    if (!planStillExists) {
+        setSelectedPlan(null);
+        setShowPlanDetailsDialog(false);
+        toast({ title: "Info", description: "Selected plan may have been deleted." });
     }
   };
-  
+
   const filterPlans = () => {
     return treatmentPlans.filter(plan => {
-      // Filter by search query (plan title, description, or patient name)
-      const matchesSearch = searchQuery ? 
-        (plan.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-         plan.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-         plan.patientName?.toLowerCase().includes(searchQuery.toLowerCase())) : 
+      const lowerSearchQuery = searchQuery.toLowerCase();
+      // Access properties directly from the plan object
+      const matchesSearch = searchQuery ?
+        (plan.title?.toLowerCase().includes(lowerSearchQuery) ||
+         plan.description?.toLowerCase().includes(lowerSearchQuery) ||
+         plan.patientName?.toLowerCase().includes(lowerSearchQuery)) :
         true;
-      
-      // Filter by patient
-      const matchesPatient = selectedPatient ? plan.patient_id === selectedPatient : true;
-      
-      // Filter by status
-      const matchesStatus = filterStatus ? plan.status === filterStatus : true;
-      
+
+      const matchesPatient = !selectedPatient || selectedPatient === 'all' || plan.patient_id === selectedPatient;
+      const matchesStatus = !filterStatus || filterStatus === 'all' || plan.status === filterStatus; // Access status directly
+
       return matchesSearch && matchesPatient && matchesStatus;
     });
   };
-  
+
   const handleCreatePlan = async () => {
-    const validationResult = planValidation.validate(newPlan);
-    
-    if (!validationResult.isValid) {
+    // 1. Construct the FLAT data object from the form state
+    const dataToValidate: z.infer<typeof treatmentPlanApiSchema> = {
+      patient_id: newPlan.patient_id,
+      title: newPlan.title,
+      description: newPlan.description,
+      start_date: newPlan.start_date,
+      end_date: newPlan.end_date || null,
+      status: newPlan.status,
+      priority: newPlan.priority,
+      // Convert cost string to number for validation
+      estimated_cost: newPlan.estimated_cost ? parseFloat(newPlan.estimated_cost) : null,
+    };
+
+    // 2. Validate the flat data structure
+    const validationResult = planValidation.validate(dataToValidate);
+
+    if (!validationResult.isValid || !validationResult.data) {
+      console.error("Plan validation failed:", planValidation.errors);
+      toast({ title: "Validation Error", description: "Please check the form fields.", variant: "destructive" });
       return;
     }
-    
+
     try {
       setLoading(true);
-      
-      // Create plan with validated data
-      const createdPlan = await api.patients.createTreatmentPlan(validationResult.data!);
-      
-      toast({
-        title: "Success",
-        description: "Treatment plan created successfully"
-      });
-      
-      // Reset form and close dialog
+      // 3. Send the validated, FLAT data to the API.
+      const createdPlan = await api.patients.createTreatmentPlan(validationResult.data);
+
+      toast({ title: "Success", description: "Treatment plan created successfully" });
+
+      // Reset flat form state
       setNewPlan({
-        title: '',
-        description: '',
-        patient_id: '',
-        start_date: format(new Date(), 'yyyy-MM-dd'),
-        end_date: '',
-        status: 'planned',
-        priority: 'medium',
+        title: '', description: '', patient_id: '',
+        start_date: format(new Date(), 'yyyy-MM-dd'), end_date: '',
+        status: 'planned', // Reset to default
+        priority: 'medium', // Reset to default
         estimated_cost: ''
       });
       setShowNewPlanDialog(false);
-      
-      // Refresh data
-      await fetchData();
-      
-      // Show plan details dialog for the new plan
-      const processedPlan = {
-        ...createdPlan,
-        patientName: patients.find(p => p.id === createdPlan.patient_id)?.first_name + ' ' + 
-                    patients.find(p => p.id === createdPlan.patient_id)?.last_name || 'Unknown Patient',
-        totalCost: 0,
-        progress: 0,
-        completedTreatments: 0,
-        totalTreatments: 0,
-        treatments: []
-      };
-      
-      setSelectedPlan(processedPlan);
-      setShowPlanDetailsDialog(true);
+
+      await fetchData(); // Refresh list
+
+      // Find the newly created plan in the refreshed list
+       const newlyFetchedPlan = treatmentPlans.find(p => p.id === createdPlan.id);
+       if (newlyFetchedPlan) {
+          setSelectedPlan(newlyFetchedPlan);
+          setShowPlanDetailsDialog(true);
+       }
+       // Optional: Handle case where it might not be found immediately (race condition?)
+
     } catch (error) {
       console.error('Error creating treatment plan:', error);
-      toast({
-        title: "Error",
-        description: "Failed to create treatment plan",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "Failed to create treatment plan", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
-  
+
   const handleAddTreatment = async () => {
-    const validationResult = treatmentValidation.validate(newTreatment);
-    
-    if (!validationResult.isValid) {
+     // Convert cost string to number before validation
+     const dataToValidate = {
+        ...newTreatment,
+        cost: parseFloat(newTreatment.cost), // Convert string cost to number
+        estimated_duration: newTreatment.estimated_duration || null, // Ensure null if empty
+     };
+    const validationResult = treatmentValidation.validate(dataToValidate);
+
+    if (!validationResult.isValid || !validationResult.data) {
+       console.error("Treatment validation failed:", treatmentValidation.errors);
+       toast({ title: "Validation Error", description: "Please check the treatment form fields.", variant: "destructive" });
       return;
     }
-    
-    // Store original selected plan for potential rollback
-    setOptimisticData({
-      ...optimisticData,
-      selectedPlan: { ...selectedPlan }
-    });
-    
+    if (!selectedPlan) return;
+
+    setOptimisticData({ ...optimisticData, selectedPlan: { ...selectedPlan } });
+
     try {
       setLoading(true);
-      
-      // Apply optimistic update
-      if (selectedPlan) {
-        const newTreatmentObj = {
-          id: `temp-${Date.now()}`,
-          ...validationResult.data,
-          cost: safeNumberConversion(newTreatment.cost, 0),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        
-        // Add new treatment to the selected plan's treatments
-        const updatedTreatments = [...(selectedPlan.treatments || []), newTreatmentObj];
-        
-        // Update the selected plan with the new treatment
-        const updatedPlan = {
-          ...selectedPlan,
-          treatments: updatedTreatments,
-          totalTreatments: selectedPlan.totalTreatments + 1,
-          totalCost: selectedPlan.totalCost + safeNumberConversion(newTreatment.cost, 0),
-        };
-        
-        setSelectedPlan(updatedPlan);
-      }
-      
-      // Create treatment with transaction support
-      const treatmentData = validationResult.data!;
-      await api.patients.createTreatment(treatmentData);
-      
-      toast({
-        title: "Success",
-        description: "Treatment added successfully"
-      });
-      
-      // Reset form and close dialog
-      setNewTreatment({
-        type: '',
-        description: '',
-        status: 'pending',
-        cost: '',
-        estimated_duration: '',
-        priority: 'medium',
-        plan_id: ''
+
+      // Optimistic UI Update using validated data
+      const newTreatmentObj: TreatmentRow = {
+        id: `temp-${Date.now()}`,
+        plan_id: selectedPlan.id,
+        type: validationResult.data.type,
+        description: validationResult.data.description,
+        status: validationResult.data.status,
+        cost: validationResult.data.cost, // Already a number from validation
+        estimated_duration: validationResult.data.estimated_duration, // Use validated value (string | null)
+        priority: validationResult.data.priority,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        // Add potentially missing properties from TreatmentRow with default values (ensure these exist in TreatmentRow type)
+        completion_date: null,
+        // notes: null, // Removed as it likely doesn't exist on TreatmentRow
+        risks: null,
+        benefits: null,
+        alternative_options: null, // Make sure this matches TreatmentRow type
+        next_review_date: null,
+        completion_notes: null,
+        assigned_staff_id: null,
+        version: null
+      };
+
+      // Ensure selectedPlan.treatments is treated as an array
+      const currentTreatments = Array.isArray(selectedPlan.treatments) ? selectedPlan.treatments : [];
+      const updatedTreatments = [...currentTreatments, newTreatmentObj];
+      const newTotalTreatments = updatedTreatments.length;
+      const newTotalCost = updatedTreatments.reduce((sum, t) => sum + (t.cost ?? 0), 0);
+      const newCompletedTreatments = updatedTreatments.filter(t => t.status === 'completed').length;
+      const newProgress = newTotalTreatments > 0 ? Math.round((newCompletedTreatments / newTotalTreatments) * 100) : 0;
+
+      // Ensure the updated plan maintains the correct structure
+      const updatedPlan: TreatmentPlanWithDetails = {
+        ...selectedPlan, // Spread existing plan data
+        treatments: updatedTreatments, // Update treatments
+        // Update calculated fields
+        totalTreatments: newTotalTreatments,
+        totalCost: newTotalCost,
+        completedTreatments: newCompletedTreatments,
+        progress: newProgress,
+      };
+      setSelectedPlan(updatedPlan);
+
+      // API Call using validated data
+      await api.patients.createTreatment(validationResult.data);
+
+      toast({ title: "Success", description: "Treatment added successfully" });
+
+      setNewTreatment({ // Reset state
+        type: '', description: '', status: 'pending', cost: '',
+        estimated_duration: '', priority: 'medium', plan_id: ''
       });
       setShowAddTreatmentDialog(false);
-      
-      // Refresh data to get the actual database state
-      await fetchData();
+
       await refreshSelectedPlan();
+      await fetchData();
+
     } catch (error) {
       console.error('Error adding treatment:', error);
-      
-      // Revert to the original plan on error
-      if (optimisticData.selectedPlan) {
-        setSelectedPlan(optimisticData.selectedPlan);
-      }
-      
-      toast({
-        title: "Error",
-        description: "Failed to add treatment",
-        variant: "destructive"
-      });
+      if (optimisticData.selectedPlan) setSelectedPlan(optimisticData.selectedPlan);
+      toast({ title: "Error", description: "Failed to add treatment", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
-  
-  const handleUpdateTreatmentStatus = async (treatmentId: string, newStatus: string) => {
-    // Store current state for potential rollback
-    setOptimisticData({
-      ...optimisticData,
-      selectedPlan: { ...selectedPlan }
-    });
-    
-    // Apply optimistic update to UI
-    if (selectedPlan) {
-      const updatedTreatments = selectedPlan.treatments.map((t: any) => 
+
+  const handleUpdateTreatmentStatus = async (treatmentId: string, newStatus: TreatmentRow['status']) => {
+     if (!selectedPlan) return;
+    setOptimisticData({ ...optimisticData, selectedPlan: { ...selectedPlan } });
+
+    // Ensure selectedPlan.treatments is treated as an array
+    const currentTreatments = Array.isArray(selectedPlan.treatments) ? selectedPlan.treatments : [];
+    if (currentTreatments) {
+      const updatedTreatments = currentTreatments.map(t =>
         t.id === treatmentId ? { ...t, status: newStatus } : t
       );
-      
-      const completedTreatments = updatedTreatments.filter((t: any) => t.status === 'completed').length;
-      const progress = Math.round((completedTreatments / updatedTreatments.length) * 100);
-      
+      const newCompletedTreatments = updatedTreatments.filter(t => t.status === 'completed').length;
+      const newTotalTreatments = updatedTreatments.length;
+      const newProgress = newTotalTreatments > 0 ? Math.round((newCompletedTreatments / newTotalTreatments) * 100) : 0;
+
+      // Ensure the updated plan maintains the correct structure
       setSelectedPlan({
-        ...selectedPlan,
-        treatments: updatedTreatments,
-        completedTreatments,
-        progress
+        ...selectedPlan, // Spread existing plan data
+        treatments: updatedTreatments, // Update treatments
+        // Update calculated fields
+        completedTreatments: newCompletedTreatments,
+        progress: newProgress,
+        totalTreatments: newTotalTreatments,
       });
     }
-    
-    // Call the API with optimistic update
+
     await updateTreatmentStatus({ treatmentId, newStatus });
   };
-  
-  const handleUpdatePlanStatus = async (planId: string, newStatus: string) => {
-    // Store current state for potential rollback
-    setOptimisticData({
-      ...optimisticData,
-      plans: [...treatmentPlans]
-    });
-    
-    // Apply optimistic update to UI
-    const updatedPlans = treatmentPlans.map(plan => 
-      plan.id === planId ? { ...plan, status: newStatus } : plan
-    );
-    
-    setTreatmentPlans(updatedPlans);
-    
-    if (selectedPlan && selectedPlan.id === planId) {
-      setSelectedPlan({ ...selectedPlan, status: newStatus });
+
+  // Update plan status (flat structure)
+  const handleUpdatePlanStatus = async (planId: string, newStatus: GeneratedTreatmentPlanRow['status']) => {
+    const planToUpdate = treatmentPlans.find(p => p.id === planId);
+    if (!planToUpdate) {
+        toast({ title: "Error", description: "Plan not found.", variant: "destructive" });
+        return;
     }
-    
-    // Call the API with optimistic update
-    await updatePlanStatus({ planId, newStatus });
+
+    // Prepare optimistic update data
+    setOptimisticData({ plans: [...treatmentPlans], selectedPlan: selectedPlan ? { ...selectedPlan } : null });
+
+    // Create the updated fields object (only status)
+    const updatedFields: Partial<GeneratedTreatmentPlanRow> = {
+        status: newStatus,
+    };
+
+    // Optimistically update the list
+    const updatedPlans = treatmentPlans.map(p =>
+      p.id === planId ? { ...p, ...updatedFields } : p // Spread updated fields
+    );
+    setTreatmentPlans(updatedPlans);
+
+    // Optimistically update the selected plan if it's the one being changed
+    if (selectedPlan && selectedPlan.id === planId) {
+      setSelectedPlan({ ...selectedPlan, ...updatedFields }); // Spread updated fields
+    }
+
+    // Call the hook with the planId and the updated fields object
+    await updatePlanStatus({ planId, updatedFields });
   };
-  
+
+
   const handleDeleteTreatment = async (treatmentId: string) => {
     if (!confirm('Are you sure you want to delete this treatment?')) return;
-    
-    // Store current state for potential rollback
-    setOptimisticData({
-      ...optimisticData,
-      selectedPlan: { ...selectedPlan }
-    });
-    
+    if (!selectedPlan) return;
+
+    setOptimisticData({ ...optimisticData, selectedPlan: { ...selectedPlan } });
+
     try {
       setLoading(true);
-      
-      // Apply optimistic update
-      if (selectedPlan) {
-        const treatmentToDelete = selectedPlan.treatments.find((t: any) => t.id === treatmentId);
-        const updatedTreatments = selectedPlan.treatments.filter((t: any) => t.id !== treatmentId);
-        
-        const completedTreatments = updatedTreatments.filter((t: any) => t.status === 'completed').length;
-        const totalTreatments = updatedTreatments.length;
-        const progress = totalTreatments ? Math.round((completedTreatments / totalTreatments) * 100) : 0;
-        const totalCost = updatedTreatments.reduce((sum: number, t: any) => sum + parseFloat(t.cost || 0), 0);
-        
+
+      // Ensure selectedPlan.treatments is treated as an array
+      const currentTreatments = Array.isArray(selectedPlan.treatments) ? selectedPlan.treatments : [];
+      if (currentTreatments) {
+        const updatedTreatments = currentTreatments.filter(t => t.id !== treatmentId);
+        const newCompletedTreatments = updatedTreatments.filter(t => t.status === 'completed').length;
+        const newTotalTreatments = updatedTreatments.length;
+        const newProgress = newTotalTreatments > 0 ? Math.round((newCompletedTreatments / newTotalTreatments) * 100) : 0;
+        const newTotalCost = updatedTreatments.reduce((sum, t) => sum + (t.cost ?? 0), 0);
+
         setSelectedPlan({
           ...selectedPlan,
           treatments: updatedTreatments,
-          completedTreatments,
-          totalTreatments,
-          progress,
-          totalCost
+          completedTreatments: newCompletedTreatments,
+          totalTreatments: newTotalTreatments,
+          progress: newProgress,
+          totalCost: newTotalCost,
         });
       }
-      
-      // Delete the treatment
+
       await api.patients.deleteTreatment(treatmentId);
-      
-      toast({
-        title: "Success",
-        description: "Treatment deleted successfully"
-      });
-      
-      // Refresh data to get the actual database state
-      await fetchData();
+      toast({ title: "Success", description: "Treatment deleted successfully" });
+
       await refreshSelectedPlan();
+      await fetchData();
+
     } catch (error) {
       console.error('Error deleting treatment:', error);
-      
-      // Revert to the original plan on error
-      if (optimisticData.selectedPlan) {
-        setSelectedPlan(optimisticData.selectedPlan);
-      }
-      
-      toast({
-        title: "Error",
-        description: "Failed to delete treatment",
-        variant: "destructive"
-      });
+      if (optimisticData.selectedPlan) setSelectedPlan(optimisticData.selectedPlan);
+      toast({ title: "Error", description: "Failed to delete treatment", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
-  
+
   const handleDeletePlan = async (planId: string) => {
     if (!confirm('Are you sure you want to delete this treatment plan? This will delete all associated treatments.')) return;
-    
+
+    const originalPlans = [...treatmentPlans];
+    setOptimisticData({ ...optimisticData, plans: originalPlans });
+
     try {
       setLoading(true);
-      
-      // Apply optimistic update
+
       const updatedPlans = treatmentPlans.filter(plan => plan.id !== planId);
       setTreatmentPlans(updatedPlans);
-      
-      // Delete the plan
-      await api.patients.deleteTreatmentPlan(planId);
-      
-      toast({
-        title: "Success",
-        description: "Treatment plan deleted successfully"
-      });
-      
-      // Close details dialog if it's open for the deleted plan
+
       if (selectedPlan && selectedPlan.id === planId) {
         setShowPlanDetailsDialog(false);
+        setSelectedPlan(null);
       }
+
+      await api.patients.deleteTreatmentPlan(planId);
+      toast({ title: "Success", description: "Treatment plan deleted successfully" });
+
     } catch (error) {
       console.error('Error deleting treatment plan:', error);
-      
-      // Revert the optimistic update
-      fetchData();
-      
-      toast({
-        title: "Error",
-        description: "Failed to delete treatment plan",
-        variant: "destructive"
-      });
+      setTreatmentPlans(originalPlans);
+      toast({ title: "Error", description: "Failed to delete treatment plan", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
-  
+
   const resolveConflict = async (useServerData: boolean) => {
     if (!conflictData) return;
-    
+
     try {
       if (conflictData.type === 'plan') {
         if (useServerData) {
-          // Refresh the plan data from the server
           await fetchData();
         } else {
-          // Try to update with local changes again
           await api.patients.updateTreatmentPlan(conflictData.id, conflictData.localChanges);
+          await fetchData();
         }
       } else if (conflictData.type === 'treatment') {
+         // Ensure localChanges matches the expected update structure for treatments
+        const treatmentUpdateData = conflictData.localChanges as Partial<TreatmentRow>;
         if (useServerData) {
-          // Refresh the treatment data from the server
           await refreshSelectedPlan();
         } else {
-          // Try to update with local changes again
-          await api.patients.updateTreatment(conflictData.id, conflictData.localChanges);
+          await api.patients.updateTreatment(conflictData.id, treatmentUpdateData);
+          await refreshSelectedPlan();
         }
       }
-      
-      // Clear conflict data and close dialog
+
       setConflictData(null);
       setShowConflictDialog(false);
-      
-      toast({
-        title: "Conflict Resolved",
-        description: `Changes ${useServerData ? 'discarded' : 'saved'} successfully`
-      });
+      toast({ title: "Conflict Resolved", description: `Changes ${useServerData ? 'discarded' : 'saved'} successfully` });
     } catch (error) {
       console.error('Error resolving conflict:', error);
-      toast({
-        title: "Error",
-        description: "Failed to resolve conflict",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "Failed to resolve conflict", variant: "destructive" });
     }
   };
-  
+
   // Render status badge with appropriate color
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (status: string | null | undefined) => {
+    if (!status) return null;
     let color = 'bg-gray-100 text-gray-800';
-    
     switch (status) {
-      case 'planned':
-        color = 'bg-blue-100 text-blue-800';
-        break;
-      case 'in_progress':
-        color = 'bg-yellow-100 text-yellow-800';
-        break;
-      case 'completed':
-        color = 'bg-green-100 text-green-800';
-        break;
-      case 'cancelled':
-        color = 'bg-red-100 text-red-800';
-        break;
-      case 'pending':
-        color = 'bg-purple-100 text-purple-800';
-        break;
+      case 'planned': color = 'bg-blue-100 text-blue-800'; break;
+      case 'in_progress': color = 'bg-yellow-100 text-yellow-800'; break;
+      case 'completed': color = 'bg-green-100 text-green-800'; break;
+      case 'cancelled': color = 'bg-red-100 text-red-800'; break;
+      case 'pending': color = 'bg-purple-100 text-purple-800'; break;
     }
-    
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>
-        {status.replace('_', ' ')}
-      </span>
-    );
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>{status.replace('_', ' ')}</span>;
   };
-  
+
   // Render priority badge with appropriate color
-  const renderPriorityBadge = (priority: string) => {
+  const renderPriorityBadge = (priority: string | null | undefined) => {
+     if (!priority) return null;
     let color = 'bg-gray-100 text-gray-800';
-    
     switch (priority) {
-      case 'low':
-        color = 'bg-green-100 text-green-800';
-        break;
-      case 'medium':
-        color = 'bg-yellow-100 text-yellow-800';
-        break;
-      case 'high':
-        color = 'bg-red-100 text-red-800';
-        break;
+      case 'low': color = 'bg-green-100 text-green-800'; break;
+      case 'medium': color = 'bg-yellow-100 text-yellow-800'; break;
+      case 'high': color = 'bg-red-100 text-red-800'; break;
     }
-    
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>
-        {priority}
-      </span>
-    );
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>{priority}</span>;
   };
-  
+
   return (
     <div className="space-y-6">
+      {/* AI Treatment Generator Section */}
+      <div className="space-y-4 p-6 border rounded-lg"> {/* Replaced Card with a simple div */}
+        <h2 className="text-xl font-semibold">AI Treatment Plan Generation</h2> {/* Added a heading */}
+        <div className="space-y-2">
+          <Label htmlFor="ai-patient-select">Select Patient</Label>
+          <Select
+            value={selectedPatientIdForAI || ""}
+            onValueChange={(value) => setSelectedPatientIdForAI(value === "none" ? null : value)}
+          >
+            <SelectTrigger id="ai-patient-select" className="w-full md:w-[300px]">
+              <SelectValue placeholder="Select a patient to generate a plan..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">-- Select Patient --</SelectItem>
+              {patients.map((patient: PatientRow) => (
+                <SelectItem key={patient.id} value={patient.id}>
+                  {patient.first_name} {patient.last_name} (ID: {patient.id.substring(0, 6)}...)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Removed the AITreatmentGenerator rendering from here for now to fix other errors.
+            It should likely be triggered by a button and rendered in a Dialog.
+        */}
+      </div>
+      {/* End AI Treatment Generator Section */}
+
       <PageHeader
         heading="Treatment Plans"
         text="Manage dental treatment plans and procedures"
@@ -666,8 +665,8 @@ export function TreatmentPlans() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          
-          <Select value={selectedPatient || ''} onValueChange={setSelectedPatient}>
+
+          <Select value={selectedPatient || 'all'} onValueChange={(value) => setSelectedPatient(value === 'all' ? null : value)}>
             <SelectTrigger className="w-[220px]">
               <SelectValue placeholder="Filter by patient" />
             </SelectTrigger>
@@ -680,8 +679,8 @@ export function TreatmentPlans() {
               ))}
             </SelectContent>
           </Select>
-          
-          <Select value={filterStatus || ''} onValueChange={setFilterStatus}>
+
+          <Select value={filterStatus || 'all'} onValueChange={(value) => setFilterStatus(value === 'all' ? null : value)}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
@@ -693,7 +692,7 @@ export function TreatmentPlans() {
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
-          
+
           <Button onClick={() => {
             planValidation.clearErrors();
             setShowNewPlanDialog(true);
@@ -703,7 +702,7 @@ export function TreatmentPlans() {
           </Button>
         </div>
       </PageHeader>
-      
+
       {/* Real-time status indicator */}
       <div className="flex items-center justify-end">
         <div className="flex items-center space-x-1 text-sm text-muted-foreground">
@@ -711,7 +710,7 @@ export function TreatmentPlans() {
           <span>Real-time updates {treatmentPlansSubscribed ? 'active' : 'inactive'}</span>
         </div>
       </div>
-      
+
       {loading && (
         <div className="flex justify-center my-12">
           <div className="flex flex-col items-center gap-2">
@@ -720,7 +719,7 @@ export function TreatmentPlans() {
           </div>
         </div>
       )}
-      
+
       {!loading && filterPlans().length === 0 && (
         <div className="text-center py-12 border rounded-lg">
           <Stethoscope className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -737,77 +736,37 @@ export function TreatmentPlans() {
           </Button>
         </div>
       )}
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filterPlans().map((plan) => (
-          <Card key={plan.id} className="overflow-hidden">
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-start">
-                <CardTitle className="text-lg">{plan.title}</CardTitle>
-                {renderStatusBadge(plan.status)}
-              </div>
-              <CardDescription className="line-clamp-2">{plan.description}</CardDescription>
-            </CardHeader>
-            <CardContent className="pb-2">
-              <div className="space-y-4">
-                <div className="flex items-center text-sm">
-                  <User className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span>{plan.patientName}</span>
-                </div>
-                <div className="flex items-center text-sm">
-                  <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span>
-                    {format(new Date(plan.start_date), 'MMM d, yyyy')}
-                    {plan.end_date && ` to ${format(new Date(plan.end_date), 'MMM d, yyyy')}`}
-                  </span>
-                </div>
-                <div className="flex items-center text-sm">
-                  <CreditCard className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span>Total Cost: {formatCurrency(plan.totalCost)}</span>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>Progress</span>
-                    <span>{plan.completedTreatments} of {plan.totalTreatments} treatments</span>
-                  </div>
-                  <Progress value={plan.progress} />
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="pt-2 flex justify-between">
-              <div className="flex gap-2">
-                {plan.priority && renderPriorityBadge(plan.priority)}
-              </div>
-              <Button 
-                variant="default" 
-                size="sm"
-                onClick={() => {
-                  setSelectedPlan(plan);
-                  setShowPlanDetailsDialog(true);
-                }}
-              >
-                View Details <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </CardFooter>
-          </Card>
+          <TreatmentPlanCard
+            key={plan.id}
+            plan={plan}
+            onViewDetails={(selectedPlan) => {
+              setSelectedPlan(selectedPlan);
+              setShowPlanDetailsDialog(true);
+            }}
+          />
         ))}
       </div>
-      
+
       {/* New Treatment Plan Dialog */}
       <Dialog open={showNewPlanDialog} onOpenChange={setShowNewPlanDialog}>
-        <DialogContent className="max-w-md">
+        {/* Add max-height and vertical scroll */}
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto"> {/* Added max-h and overflow */}
           <DialogHeader>
             <DialogTitle>Create New Treatment Plan</DialogTitle>
             <DialogDescription>
               Create a comprehensive treatment plan for a patient
             </DialogDescription>
           </DialogHeader>
-          
-          <div className="space-y-4">
+
+          {/* Add height constraint and scroll to the inner form container */}
+          <div className="space-y-4 max-h-[calc(90vh-150px)] overflow-y-auto p-1"> {/* Adjust 150px as needed */}
             <div className="space-y-2">
               <Label>Patient *</Label>
-              <Select 
-                value={newPlan.patient_id} 
+              <Select
+                value={newPlan.patient_id}
                 onValueChange={(value) => {
                   setNewPlan({...newPlan, patient_id: value});
                   planValidation.clearFieldError('patient_id');
@@ -828,11 +787,11 @@ export function TreatmentPlans() {
                 <FormFieldError message={planValidation.errors.patient_id} />
               )}
             </div>
-            
+
             <div className="space-y-2">
               <Label>Title *</Label>
-              <Input 
-                placeholder="Treatment plan title" 
+              <Input
+                placeholder="Treatment plan title"
                 value={newPlan.title}
                 onChange={(e) => {
                   setNewPlan({...newPlan, title: e.target.value});
@@ -843,11 +802,11 @@ export function TreatmentPlans() {
                 <FormFieldError message={planValidation.errors.title} />
               )}
             </div>
-            
+
             <div className="space-y-2">
               <Label>Description *</Label>
-              <Textarea 
-                placeholder="Detailed description of the treatment plan" 
+              <Textarea
+                placeholder="Detailed description of the treatment plan"
                 value={newPlan.description}
                 onChange={(e) => {
                   setNewPlan({...newPlan, description: e.target.value});
@@ -859,12 +818,12 @@ export function TreatmentPlans() {
                 <FormFieldError message={planValidation.errors.description} />
               )}
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Start Date *</Label>
-                <Input 
-                  type="date" 
+                <Input
+                  type="date"
                   value={newPlan.start_date}
                   onChange={(e) => {
                     setNewPlan({...newPlan, start_date: e.target.value});
@@ -875,24 +834,24 @@ export function TreatmentPlans() {
                   <FormFieldError message={planValidation.errors.start_date} />
                 )}
               </div>
-              
+
               <div className="space-y-2">
                 <Label>End Date (Optional)</Label>
-                <Input 
+                <Input
                   type="date"
-                  value={newPlan.end_date}
+                  value={newPlan.end_date || ''} // Fix: Ensure value is string or undefined
                   onChange={(e) => setNewPlan({...newPlan, end_date: e.target.value})}
                   min={newPlan.start_date}
                 />
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select 
-                  value={newPlan.status} 
-                  onValueChange={(value) => setNewPlan({...newPlan, status: value})}
+                <Select
+                  value={newPlan.status}
+                  onValueChange={(value) => setNewPlan({...newPlan, status: value as NewPlanInputState['status']})} // Use type from input state
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select status" />
@@ -905,12 +864,12 @@ export function TreatmentPlans() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Priority</Label>
-                <Select 
-                  value={newPlan.priority} 
-                  onValueChange={(value) => setNewPlan({...newPlan, priority: value})}
+                <Select
+                  value={newPlan.priority}
+                  onValueChange={(value) => setNewPlan({...newPlan, priority: value as NewPlanInputState['priority']})} // Use type from input state
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select priority" />
@@ -923,10 +882,10 @@ export function TreatmentPlans() {
                 </Select>
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <Label>Estimated Total Cost ($)</Label>
-              <Input 
+              <Input
                 type="number"
                 placeholder="0.00"
                 value={newPlan.estimated_cost}
@@ -935,11 +894,12 @@ export function TreatmentPlans() {
                 step="0.01"
               />
               {planValidation.errors.estimated_cost && (
-                <FormFieldError message={planValidation.errors.estimated_cost} />
+                 // Ensure message is always a string
+                <FormFieldError message={String(planValidation.errors.estimated_cost ?? "Invalid cost")} />
               )}
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNewPlanDialog(false)}>
               Cancel
@@ -955,112 +915,120 @@ export function TreatmentPlans() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       {/* Treatment Plan Details Dialog */}
-      <Dialog 
-        open={showPlanDetailsDialog} 
+      <Dialog
+        open={showPlanDetailsDialog}
         onOpenChange={setShowPlanDetailsDialog}
       >
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Treatment Plan Details</DialogTitle>
-            {selectedPlan && (
+            {selectedPlan?.created_at && (
               <DialogDescription>
                 Created on {format(new Date(selectedPlan.created_at), 'MMMM d, yyyy')}
               </DialogDescription>
             )}
           </DialogHeader>
-          
+
           {selectedPlan && (
             <div className="space-y-6">
+              {/* Access properties directly from selectedPlan */}
               <div className="flex justify-between items-start">
                 <div>
-                  <h2 className="text-xl font-semibold">{selectedPlan.title}</h2>
-                  <p className="text-sm text-muted-foreground">{selectedPlan.description}</p>
+                  <h2 className="text-xl font-semibold">{selectedPlan.title || 'Untitled Plan'}</h2>
+                  <p className="text-sm text-muted-foreground">{selectedPlan.description || 'No description'}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {renderStatusBadge(selectedPlan.status)}
-                  {selectedPlan.priority && renderPriorityBadge(selectedPlan.priority)}
+                  {renderPriorityBadge(selectedPlan.priority)}
                 </div>
               </div>
-              
+
+              {/* <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                </div> */}
+              {/* End removed div */}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <User className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Patient</p>
-                      <p>{selectedPlan.patientName}</p>
+                      <p>{selectedPlan.patientName || 'Unknown Patient'}</p>
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="ml-auto"
                       onClick={() => {
-                        // Navigate to patient details
-                        navigate(`/patients/${selectedPlan.patient_id}`);
+                        if (selectedPlan?.patient_id) {
+                           navigate(`/patients/${selectedPlan.patient_id}`);
+                        }
                       }}
                     >
                       <ArrowUpRight className="h-4 w-4" />
                     </Button>
                   </div>
-                  
+
                   <div className="flex items-center gap-2">
                     <Calendar className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Timeframe</p>
                       <p>
-                        {format(new Date(selectedPlan.start_date), 'MMMM d, yyyy')}
-                        {selectedPlan.end_date && ` to ${format(new Date(selectedPlan.end_date), 'MMMM d, yyyy')}`}
+                        {selectedPlan.start_date ? format(new Date(selectedPlan.start_date), 'MMM d, yyyy') : 'No start date'}
+                        {selectedPlan.end_date && ` to ${format(new Date(selectedPlan.end_date), 'MMM d, yyyy')}`}
                       </p>
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <CreditCard className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Total Cost</p>
-                      <p>{formatCurrency(selectedPlan.totalCost)}</p>
+                      <p>{formatCurrency(selectedPlan.totalCost ?? 0)}</p>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-2">
                     <Clock className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Progress</p>
                       <div className="flex items-center gap-2">
-                        <Progress value={selectedPlan.progress} className="flex-1" />
-                        <span className="text-sm">{selectedPlan.progress}%</span>
+                        <Progress value={selectedPlan.progress ?? 0} className="flex-1" />
+                        <span className="text-sm">{selectedPlan.progress ?? 0}%</span>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-medium">Treatments</h3>
                   <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={refreshSelectedPlan}
                     >
                       <RefreshCw className="h-4 w-4 mr-1" />
                       Refresh
                     </Button>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={() => {
-                        setNewTreatment({
-                          ...newTreatment,
-                          plan_id: selectedPlan.id
-                        });
-                        treatmentValidation.clearErrors();
-                        setShowAddTreatmentDialog(true);
+                        if (selectedPlan?.id) {
+                          setNewTreatment({
+                            ...newTreatment,
+                            plan_id: selectedPlan.id
+                          });
+                          treatmentValidation.clearErrors();
+                          setShowAddTreatmentDialog(true);
+                        }
                       }}
                     >
                       <Plus className="h-4 w-4 mr-1" />
@@ -1068,28 +1036,28 @@ export function TreatmentPlans() {
                     </Button>
                   </div>
                 </div>
-                
+
                 {selectedPlan.treatments && selectedPlan.treatments.length > 0 ? (
                   <div className="space-y-3">
-                    {selectedPlan.treatments.map((treatment: any) => (
+                    {selectedPlan.treatments.map((treatment: TreatmentRow) => (
                       <div key={treatment.id} className="border rounded-lg p-4">
                         <div className="flex justify-between items-start">
                           <div>
-                            <h4 className="font-medium">{treatment.type}</h4>
-                            <p className="text-sm text-muted-foreground">{treatment.description}</p>
+                            <h4 className="font-medium">{treatment.type || 'Untitled Treatment'}</h4>
+                            <p className="text-sm text-muted-foreground">{treatment.description || 'No description'}</p>
                           </div>
                           <div className="flex items-center gap-2">
                             {renderStatusBadge(treatment.status)}
-                            {treatment.priority && renderPriorityBadge(treatment.priority)}
+                            {renderPriorityBadge(treatment.priority)}
                           </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                           <div className="flex items-center gap-2">
                             <CreditCard className="h-4 w-4 text-muted-foreground" />
-                            <p className="text-sm">Cost: {formatCurrency(treatment.cost)}</p>
+                            <p className="text-sm">Cost: {formatCurrency(treatment.cost ?? 0)}</p>
                           </div>
-                          
+                          {/* Ensure estimated_duration is handled correctly (might be null) */}
                           {treatment.estimated_duration && (
                             <div className="flex items-center gap-2">
                               <Clock className="h-4 w-4 text-muted-foreground" />
@@ -1097,7 +1065,7 @@ export function TreatmentPlans() {
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="flex justify-end gap-2 mt-4">
                           {treatment.status !== 'completed' && (
                             <Button
@@ -1114,7 +1082,7 @@ export function TreatmentPlans() {
                               Mark Complete
                             </Button>
                           )}
-                          
+
                           {treatment.status !== 'cancelled' && (
                             <Button
                               variant="outline"
@@ -1130,7 +1098,7 @@ export function TreatmentPlans() {
                               Cancel
                             </Button>
                           )}
-                          
+
                           <Button
                             variant="destructive"
                             size="sm"
@@ -1152,12 +1120,14 @@ export function TreatmentPlans() {
                       size="sm"
                       className="mt-4"
                       onClick={() => {
-                        setNewTreatment({
-                          ...newTreatment,
-                          plan_id: selectedPlan.id
-                        });
-                        treatmentValidation.clearErrors();
-                        setShowAddTreatmentDialog(true);
+                         if (selectedPlan?.id) {
+                           setNewTreatment({
+                             ...newTreatment,
+                             plan_id: selectedPlan.id
+                           });
+                           treatmentValidation.clearErrors();
+                           setShowAddTreatmentDialog(true);
+                         }
                       }}
                     >
                       <Plus className="h-4 w-4 mr-1" />
@@ -1166,7 +1136,7 @@ export function TreatmentPlans() {
                   </div>
                 )}
               </div>
-              
+
               <Tabs defaultValue="treatments" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="treatments">Additional Information</TabsTrigger>
@@ -1175,9 +1145,7 @@ export function TreatmentPlans() {
                 <TabsContent value="treatments" className="space-y-4">
                   <div className="border rounded-lg p-4">
                     <h4 className="font-medium">Notes</h4>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      {selectedPlan.notes || "No additional notes for this treatment plan."}
-                    </p>
+                     <p className="text-sm text-muted-foreground mt-2">No additional notes available.</p>
                   </div>
                 </TabsContent>
                 <TabsContent value="financial" className="space-y-4">
@@ -1186,7 +1154,7 @@ export function TreatmentPlans() {
                     <div className="mt-4 space-y-2">
                       <div className="flex justify-between">
                         <span className="text-sm">Total Treatment Cost:</span>
-                        <span className="font-medium">{formatCurrency(selectedPlan.totalCost)}</span>
+                        <span className="font-medium">{formatCurrency(selectedPlan?.totalCost ?? 0)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sm">Insurance Coverage (Est.):</span>
@@ -1194,18 +1162,18 @@ export function TreatmentPlans() {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sm">Patient Responsibility:</span>
-                        <span className="font-medium">{formatCurrency(selectedPlan.totalCost)}</span>
+                        <span className="font-medium">{formatCurrency(selectedPlan?.totalCost ?? 0)}</span>
                       </div>
                     </div>
                   </div>
                 </TabsContent>
               </Tabs>
-              
+
               <DialogFooter className="flex justify-between">
                 <div className="flex gap-2">
                   <Button
                     variant="destructive"
-                    onClick={() => handleDeletePlan(selectedPlan.id)}
+                    onClick={() => { if (selectedPlan?.id) handleDeletePlan(selectedPlan.id); }}
                     disabled={loading}
                   >
                     {loading ? (
@@ -1216,12 +1184,13 @@ export function TreatmentPlans() {
                     Delete Plan
                   </Button>
                 </div>
-                
+
                 <div className="flex gap-2">
+                  {/* Access status directly */}
                   {selectedPlan.status !== 'in_progress' && selectedPlan.status !== 'cancelled' && (
                     <Button
                       variant="outline"
-                      onClick={() => handleUpdatePlanStatus(selectedPlan.id, 'in_progress')}
+                      onClick={() => { if (selectedPlan?.id) handleUpdatePlanStatus(selectedPlan.id, 'in_progress'); }}
                       disabled={updatingPlanStatus}
                     >
                       {updatingPlanStatus ? (
@@ -1232,11 +1201,12 @@ export function TreatmentPlans() {
                       Start Treatment
                     </Button>
                   )}
-                  
+
+                  {/* Access status directly */}
                   {selectedPlan.status !== 'completed' && selectedPlan.status !== 'cancelled' && (
                     <Button
                       variant="outline"
-                      onClick={() => handleUpdatePlanStatus(selectedPlan.id, 'completed')}
+                      onClick={() => { if (selectedPlan?.id) handleUpdatePlanStatus(selectedPlan.id, 'completed'); }}
                       disabled={updatingPlanStatus}
                     >
                       {updatingPlanStatus ? (
@@ -1247,7 +1217,7 @@ export function TreatmentPlans() {
                       Mark Completed
                     </Button>
                   )}
-                  
+
                   <Button
                     variant="secondary"
                     onClick={() => setShowPlanDetailsDialog(false)}
@@ -1260,10 +1230,10 @@ export function TreatmentPlans() {
           )}
         </DialogContent>
       </Dialog>
-      
+
       {/* Add Treatment Dialog */}
-      <Dialog 
-        open={showAddTreatmentDialog} 
+      <Dialog
+        open={showAddTreatmentDialog}
         onOpenChange={setShowAddTreatmentDialog}
       >
         <DialogContent className="max-w-md">
@@ -1273,12 +1243,12 @@ export function TreatmentPlans() {
               Add a treatment procedure to the plan
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Treatment Type *</Label>
-              <Input 
-                placeholder="e.g., Root Canal, Filling, Crown" 
+              <Input
+                placeholder="e.g., Root Canal, Filling, Crown"
                 value={newTreatment.type}
                 onChange={(e) => {
                   setNewTreatment({...newTreatment, type: e.target.value});
@@ -1289,11 +1259,11 @@ export function TreatmentPlans() {
                 <FormFieldError message={treatmentValidation.errors.type} />
               )}
             </div>
-            
+
             <div className="space-y-2">
               <Label>Description *</Label>
-              <Textarea 
-                placeholder="Detailed description of the treatment" 
+              <Textarea
+                placeholder="Detailed description of the treatment"
                 value={newTreatment.description}
                 onChange={(e) => {
                   setNewTreatment({...newTreatment, description: e.target.value});
@@ -1305,11 +1275,11 @@ export function TreatmentPlans() {
                 <FormFieldError message={treatmentValidation.errors.description} />
               )}
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Cost ($) *</Label>
-                <Input 
+                <Input
                   type="number"
                   placeholder="0.00"
                   value={newTreatment.cost}
@@ -1321,26 +1291,27 @@ export function TreatmentPlans() {
                   step="0.01"
                 />
                 {treatmentValidation.errors.cost && (
-                  <FormFieldError message={treatmentValidation.errors.cost} />
+                   // Ensure message is always a string
+                  <FormFieldError message={String(treatmentValidation.errors.cost ?? "Invalid cost")} />
                 )}
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Estimated Duration</Label>
-                <Input 
-                  placeholder="e.g., 1 hour" 
-                  value={newTreatment.estimated_duration}
-                  onChange={(e) => setNewTreatment({...newTreatment, estimated_duration: e.target.value})}
+                <Input
+                  placeholder="e.g., 1 hour"
+                  value={newTreatment.estimated_duration ?? ''} // Ensure value is string for the input
+                  onChange={(e) => setNewTreatment({...newTreatment, estimated_duration: e.target.value || null})} // Set state to null if empty
                 />
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select 
-                  value={newTreatment.status} 
-                  onValueChange={(value) => setNewTreatment({...newTreatment, status: value})}
+                <Select
+                  value={newTreatment.status}
+                  onValueChange={(value) => setNewTreatment({...newTreatment, status: value as NewTreatmentInputState['status']})} // Use type from input state
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select status" />
@@ -1352,12 +1323,12 @@ export function TreatmentPlans() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Priority</Label>
-                <Select 
-                  value={newTreatment.priority} 
-                  onValueChange={(value) => setNewTreatment({...newTreatment, priority: value})}
+                <Select
+                  value={newTreatment.priority}
+                  onValueChange={(value) => setNewTreatment({...newTreatment, priority: value as NewTreatmentInputState['priority']})} // Use type from input state
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select priority" />
@@ -1371,15 +1342,15 @@ export function TreatmentPlans() {
               </div>
             </div>
           </div>
-          
+
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => setShowAddTreatmentDialog(false)}
             >
               Cancel
             </Button>
-            <Button 
+            <Button
               onClick={handleAddTreatment}
               disabled={loading}
             >
@@ -1393,7 +1364,7 @@ export function TreatmentPlans() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       {/* Conflict Resolution Dialog */}
       <Dialog open={showConflictDialog} onOpenChange={setShowConflictDialog}>
         <DialogContent>
@@ -1407,7 +1378,7 @@ export function TreatmentPlans() {
               Please choose how to resolve this conflict.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <div className="rounded-md bg-yellow-50 p-4">
               <div className="flex">
@@ -1428,7 +1399,7 @@ export function TreatmentPlans() {
               </div>
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button
               variant="outline"
@@ -1444,6 +1415,6 @@ export function TreatmentPlans() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </div> // Closing tag for the main component div
   );
-}
+} // Closing brace for the TreatmentPlans component function
