@@ -206,14 +206,14 @@ const DashboardCharts: React.FC<DashboardChartsProps> = ({
       <Card>
             <CardHeader className="pb-2">
                <div className="flex flex-row items-center justify-between space-y-0">
-                 <p className="text-xs text-muted-foreground">Daily Appointments</p>
+                 <p className="text-xs text-muted-foreground">Overall Appointments</p>
                   {/* Display calculated percentage change */}
                  <span className={`text-xs flex items-center ${dailyAppointmentsChangePercentage >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                     <TrendingUp className="h-3 w-3 mr-1" /> {dailyAppointmentsChangePercentage >= 0 ? '+' : ''}{dailyAppointmentsChangePercentage.toFixed(2)}%
                  </span>
                </div>
                {/* Make title dynamic if needed, e.g., using dailyVisitors prop */}
-          <CardTitle className="text-3xl font-bold">{dailyVisitors ? dailyVisitors.toLocaleString() : '0'} <span className="text-lg font-normal text-muted-foreground">Appointments Today</span></CardTitle>
+          <CardTitle className="text-3xl font-bold">{dailyVisitors ? dailyVisitors.toLocaleString() : '0'} <span className="text-lg font-normal text-muted-foreground">Overall Appointments</span></CardTitle>
         </CardHeader>
         <CardContent className="pb-4 pl-2 pr-4">
           <ResponsiveContainer width="100%" height={150}>
