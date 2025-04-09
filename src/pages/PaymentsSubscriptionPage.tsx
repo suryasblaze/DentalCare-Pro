@@ -15,7 +15,7 @@ type Plan = 'free' | 'professional';
 const planDetails = {
   free: {
     name: "Free Plan",
-    price: "$0",
+    price: "₹0",
     features: [
       "Basic Patient Record Management",
       "Appointment Scheduling (up to 10/month)",
@@ -25,7 +25,7 @@ const planDetails = {
   },
   professional: {
     name: "Professional Plan",
-    price: "$49", // Example price for dental app
+    price: "₹49", // Example price for dental app
     priceSuffix: "/ month",
     features: [
       "All features in Free Plan",
@@ -131,15 +131,15 @@ export function PaymentsSubscriptionPage() {
               <div className="space-y-2 border-t pt-4 mt-4">
                 <div className="flex justify-between">
                   <span>Subtotal</span>
-                  <span>${subtotal.toFixed(2)}</span>
+                  <span>₹{subtotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
                   <span>Platform Fee</span>
-                  <span>${platformFee.toFixed(2)}</span>
+                  <span>₹{platformFee.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between font-semibold text-lg border-t pt-2 mt-2">
                   <span>Total Amount</span>
-                  <span>${totalAmount.toFixed(2)}</span>
+                  <span>₹{totalAmount.toFixed(2)}</span>
                 </div>
               </div>
 

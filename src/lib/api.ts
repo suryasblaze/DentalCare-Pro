@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Database, Json } from './database.types'; // Import Json type
+import type { Database, Json } from '@/../supabase_types'; // Corrected import path to root supabase_types.ts
 // Removed unused TreatmentPlan import
 import { executeTransaction, TransactionResult } from './utils/db-transaction';
 import { globalCache } from './utils/cache-manager';
@@ -146,9 +146,101 @@ export const api = {
       return data || []; // Return empty array if null
     },
 
+    // New function to get doctors available during a specific time slot, considering working hours and absences
+    async getAvailableDoctors(startTime: string, endTime: string): Promise<StaffRow[]> {
+      try {
+        const startDateTime = new Date(startTime);
+        const endDateTime = new Date(endTime);
+        const dayOfWeek = startDateTime.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase(); // e.g., 'monday'
+        const requestedStartTime = `${String(startDateTime.getHours()).padStart(2, '0')}:${String(startDateTime.getMinutes()).padStart(2, '0')}`; // HH:mm format
+        const requestedEndTime = `${String(endDateTime.getHours()).padStart(2, '0')}:${String(endDateTime.getMinutes()).padStart(2, '0')}`; // HH:mm format
+
+        // 1. Fetch all doctors
+        const allDoctors = await api.staff.getDoctors(); // Reuse existing function (includes caching)
+
+        // 2. Fetch absences that overlap with the requested time slot
+        const { data: overlappingAbsences, error: absenceError } = await supabase
+          .from('absences')
+          .select('staff_id')
+          .lt('start_time', endTime) // Absence starts before the slot ends
+          .gt('end_time', startTime); // Absence ends after the slot starts
+
+        if (absenceError) {
+          console.error('Error fetching overlapping absences:', absenceError);
+          // Continue but log the error, absence check might be incomplete
+        }
+
+        // 3. Create a set of absent doctor IDs
+        const absentDoctorIds = new Set(overlappingAbsences?.map(absence => absence.staff_id) || []);
+
+        // 4. Filter doctors based on working hours AND absences
+        const availableDoctors = allDoctors.filter(doctor => {
+          // Check for absence first
+          if (absentDoctorIds.has(doctor.id)) {
+            return false;
+          }
+
+          // Check working hours
+          try {
+            let workingHours: { day: string; start: string; end: string; is_open?: boolean }[] = [];
+            if (typeof doctor.working_hours === 'string') {
+              workingHours = JSON.parse(doctor.working_hours);
+            } else if (Array.isArray(doctor.working_hours)) {
+              workingHours = doctor.working_hours as { day: string; start: string; end: string; is_open?: boolean }[];
+            } else {
+               // If format is unexpected, treat as unavailable
+               return false;
+            }
+
+            const scheduleForDay = workingHours.find(wh => wh.day.toLowerCase() === dayOfWeek);
+
+            if (!scheduleForDay) {
+              return false; // No schedule for this day
+            }
+
+            // Check if the schedule explicitly marks the day as closed
+            if (scheduleForDay.is_open === false) {
+              return false;
+            }
+
+            // Perform time comparison
+            // Doctor is available if:
+            // - They have a schedule for the day (checked above)
+            // - The schedule indicates they are open (is_open is true or undefined/not false) (checked above)
+            // - The requested start time is on or after their start time
+            // - The requested end time is on or before their end time
+            const isWithinTime = requestedStartTime >= scheduleForDay.start && requestedEndTime <= scheduleForDay.end;
+
+            if (!isWithinTime) {
+               return false;
+            }
+
+            // If all checks pass, the doctor is available
+            return true;
+
+          } catch (parseError) {
+            console.error(`Error processing working hours for doctor ${doctor.id}:`, doctor.working_hours, parseError);
+            return false; // Treat as unavailable if processing fails
+          }
+        });
+        return availableDoctors;
+
+      } catch (error) {
+        console.error('Error getting available doctors:', error);
+        // Fallback or re-throw
+        return []; // Return empty array on error
+      }
+    },
+    // End new function
+
     async create(staff: Database['public']['Tables']['staff']['Insert']) {
+      // Ensure working_hours is stringified before insert if it's an object
+      if (typeof staff.working_hours === 'object' && staff.working_hours !== null) {
+        staff.working_hours = JSON.stringify(staff.working_hours);
+      }
+
       const { data, error } = await supabase
-        .from('staff') // This causes errors if 'staff' is not in types
+        .from('staff')
         .insert(staff)
         .select()
         .single();
@@ -174,8 +266,89 @@ export const api = {
       globalCache.invalidatePattern(/^staff/);
       return data;
     }
+  }, // <-- Correct closing brace for staff object
+
+  // --- Absences API --- (Now correctly positioned as a sibling to staff)
+  absences: {
+    // Modified getAll to fetch staff separately as a workaround for relationship cache issues
+    async getAll(): Promise<(Database['public']['Tables']['absences']['Row'] & { staff: { id: string, first_name: string, last_name: string } | null })[]> {
+      const cacheKey = 'absences:all';
+      const cachedData = globalCache.get<(Database['public']['Tables']['absences']['Row'] & { staff: { id: string, first_name: string, last_name: string } | null })[]>(cacheKey);
+      if (cachedData) {
+        return cachedData;
+      }
+
+      try {
+        // Fetch absences without the join
+        const { data: absencesData, error: absencesError } = await supabase
+          .from('absences')
+          .select('*')
+          .order('start_time', { ascending: false });
+
+        if (absencesError) throw absencesError;
+        if (!absencesData) return [];
+
+        // Fetch all staff (assuming this works and might be cached)
+        const staffList = await api.staff.getAll(); // Fetch all staff members
+        const staffMap = new Map(staffList.map(s => [s.id, s])); // Create a map for quick lookup
+
+        // Manually join the data
+        const joinedData = absencesData.map(absence => {
+          const staffMember = absence.staff_id ? staffMap.get(absence.staff_id) : null;
+          return {
+            ...absence,
+            // Construct the nested staff object manually
+            staff: staffMember ? { id: staffMember.id, first_name: staffMember.first_name, last_name: staffMember.last_name } : null
+          };
+        });
+
+        globalCache.set(cacheKey, joinedData);
+        return joinedData;
+
+      } catch (error) {
+          console.error("Error in api.absences.getAll:", error);
+          // Re-throw or return empty array based on desired error handling
+          throw error; // Re-throwing for now
+      }
+    },
+
+
+    async create(absence: Database['public']['Tables']['absences']['Insert']): Promise<Database['public']['Tables']['absences']['Row']> {
+      // Basic validation
+      if (!absence.staff_id || !absence.start_time || !absence.end_time) {
+         throw new Error("Missing required fields for absence creation.");
+      }
+      if (new Date(absence.end_time) <= new Date(absence.start_time)) {
+         throw new Error("End time must be after start time.");
+      }
+
+      const { data, error } = await supabase
+        .from('absences')
+        .insert(absence)
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (!data) throw new Error("Absence creation returned no data");
+
+      // Invalidate cache
+      globalCache.invalidate('absences:all');
+      return data;
+    },
+
+    async delete(id: string): Promise<void> {
+      const { error } = await supabase
+        .from('absences')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Invalidate cache
+      globalCache.invalidate('absences:all');
+    }
   },
-  // End uncommenting staff API
+  // --- End Absences API ---
 
   patients: {
     /* // Commenting out functions related to non-existent tables
@@ -476,7 +649,11 @@ export const api = {
 
       let query = supabase
         .from('medical_records')
-        .select('*')
+        // Fetch related staff details using the foreign key 'created_by'
+        .select(`
+          *,
+          staff:created_by ( first_name, last_name ) 
+        `)
         .order('record_date', { ascending: false });
 
       if (patientId) {
@@ -892,6 +1069,41 @@ export const api = {
         // Optionally re-throw or handle the error (e.g., show a toast notification)
         throw error; 
       }
+    },
+
+    // Add function to cancel communications by appointment ID
+    async cancelByAppointment(appointmentId: string) {
+      try {
+        const session = await supabase.auth.getSession();
+        const accessToken = session?.data?.session?.access_token;
+
+        // Note: Authorization might not be strictly needed if the function uses service_role key,
+        // but including it is safer if function security might change.
+        if (!accessToken) {
+           console.warn('No access token found for cancelling communication.');
+        }
+
+        const response = await fetch('/functions/v1/patient-communication/cancel-by-appointment', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+          },
+          body: JSON.stringify({ appointmentId }), // Send appointmentId in the body
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Failed to cancel communications: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log(`Communications cancellation requested for appointment ${appointmentId}:`, result);
+        return result; // Contains { success: true, cancelledCount: number, cancelledIds: string[] }
+      } catch (error) {
+        console.error(`Error cancelling communications for appointment ${appointmentId}:`, error);
+        throw error;
+      }
     }
   },
   // End communications section
@@ -969,6 +1181,31 @@ export const api = {
       globalCache.set(cacheKey, data, 60 * 1000); // Short TTL for appointments
       return data || []; // Return empty array if null
     },
+
+    // NEW: Get appointments by patient ID
+    async getByPatientId(patientId: string): Promise<AppointmentRow[]> {
+      const cacheKey = `appointments:patient:${patientId}`;
+      const cachedData = globalCache.get<AppointmentRow[]>(cacheKey);
+      if (cachedData) {
+        return cachedData;
+      }
+
+      const { data, error } = await supabase
+        .from('appointments')
+        .select(`
+          *,
+          patients (id, first_name, last_name),
+          staff (id, first_name, last_name)
+        `)
+        .eq('patient_id', patientId)
+        .order('start_time', { ascending: false }); // Show most recent first
+
+      if (error) throw error;
+
+      globalCache.set(cacheKey, data || [], 60 * 1000); // Cache for 1 minute
+      return data || [];
+    },
+    // END NEW
 
     async create(appointment: AppointmentInsert) { // Use generated Insert type
       const { data, error } = await supabase

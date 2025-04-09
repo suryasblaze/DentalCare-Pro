@@ -1,22 +1,41 @@
-import React from 'react';
+import React from 'react'; // Keep only one React import
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { X } from 'lucide-react';
+import { X, Check } from 'lucide-react'; // Import Check icon
+import { cn } from "@/lib/utils"; // For conditional classes
+import { formatDistanceToNow } from 'date-fns'; // For relative timestamps
 
-// Placeholder type for notification data
-interface Notification {
+// Type matching the database 'notifications' table structure
+// (fetched by useNotifications hook)
+export interface DbNotification { // Export the interface
   id: string;
-  title: string;
-  description: string;
-  timestamp: string; // Or Date object
+  user_id: string;
+  message: string;
+  is_read: boolean;
+  link_url?: string | null;
+  created_at: string; // ISO string from DB
 }
 
 interface NotificationPanelProps {
-  notifications: Notification[]; // Array of notification objects
+  notifications: DbNotification[]; // Use the correct type
   onClose: () => void; // Function to close the panel
+  onMarkAsRead: (id: string) => void; // Function to mark a notification as read
+  // Optional: Add onNavigate for handling clicks with link_url
+  // onNavigate: (url: string) => void; 
 }
 
-export function NotificationPanel({ notifications, onClose }: NotificationPanelProps) {
+export function NotificationPanel({ notifications, onClose, onMarkAsRead }: NotificationPanelProps) {
+  
+  const handleNotificationClick = (notification: DbNotification) => {
+    if (!notification.is_read) {
+      onMarkAsRead(notification.id);
+    }
+    // Optional: Handle navigation if link_url exists
+    // if (notification.link_url && onNavigate) {
+    //   onNavigate(notification.link_url);
+    // }
+  };
+
   return (
     <Card className="fixed top-16 right-4 z-50 w-96 shadow-lg border bg-card text-card-foreground"> {/* Adjust positioning and styling as needed */}
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -26,21 +45,40 @@ export function NotificationPanel({ notifications, onClose }: NotificationPanelP
         </Button>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="max-h-[calc(100vh-10rem)] overflow-y-auto p-4 space-y-4"> {/* Scrollable content */}
+        <div className="max-h-[calc(100vh-10rem)] overflow-y-auto"> {/* Scrollable content */}
           {notifications.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No new notifications.</p>
+            <p className="text-sm text-muted-foreground text-center p-4">No new notifications.</p>
           ) : (
             notifications.map((notification) => (
-              <div key={notification.id} className="flex flex-col border-b pb-2 last:border-b-0">
-                <span className="text-sm font-medium">{notification.title}</span>
-                <span className="text-xs text-muted-foreground">{notification.description}</span>
-                {/* Optional: Add timestamp */}
-                {/* <span className="text-xs text-muted-foreground pt-1">{notification.timestamp}</span> */}
+              <div 
+                key={notification.id} 
+                className={cn(
+                  "flex flex-col border-b p-3 hover:bg-muted/50 cursor-pointer",
+                  notification.is_read ? "opacity-70" : "font-medium" // Style unread notifications
+                )}
+                onClick={() => handleNotificationClick(notification)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && handleNotificationClick(notification)} // Accessibility
+              >
+                <span className="text-sm">{notification.message}</span>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-xs text-muted-foreground">
+                    {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
+                  </span>
+                  {!notification.is_read && (
+                     <span title="Mark as read" className="text-primary">
+                       {/* Optionally show a visual indicator like a dot or allow explicit mark as read */}
+                       {/* <Check className="h-3 w-3" /> */}
+                     </span>
+                  )}
+                </div>
               </div>
             ))
           )}
         </div>
-        {/* Optional: Add a footer with actions like "Mark all as read" */}
+        {/* Optional: Add a footer with actions like "View all" or "Mark all as read" */}
+        {/* Example: <CardFooter className="p-2 border-t"><Button variant="link" size="sm" className="w-full">View all notifications</Button></CardFooter> */}
       </CardContent>
     </Card>
   );

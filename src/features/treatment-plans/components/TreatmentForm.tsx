@@ -1,6 +1,6 @@
 import React from 'react';
 import { z } from 'zod';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form'; // Import Controller
 import { zodResolver } from '@hookform/resolvers/zod';
 import { 
   Dialog, 
@@ -28,12 +28,13 @@ import { Loader2, Plus } from 'lucide-react';
 export const treatmentSchema = z.object({
   type: z.string().min(1, "Treatment type is required"),
   description: z.string().min(1, "Description is required"),
-  status: z.enum(["pending", "completed", "cancelled"]),
-  cost: z.string().min(1, "Cost is required")
-    .refine(val => !isNaN(parseFloat(val)), "Cost must be a valid number")
-    .transform(val => parseFloat(val)),
-  estimated_duration: z.string().optional(),
-  priority: z.enum(["low", "medium", "high"]),
+    status: z.enum(["pending", "completed", "cancelled"]),
+    // Keep cost as string, only validate it's numeric. NO transform.
+    cost: z.string().min(1, "Cost is required")
+      .refine(val => !isNaN(parseFloat(val)), "Cost must be a valid number"), 
+    // Handle optional duration: transform empty string to null
+    estimated_duration: z.string().optional().transform(val => val === "" ? null : val), 
+    priority: z.enum(["low", "medium", "high"]),
   plan_id: z.string().min(1)
 });
 
@@ -61,7 +62,7 @@ export function TreatmentForm({
       description: '',
       status: 'pending',
       cost: '',
-      estimated_duration: '',
+      estimated_duration: '', // Default to empty string, will be transformed to null by schema
       priority: 'medium',
       plan_id: planId
     }
@@ -132,22 +133,36 @@ export function TreatmentForm({
             />
             
             <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
+              {/* Use Controller for more explicit control over cost field */}
+              <Controller
                 name="cost"
-                render={({ field }) => (
+                control={form.control}
+                render={({ field, fieldState: { error } }) => (
                   <FormItem>
-                    <FormLabel>Cost ($) *</FormLabel>
+                    <FormLabel>Cost (₹) *</FormLabel>
                     <FormControl>
-                      <Input 
-                        type="number"
+                      <Input
+                        type="text"
+                        inputMode="decimal"
                         placeholder="0.00"
-                        {...field}
-                        min="0"
-                        step="0.01"
+                        // Pass necessary props from field, manage value/onChange explicitly
+                        ref={field.ref}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        // Ensure value is always a string for the Input
+                        value={field.value === null || field.value === undefined ? '' : String(field.value)}
+                        onChange={(e) => {
+                          // Pass the raw string value back to react-hook-form
+                          field.onChange(e.target.value);
+                        }}
+                        // Add aria-invalid for accessibility based on error state
+                        aria-invalid={!!error}
                       />
                     </FormControl>
-                    <FormMessage />
+                    {/* Display error message if present */}
+                    {error && <FormMessage>{error.message}</FormMessage>}
+                    {/* Fallback if no specific error message but field is invalid */}
+                    {!error && field.value !== '' && form.formState.errors.cost && <FormMessage>{form.formState.errors.cost.message}</FormMessage>}
                   </FormItem>
                 )}
               />
@@ -159,7 +174,8 @@ export function TreatmentForm({
                   <FormItem>
                     <FormLabel>Estimated Duration</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., 1 hour" {...field} />
+                      {/* Use nullish coalescing for value */}
+                      <Input placeholder="e.g., 1 hour, 30 minutes" {...field} value={field.value ?? ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

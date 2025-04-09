@@ -6,9 +6,11 @@ import { Appointments } from './pages/Appointments';
 import { Patients } from './pages/Patients';
 import { TreatmentPlansPage } from './features/treatment-plans/pages/TreatmentPlansPage';
 import { Settings } from './pages/Settings';
-import { ProfilePage } from './pages/ProfilePage'; // Import ProfilePage
-import { PaymentsSubscriptionPage } from './pages/PaymentsSubscriptionPage'; // Import PaymentsSubscriptionPage
-import { AuthProvider, useAuth } from './context/AuthContext'; // Import useAuth
+import { ProfilePage } from './pages/ProfilePage';
+import { PaymentsSubscriptionPage } from './pages/PaymentsSubscriptionPage';
+import { PatientMedicalRecordsPage } from './pages/PatientMedicalRecordsPage'; // Re-import the new page
+import SearchResultsPage from './pages/SearchResultsPage'; // Import SearchResultsPage
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { Toaster } from './components/ui/toaster';
 import { Loader2 } from 'lucide-react'; // Import loader
 import LoginPage from './pages/LoginPage'; // Import the new Login page
@@ -46,9 +48,11 @@ function AppContent() {
           <Route path="patients" element={<Patients />} />
           <Route path="patients/:id" element={<Patients />} /> {/* Detail/Edit */}
           <Route path="treatment-plans" element={<TreatmentPlansPage />} />
-          <Route path="profile" element={<ProfilePage />} /> {/* Add Profile route */}
+          <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<Settings />} />
-          <Route path="payments-subscription" element={<PaymentsSubscriptionPage />} /> {/* Add Payments & Subscription route */}
+          <Route path="payments-subscription" element={<PaymentsSubscriptionPage />} />
+          <Route path="patient-medical-records" element={<PatientMedicalRecordsPage />} /> {/* Re-add route for medical records */}
+          <Route path="search" element={<SearchResultsPage />} /> {/* Add Search route */}
           {/* Redirect any unknown protected path to dashboard */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

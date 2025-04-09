@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { api } from '@/lib/api';
 import { globalCache } from '@/lib/utils/cache-manager'; // Import cache
 import { PatientDetailsView } from '@/features/patients/components/PatientDetailsView';
+import { AddMedicalRecordForm } from '@/features/patients/components/AddMedicalRecordForm'; // Import the new form
+import { Appointment } from '@/types'; // Assuming Appointment type is defined here or adjust path
 
 interface PatientFormDialogProps {
   open: boolean;
@@ -218,34 +220,154 @@ export function PatientList() {
 }
 export function PatientDetails() {
   const navigate = useNavigate();
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>(); // Ensure id is typed
   const { state } = useLocation();
   const [patient, setPatient] = useState<any>(null);
+  const [appointments, setAppointments] = useState<Appointment[]>([]); // State for appointments
+  const [medicalRecords, setMedicalRecords] = useState<any[]>([]); // State for medical records (use specific type if available)
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(state?.action === 'edit');
-  
+  const [showAddRecordDialog, setShowAddRecordDialog] = useState(false); // State for Add Record dialog
+  const [addRecordLoading, setAddRecordLoading] = useState(false); // Loading state for Add Record form
+  const { toast } = useToast(); // Get toast function
+
   useEffect(() => {
     if (id) {
-      fetchPatient(id);
+      fetchPatientAndAppointments(id);
     }
   }, [id]);
-  
-  const fetchPatient = async (patientId: string) => {
-    setLoading(true); // Ensure loading state is set
+
+  const fetchPatientAndAppointments = async (patientId: string) => {
+    setLoading(true);
     try {
       // Invalidate cache for this specific patient before fetching
-      globalCache.invalidate(`patients:${patientId}`); 
-      
-      const data = await api.patients.getById(patientId);
-      setPatient(data);
+      globalCache.invalidate(`patients:${patientId}`);
+      globalCache.invalidate(`appointments:patient:${patientId}`);
+      globalCache.invalidate(`medical_records:${patientId}`); // Invalidate medical records cache
+
+      // Fetch patient, appointments, and medical records concurrently
+      const [patientData, appointmentsData, medicalRecordsData] = await Promise.all([
+        api.patients.getById(patientId),
+        api.appointments.getByPatientId(patientId),
+        api.patients.getMedicalRecords(patientId) // Fetch medical records
+      ]);
+
+      setPatient(patientData);
+      setAppointments(appointmentsData || []); // Ensure appointments is an array
+      setMedicalRecords(medicalRecordsData || []); // Ensure medical records is an array
+
     } catch (error) {
-      console.error('Error fetching patient:', error);
+      console.error('Error fetching patient details, appointments, or medical records:', error);
       // Optionally set an error state here
     } finally {
-      setLoading(false); // Ensure loading state is unset
+      setLoading(false);
     }
   };
-  
+
+  // Handler to open the Add Medical Record dialog
+  const handleAddMedicalRecord = () => {
+    setShowAddRecordDialog(true);
+  };
+
+  // Handler to save a new medical record
+  const handleSaveMedicalRecord = async (formValues: any) => { // Renamed values to formValues
+    if (!id) return; 
+    setAddRecordLoading(true);
+    
+    // Structure the details based on record type
+    let recordDetails: any = {
+      general_notes: formValues.general_notes || undefined, // Include general notes if present
+    };
+
+    switch (formValues.record_type) {
+      case 'consultation':
+        recordDetails = {
+          ...recordDetails,
+          subjective: formValues.consultation_subjective || undefined,
+          objective: formValues.consultation_objective || undefined,
+          assessment: formValues.consultation_assessment || undefined,
+          plan: formValues.consultation_plan || undefined,
+        };
+        break;
+      case 'diagnosis':
+        recordDetails = {
+          ...recordDetails,
+          code: formValues.diagnosis_code || undefined,
+          description: formValues.diagnosis_description || undefined,
+        };
+        break;
+      case 'treatment':
+         recordDetails = {
+          ...recordDetails,
+          procedure: formValues.treatment_procedure || undefined,
+          details: formValues.treatment_details || undefined,
+        };
+        break;
+      case 'prescription':
+         recordDetails = {
+          ...recordDetails,
+          medication: formValues.prescription_medication || undefined,
+          dosage: formValues.prescription_dosage || undefined,
+          frequency: formValues.prescription_frequency || undefined,
+          duration: formValues.prescription_duration || undefined,
+        };
+        break;
+      case 'lab_result':
+         recordDetails = {
+          ...recordDetails,
+          test_name: formValues.lab_test_name || undefined,
+          result_value: formValues.lab_result_value || undefined,
+          units: formValues.lab_units || undefined,
+          reference_range: formValues.lab_reference_range || undefined,
+        };
+        break;
+       case 'other':
+         recordDetails = {
+          ...recordDetails,
+          details: formValues.other_details || undefined,
+        };
+        break;
+    }
+
+    // Remove undefined keys to keep the JSON clean
+    Object.keys(recordDetails).forEach(key => recordDetails[key] === undefined && delete recordDetails[key]);
+
+    try {
+      await api.patients.createMedicalRecord({
+        patient_id: id,
+        record_date: formValues.record_date, // Use the date from the form
+        record_type: formValues.record_type, // Use the type from the form
+        description: JSON.stringify(recordDetails), // Store structured details as JSON string
+        // created_by: 'current_user_id' // TODO: Get current user ID if needed
+      });
+      toast({
+        title: "Success",
+        description: "Medical record added successfully.",
+      });
+      setShowAddRecordDialog(false);
+      fetchPatientAndAppointments(id); // Refresh the list
+    } catch (error) {
+      console.error("Error adding medical record:", error);
+      toast({
+        title: "Error",
+        description: "Failed to add medical record.",
+        variant: "destructive",
+      });
+    } finally {
+      setAddRecordLoading(false);
+    }
+  };
+
+
+  // Handler for booking a new appointment
+  const handleBookAppointment = (patientId: string) => {
+    // Navigate to the appointments page, potentially passing patientId
+    // Adjust the route as needed based on your appointment booking flow
+    navigate(`/appointments?patientId=${patientId}&action=new`);
+    // Or trigger a modal, etc.
+  };
+
+
   if (loading) {
     return <div className="flex items-center justify-center h-full">Loading patient details...</div>;
   }
@@ -280,14 +402,36 @@ export function PatientDetails() {
         <PatientForm
           patient={patient}
           onSuccess={() => {
-            fetchPatient(id!);
+            fetchPatientAndAppointments(id!); // Refetch both on success
             setIsEditing(false);
           }}
           onCancel={() => setIsEditing(false)}
         />
       ) : (
-        <PatientDetailsView patient={patient} onEdit={() => setIsEditing(true)} />
+        <PatientDetailsView
+          patient={patient}
+          appointments={appointments} // Pass appointments
+          medicalRecords={medicalRecords} // Pass medical records
+          onEdit={() => setIsEditing(true)}
+          onBookAppointment={handleBookAppointment} // Pass booking handler
+          onAddMedicalRecord={handleAddMedicalRecord} // Pass Add Record handler
+        />
       )}
+
+      {/* Add Medical Record Dialog */}
+      <Dialog open={showAddRecordDialog} onOpenChange={setShowAddRecordDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add New Medical Record</DialogTitle>
+          </DialogHeader>
+          <AddMedicalRecordForm
+            patientId={id!} // Pass patient ID
+            onSubmit={handleSaveMedicalRecord}
+            onCancel={() => setShowAddRecordDialog(false)}
+            isLoading={addRecordLoading}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

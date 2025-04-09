@@ -115,7 +115,7 @@ const DashboardCharts: React.FC<DashboardChartsProps> = ({
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div>
             {/* Make title dynamic if needed, e.g., using totalRevenue prop */}
-            <CardTitle className="text-3xl font-bold">${totalRevenue ? totalRevenue.toLocaleString() : '0'}</CardTitle>
+            <CardTitle className="text-3xl font-bold">₹{totalRevenue ? totalRevenue.toLocaleString() : '0'}</CardTitle>
             <p className="text-xs text-muted-foreground">Overall Revenue / Appointments</p>
           </div>
            <div className="flex items-center space-x-2">
@@ -304,7 +304,7 @@ const DashboardCharts: React.FC<DashboardChartsProps> = ({
              </div>
              <div className="text-center">
                <p className="text-muted-foreground">Est. Profit</p>
-               <p className="font-semibold">${profitEstimationData.estimatedProfit.toLocaleString()}</p>
+               <p className="font-semibold">₹{profitEstimationData.estimatedProfit.toLocaleString()}</p>
              </div>
            </div>
         </CardContent>

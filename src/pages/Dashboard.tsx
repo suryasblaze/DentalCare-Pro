@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import DashboardCharts, { ChartDataPoint, PieChartDataPoint, DashboardChartsProps } from '@/components/DashboardCharts'; // Import the new charts component and its types
 // Import types from generated file (adjust path if needed)
-import type { Database } from '@/lib/database.types';
+import type { Database } from '../../supabase_types'; // Corrected import path
 
 // Define specific types based on generated types
 type PatientRow = Database['public']['Tables']['patients']['Row'];
@@ -44,7 +44,7 @@ interface RecentActivityItem {
 export function Dashboard() {
   const navigate = useNavigate(); // Initialize useNavigate
   const [stats, setStats] = useState({
-    totalAppointments: 0,
+    todaysAppointmentsCount: 0, // Renamed for clarity: Count for today's card
     totalPatients: 0,
     avgWaitTime: 0, // Keep avgWaitTime calculation as mock for now
     treatmentSuccessRate: 0,
@@ -117,12 +117,17 @@ export function Dashboard() {
         api.patients.getMedicalRecords(null), // Get all medical records
         api.appointments.getAll() // Fetch all appointments
       ]);
-      
-      // Calculate statistics
+
+      // --- Calculate Counts ---
       const totalPatients = patients.length;
-      // Calculate total appointments based on all fetched appointments (adjust if needed)
-      const totalAppointments = allAppointments.length; 
-      
+      // Filter appointments for today
+      const todaysAppointments = (allAppointments as AppointmentWithDetails[]).filter(apt => {
+        if (!apt.start_time) return false;
+        const aptDate = parseISO(apt.start_time);
+        return isWithinInterval(aptDate, { start: todayStart, end: todayEnd });
+      });
+      const todaysAppointmentsCount = todaysAppointments.length;
+
       // Calculate treatment success rate
       let completedTreatments = 0;
       let totalTreatments = 0;
@@ -151,7 +156,7 @@ export function Dashboard() {
       const successRateChange = 0;
 
       setStats({
-        totalAppointments,
+        todaysAppointmentsCount, // Use the calculated count for today
         totalPatients,
         avgWaitTime,
         treatmentSuccessRate,
@@ -315,9 +320,10 @@ export function Dashboard() {
 
       // Use actual treatment status
       (treatmentPlans as TreatmentPlanWithTreatments[]).forEach(plan => {
-          (plan.treatments || []).forEach(treatment => {
+          // Add explicit type for treatment parameter
+          (plan.treatments || []).forEach((treatment: Database['public']['Tables']['treatments']['Row']) => {
               // Check if treatment was updated within the last 7 days
-              if (treatment.updated_at) { 
+              if (treatment.updated_at) {
                   const treatmentDate = parseISO(treatment.updated_at);
                   if (isWithinInterval(treatmentDate, { start: sevenDaysAgo, end: todayEnd })) {
                       const dayKey = format(treatmentDate, 'yyyy-MM-dd');
@@ -454,7 +460,8 @@ export function Dashboard() {
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalAppointments}</div>
+            {/* Use the correct state variable for today's count */}
+            <div className="text-2xl font-bold">{stats.todaysAppointmentsCount}</div>
             {/* Display change only if not 0, or remove entirely */}
             {stats.appointmentsChange !== 0 && (
               <div className="flex items-center text-xs text-muted-foreground">

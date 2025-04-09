@@ -1,0 +1,18 @@
+{
+  // Inherit from the root tsconfig.json if needed, or define fresh
+  // "extends": "../../../tsconfig.json", // Adjust path as necessary if extending
+  "compilerOptions": {
+    // Specify Deno libraries - this is often the key for VS Code integration
+    "lib": ["deno.ns", "dom"], 
+    // You might need other options depending on your code, e.g.:
+    "target": "esnext",
+    "module": "esnext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  // Important: Include only the files relevant to this function
+  "include": ["./index.ts"], 
+  "exclude": [] 
+}

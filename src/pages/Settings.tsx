@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Building, Bell, Shield, Clock, Users, Plus, Trash2, Mail, Phone } from 'lucide-react';
+import { format, parseISO, isValid } from 'date-fns'; // Added isValid
 import { api } from '@/lib/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -29,12 +30,24 @@ export function Settings() {
       { day: 'friday', start: '09:00', end: '17:00' }
     ])
   });
+  // State for absences
+  const [absences, setAbsences] = useState<any[]>([]);
+  const [isLoadingAbsences, setIsLoadingAbsences] = useState(true);
+  const [showNewAbsenceDialog, setShowNewAbsenceDialog] = useState(false);
+  const [newAbsence, setNewAbsence] = useState({
+    staff_id: '',
+    start_time: '',
+    end_time: '',
+    reason: '',
+  });
 
   useEffect(() => {
     Promise.all([
       fetchSettings(),
-      fetchStaff()
+      fetchStaff(),
+      fetchAbsences() // Add fetchAbsences call
     ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchStaff = async () => {
@@ -45,7 +58,18 @@ export function Settings() {
       console.error('Error fetching staff:', error);
     }
   };
-
+  const fetchAbsences = async () => {
+    setIsLoadingAbsences(true);
+    try {
+      const data = await api.absences.getAll();
+      setAbsences(data || []);
+    } catch (error) {
+      console.error('Error fetching absences:', error);
+      toast({ title: "Error", description: "Could not fetch staff absences.", variant: "destructive" });
+    } finally {
+      setIsLoadingAbsences(false);
+    }
+  };
   const fetchSettings = async () => {
     try {
       const data = await api.settings.get();
@@ -133,6 +157,50 @@ export function Settings() {
         description: "Failed to create staff member. Please try again.",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleCreateAbsence = async () => {
+    if (!newAbsence.staff_id || !newAbsence.start_time || !newAbsence.end_time) {
+      toast({ title: "Missing Information", description: "Please select staff, start time, and end time.", variant: "destructive" });
+      return;
+    }
+    // Convert local datetime-local input to ISO string with timezone
+    const startTimeIso = new Date(newAbsence.start_time).toISOString();
+    const endTimeIso = new Date(newAbsence.end_time).toISOString();
+
+    if (new Date(endTimeIso) <= new Date(startTimeIso)) {
+       toast({ title: "Invalid Dates", description: "End time must be after start time.", variant: "destructive" });
+       return;
+    }
+
+    try {
+      await api.absences.create({
+        ...newAbsence,
+        start_time: startTimeIso,
+        end_time: endTimeIso,
+      });
+      setShowNewAbsenceDialog(false);
+      fetchAbsences(); // Refresh list
+      setNewAbsence({ staff_id: '', start_time: '', end_time: '', reason: '' }); // Reset form
+      toast({ title: "Absence Added", description: "Staff absence recorded successfully." });
+    } catch (error) {
+      console.error('Error creating absence:', error);
+      toast({ title: "Error", description: `Failed to add absence: ${error instanceof Error ? error.message : 'Unknown error'}`, variant: "destructive" });
+    }
+  };
+
+  const handleDeleteAbsence = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this absence record?')) {
+      return;
+    }
+    try {
+      await api.absences.delete(id);
+      fetchAbsences(); // Refresh list
+      toast({ title: "Absence Deleted", description: "The absence record has been removed." });
+    } catch (error) {
+      console.error('Error deleting absence:', error);
+      toast({ title: "Error", description: "Failed to delete absence.", variant: "destructive" });
     }
   };
 
@@ -408,6 +476,64 @@ export function Settings() {
           </div>
         </div>
 
+        {/* Staff Absences Management */}
+        <div className="bg-white shadow rounded-lg overflow-hidden">
+          <div className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="h-12 w-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                    <Clock className="h-6 w-6 text-orange-600" /> {/* Changed icon/color */}
+                  </div>
+                </div>
+                <div className="ml-4">
+                  <h2 className="text-lg font-medium text-gray-900">Staff Absences</h2>
+                  <p className="mt-1 text-sm text-gray-500">Manage scheduled staff absences</p>
+                </div>
+              </div>
+              <Button onClick={() => {
+                setNewAbsence({ staff_id: '', start_time: '', end_time: '', reason: '' }); // Reset form state
+                setShowNewAbsenceDialog(true);
+              }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Absence
+              </Button>
+            </div>
+            <div className="mt-6 space-y-4">
+              {isLoadingAbsences && <div>Loading absences...</div>}
+              {!isLoadingAbsences && absences.length === 0 && <p className="text-sm text-gray-500">No absences recorded.</p>}
+              {!isLoadingAbsences && absences.map((absence) => (
+                <div
+                  key={absence.id}
+                  className="flex items-center justify-between p-4 rounded-lg border"
+                >
+                  <div className="flex items-center space-x-4">
+                    <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center">
+                      <User className="h-5 w-5 text-gray-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium">
+                        {absence.staff?.first_name || 'Unknown'} {absence.staff?.last_name || 'Staff'}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        {format(parseISO(absence.start_time), 'MMM d, yyyy h:mm a')} - {format(parseISO(absence.end_time), 'MMM d, yyyy h:mm a')}
+                      </p>
+                      {absence.reason && <p className="text-xs text-gray-400">Reason: {absence.reason}</p>}
+                    </div>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDeleteAbsence(absence.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* Security Settings */}
         <div className="bg-white shadow rounded-lg overflow-hidden">
           <div className="p-6">
@@ -530,6 +656,72 @@ export function Settings() {
             </Button>
             <Button onClick={handleCreateStaff}>
               Add Staff Member
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Absence Dialog */}
+      <Dialog open={showNewAbsenceDialog} onOpenChange={setShowNewAbsenceDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Staff Absence</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="absence-staff">Staff Member</Label>
+              <Select
+                value={newAbsence.staff_id}
+                onValueChange={(value) => setNewAbsence({ ...newAbsence, staff_id: value })}
+              >
+                <SelectTrigger id="absence-staff">
+                  <SelectValue placeholder="Select staff member" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staff.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>
+                      {member.first_name} {member.last_name} ({member.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="absence-start">Start Time</Label>
+                <Input
+                  id="absence-start"
+                  type="datetime-local"
+                  value={newAbsence.start_time}
+                  onChange={(e) => setNewAbsence({ ...newAbsence, start_time: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="absence-end">End Time</Label>
+                <Input
+                  id="absence-end"
+                  type="datetime-local"
+                  value={newAbsence.end_time}
+                  onChange={(e) => setNewAbsence({ ...newAbsence, end_time: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="absence-reason">Reason (Optional)</Label>
+              <Input
+                id="absence-reason"
+                value={newAbsence.reason}
+                onChange={(e) => setNewAbsence({ ...newAbsence, reason: e.target.value })}
+                placeholder="e.g., Vacation, Conference"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewAbsenceDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateAbsence}>
+              Add Absence
             </Button>
           </DialogFooter>
         </DialogContent>

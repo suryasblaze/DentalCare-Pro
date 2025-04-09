@@ -23,5 +23,5 @@
     "noFallthroughCasesInSwitch": true,
     "composite": true // Required when using project references and extending
   },
-  "include": ["src"]
+  "include": ["src", "supabase_types.ts"] // Added supabase_types.ts
 }

@@ -310,7 +310,7 @@ export function TreatmentPlanDetails({
         </div>
         <div className="flex justify-between">
           <span className="text-sm">Insurance Coverage (Est.):</span>
-          <span className="font-medium">$0.00</span>
+          <span className="font-medium">₹0.00</span>
         </div>
         <div className="flex justify-between">
           <span className="text-sm">Patient Responsibility:</span>

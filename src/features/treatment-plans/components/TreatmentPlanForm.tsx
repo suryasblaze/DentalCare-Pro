@@ -240,7 +240,7 @@ export function TreatmentPlanForm({
               name="estimated_cost"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Estimated Total Cost ($)</FormLabel>
+                  <FormLabel>Estimated Total Cost (₹)</FormLabel>
                   <FormControl>
                     <Input 
                       type="number"

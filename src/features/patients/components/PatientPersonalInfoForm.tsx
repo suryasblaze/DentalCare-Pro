@@ -11,7 +11,10 @@ export const personalInfoSchema = z.object({
   last_name: z.string().min(1, "Last name is required"),
   middle_name: z.string().optional(),
   gender: z.enum(["male", "female", "other"]),
-  age: z.number().min(0).max(120).optional().nullable(),
+  age: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? null : Number(val)),
+    z.number().int().positive("Age must be a positive number").nullable().optional()
+  ), // Preprocess empty string/null to null, otherwise convert to number
   marital_status: z.enum(["single", "married", "divorced", "widowed", "separated", "other"]).optional(),
   occupation: z.string().optional(),
 });
@@ -103,11 +106,12 @@ export function PatientPersonalInfoForm() {
             <FormItem>
               <FormLabel>Age</FormLabel>
               <FormControl>
-                <Input 
-                  type="number" 
+                <Input
+                  type="number"
                   placeholder="25"
                   {...field}
-                  onChange={e => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
+                  value={field.value ?? ''} // Handle null value for input display
+                  onChange={e => field.onChange(e.target.value === '' ? null : e.target.valueAsNumber)} // Use valueAsNumber for direct number input, fallback to null if empty
                 />
               </FormControl>
               <FormMessage />

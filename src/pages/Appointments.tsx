@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 // Import subHours correctly and Database type
-import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, parseISO, parse, isValid, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, isToday, startOfDay, endOfDay, subHours } from 'date-fns';
+import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, parseISO, parse, isValid, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, isToday, startOfDay, endOfDay, subHours, isBefore } from 'date-fns'; // Added isBefore
 import { Plus, ChevronLeft, ChevronRight, User, Phone } from 'lucide-react';
 import { api, subscribeToChanges } from '@/lib/api'; // Import subscribeToChanges
 import { Button } from '@/components/ui/button';
@@ -15,8 +15,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast'; // Import useToast
 // Import PatientForm
 import { PatientForm } from '@/features/patients/components/PatientForm';
-// Import Database type and specific table types
-import type { Database } from '@/lib/database.types';
+// Import Database type and specific table types from the correct path
+import type { Database } from '@/../supabase_types'; // Corrected import path
 type AppointmentRow = Database['public']['Tables']['appointments']['Row'];
 type PatientRow = Database['public']['Tables']['patients']['Row'];
 type StaffRow = Database['public']['Tables']['staff']['Row'];
@@ -41,7 +41,9 @@ export function Appointments() {
   const [selectedDoctor, setSelectedDoctor] = useState<StaffRow | null>(null); // Use StaffRow
   const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]); // Use specific type
   const [patients, setPatients] = useState<PatientRow[]>([]); // Use PatientRow
-  const [doctors, setDoctors] = useState<StaffRow[]>([]); // Use StaffRow
+  const [allDoctors, setAllDoctors] = useState<StaffRow[]>([]); // Renamed from doctors to store all doctors
+  const [availableDoctors, setAvailableDoctors] = useState<StaffRow[]>([]); // State for available doctors
+  const [isLoadingDoctors, setIsLoadingDoctors] = useState(false); // Loading state for doctors
   const [dateInput, setDateInput] = useState('');
   // State for manual date/time selection when booking via button
   const [manualDate, setManualDate] = useState<Date | null>(null);
@@ -54,6 +56,7 @@ export function Appointments() {
     type: 'checkup',
     duration: '30',
     notes: '',
+    reason_for_visit: '', // Added reason for visit
   });
   // Remove newPatientData state - PatientForm handles its own state
 
@@ -62,32 +65,7 @@ export function Appointments() {
     return format(new Date().setHours(hour, 0), 'HH:mm');
   });
 
-  useEffect(() => {
-    fetchAppointments();
-    fetchPatients();
-    fetchDoctors();
-
-    // Subscribe to real-time appointment changes
-    const subscription = subscribeToChanges('appointments', (payload: any) => {
-      console.log('Appointment change detected:', payload);
-      fetchAppointments();
-    });
-
-    // Unsubscribe on component unmount
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [selectedDate, view]);
-
-  const fetchDoctors = async () => {
-    try {
-      const data = await api.staff.getDoctors();
-      setDoctors(data || []); // Ensure it's an array
-    } catch (error) {
-      console.error('Error fetching doctors:', error);
-      setDoctors([]); // Set empty on error
-    }
-  };
+  // --- Data Fetching Functions ---
 
   const fetchAppointments = async () => {
     try {
@@ -108,6 +86,8 @@ export function Appointments() {
         console.error("Invalid view state, cannot determine date range:", view);
         return;
       }
+
+      console.log(`Fetching appointments from ${startDate.toISOString()} to ${endDate.toISOString()}`); // Debugging
 
       const data = await api.appointments.getByDateRange(
         startDate.toISOString(),
@@ -131,6 +111,104 @@ export function Appointments() {
     }
   };
 
+  // Fetch all doctors initially
+  const fetchAllDoctors = async () => {
+    try {
+      const data = await api.staff.getDoctors();
+      setAllDoctors(data || []); // Ensure it's an array
+    } catch (error) {
+      console.error('Error fetching all doctors:', error);
+      setAllDoctors([]); // Set empty on error
+    }
+  };
+
+  // Fetch available doctors for a specific slot
+  const fetchAvailableDoctorsForSlot = async (slotDate: Date | null, slotTime: string, durationMinutes: number) => {
+    if (!slotDate || !slotTime || isNaN(durationMinutes) || durationMinutes <= 0) {
+      setAvailableDoctors([]); // Clear if inputs are invalid
+      return;
+    }
+
+    setIsLoadingDoctors(true);
+    try {
+      const startDate = new Date(slotDate);
+      const [startHour, startMinute] = slotTime.split(':').map(Number);
+      if (isNaN(startHour) || isNaN(startMinute)) {
+        throw new Error("Invalid time format");
+      }
+      startDate.setHours(startHour, startMinute, 0, 0);
+
+      if (!isValid(startDate)) {
+        throw new Error("Invalid start date/time calculated");
+      }
+
+      const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+
+      const available = await api.staff.getAvailableDoctors(startDate.toISOString(), endDate.toISOString());
+      setAvailableDoctors(available || []);
+
+      // If the currently selected doctor is no longer available, reset selection
+      if (selectedDoctor && !available.some(doc => doc.id === selectedDoctor.id)) {
+        setSelectedDoctor(null);
+      }
+
+    } catch (error) {
+      console.error('Error fetching available doctors:', error);
+      toast({ variant: "destructive", title: "Error Fetching Doctors", description: "Could not fetch available doctors for the selected slot." });
+      setAvailableDoctors([]); // Clear on error
+    } finally {
+      setIsLoadingDoctors(false);
+    }
+  };
+
+  // --- Effects ---
+
+  // Initial data fetching and subscription setup
+  useEffect(() => {
+    fetchAppointments();
+    fetchPatients();
+    fetchAllDoctors(); // Fetch all doctors on initial load
+
+    // Subscribe to real-time appointment changes
+    const subscription = subscribeToChanges('appointments', (payload: any) => {
+      console.log('Appointment change detected:', payload);
+      fetchAppointments(); // Re-fetch appointments on change
+    });
+
+    // Unsubscribe on component unmount
+    return () => {
+      subscription.unsubscribe();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, view]); // Re-fetch when selectedDate or view changes
+
+  // Effect to fetch available doctors when modal is open and relevant details change
+  useEffect(() => {
+    if (showBookingModal && bookingStep === 'appointment-details') {
+      const durationMinutes = parseInt(appointmentFormData.duration);
+      let effectiveDate: Date | null = null;
+      let effectiveTime: string = '';
+
+      if (selectedSlot) {
+        effectiveDate = selectedSlot.date;
+        effectiveTime = selectedSlot.time;
+      } else if (manualDate && manualTime) {
+        effectiveDate = manualDate;
+        effectiveTime = manualTime;
+      }
+
+      if (effectiveDate && effectiveTime && !isNaN(durationMinutes)) {
+        fetchAvailableDoctorsForSlot(effectiveDate, effectiveTime, durationMinutes);
+      } else {
+        setAvailableDoctors([]); // Clear if date/time/duration is incomplete
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showBookingModal, bookingStep, selectedSlot, manualDate, manualTime, appointmentFormData.duration]);
+
+
+  // --- Event Handlers ---
+
   const handlePatientSearch = async (query: string) => {
     setPatientSearchQuery(query);
     if (query.length > 2) {
@@ -146,49 +224,59 @@ export function Appointments() {
     }
   };
 
-  // Remove handleCreateNewPatient - PatientForm handles creation
-
   const handleBookAppointment = async (formData: any) => {
     console.log("handleBookAppointment called. selectedDoctor:", selectedDoctor); // Log selectedDoctor state
     try {
       // Validation for patient and doctor selection (common for both flows)
       if (!selectedPatient || !selectedDoctor) {
         console.error("Booking validation failed: Missing patient or doctor", { selectedPatient, selectedDoctor });
-        alert('Please select a patient and a doctor before booking.');
+        toast({ variant: "destructive", title: "Missing Information", description: "Please select a patient and a doctor." });
         return;
       }
 
       let startDate: Date;
+      const todayStart = startOfDay(new Date()); // Get start of today
 
       // Determine start date based on flow (slot click vs button)
       if (selectedSlot) {
-        // Flow 1: Clicked on a calendar slot
+        // Flow 1: Clicked on a calendar slot (already validated in handleSlotClick)
         startDate = new Date(selectedSlot.date);
         const [startHour, startMinute] = selectedSlot.time.split(':').map(Number);
         startDate.setHours(startHour, startMinute, 0, 0);
       } else {
         // Flow 2: Clicked "New Appointment" button
         if (!manualDate || !manualTime) {
-          alert('Please select a date and time for the appointment.');
+          toast({ variant: "destructive", title: "Missing Information", description: "Please select a date and time." });
           return;
         }
         const [startHour, startMinute] = manualTime.split(':').map(Number);
         if (isNaN(startHour) || isNaN(startMinute)) {
-          alert('Invalid time format selected.');
+          toast({ variant: "destructive", title: "Invalid Time", description: "Invalid time format selected." });
           return;
         }
         startDate = new Date(manualDate);
         startDate.setHours(startHour, startMinute, 0, 0);
 
         if (!isValid(startDate)) {
-          alert('Invalid date or time selected.');
+          toast({ variant: "destructive", title: "Invalid Date/Time", description: "Invalid date or time selected." });
           return;
         }
       }
 
+      // --- Add validation: Check if startDate is before today ---
+      if (isBefore(startOfDay(startDate), todayStart)) {
+        toast({
+          variant: "destructive",
+          title: "Booking Restricted",
+          description: "Cannot book appointments for past dates.",
+        });
+        return; // Prevent booking
+      }
+      // --- End validation ---
+
       const durationMinutes = parseInt(formData.duration);
       if (isNaN(durationMinutes) || durationMinutes <= 0) {
-         alert('Invalid appointment duration selected.');
+         toast({ variant: "destructive", title: "Invalid Duration", description: "Invalid appointment duration selected." });
          return;
       }
       const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
@@ -200,37 +288,73 @@ export function Appointments() {
         start_time: startDate.toISOString(),
         end_time: endDate.toISOString(),
         type: formData.type,
+        reason_for_visit: formData.reason_for_visit, // Added reason for visit
         notes: formData.notes,
-        status: 'scheduled' as 'scheduled' | 'completed' | 'cancelled'
+        // Set initial status to 'scheduled' instead of 'confirmed'
+        status: 'scheduled' as 'scheduled' | 'completed' | 'cancelled' | 'confirmed'
       };
 
       const createdAppointment = await api.appointments.create(appointmentData);
 
-      // Schedule reminder
-      if (createdAppointment && createdAppointment.id && createdAppointment.start_time && createdAppointment.patient_id) {
+      // --- Schedule Notifications ---
+      if (createdAppointment?.id && createdAppointment.start_time && createdAppointment.patient_id) {
+        const appointmentId = createdAppointment.id;
+        const patientId = createdAppointment.patient_id;
+        const startTime = parseISO(createdAppointment.start_time);
+
+        // 1. Schedule Immediate Confirmation (App Notification)
         try {
-          const reminderTime = subHours(parseISO(createdAppointment.start_time), 24);
+          await api.communications.schedule({
+            patientId: patientId,
+            appointmentId: appointmentId,
+            type: 'appointment_reminder', // Or a new 'appointment_confirmation' type if needed
+            channel: 'app', // Use 'app' channel
+            scheduledFor: new Date().toISOString(), // Schedule immediately
+            // Custom message could be used here if needed
+          });
+          console.log(`Immediate app confirmation scheduled for appointment ${appointmentId}`);
+        } catch (scheduleError) {
+          console.error('Failed to schedule immediate app confirmation:', scheduleError);
+          // Non-fatal, continue with other scheduling
+        }
+
+        // 2. Schedule 24-Hour Reminder (Email + Optional App)
+        try {
+          const reminderTime = subHours(startTime, 24);
           if (reminderTime > new Date()) {
+            // Schedule Email Reminder
             await api.communications.schedule({
-              patientId: createdAppointment.patient_id,
-              appointmentId: createdAppointment.id,
+              patientId: patientId,
+              appointmentId: appointmentId,
               type: 'appointment_reminder',
-              channel: 'email',
+              channel: 'email', // Keep email reminder
               scheduledFor: reminderTime.toISOString(),
             });
-             console.log(`Reminder scheduled for appointment ${createdAppointment.id}`);
+            console.log(`Email reminder scheduled for appointment ${appointmentId}`);
+
+            // Optionally, also schedule an 'app' reminder 24 hours before
+            await api.communications.schedule({
+              patientId: patientId,
+              appointmentId: appointmentId,
+              type: 'appointment_reminder',
+              channel: 'app', // Add 'app' channel reminder
+              scheduledFor: reminderTime.toISOString(),
+            });
+            console.log(`App reminder scheduled for appointment ${appointmentId}`);
+
           } else {
-             console.log(`Reminder time for appointment ${createdAppointment.id} is in the past, not scheduling.`);
+            console.log(`24-hour reminder time for appointment ${appointmentId} is in the past, not scheduling.`);
           }
         } catch (scheduleError) {
-          console.error('Failed to schedule reminder:', scheduleError);
+          console.error('Failed to schedule 24-hour reminder(s):', scheduleError);
         }
       } else {
-         console.warn('Could not schedule reminder: Missing created appointment data.', createdAppointment);
+        console.warn('Could not schedule notifications: Missing created appointment data.', createdAppointment);
       }
+      // --- End Schedule Notifications ---
 
       setShowBookingModal(false);
-      await fetchAppointments();
+      await fetchAppointments(); // Re-fetch appointments for the current view
 
       // Reset form data and selections
       // Show success toast
@@ -240,7 +364,7 @@ export function Appointments() {
       });
 
       // Reset form data and selections
-      setAppointmentFormData({ type: 'checkup', duration: '30', notes: '' });
+      setAppointmentFormData({ type: 'checkup', duration: '30', notes: '', reason_for_visit: '' }); // Reset reason_for_visit
       setSelectedPatient(null);
       setSelectedDoctor(null);
       setPatientSearchQuery('');
@@ -248,6 +372,7 @@ export function Appointments() {
       setSelectedSlot(null); // Reset selected slot
       setManualDate(null); // Reset manual date
       setManualTime(''); // Reset manual time
+      setAvailableDoctors([]); // Clear available doctors list
     } catch (error) {
       console.error('Error booking appointment:', error);
       toast({ // Show error toast
@@ -270,14 +395,39 @@ export function Appointments() {
   };
 
   const handleCancelAppointment = async () => {
+    if (!selectedAppointment || !selectedAppointment.id) return;
+    const appointmentIdToCancel = selectedAppointment.id; // Store ID before state changes
+
     try {
-      if (!selectedAppointment || !selectedAppointment.id) return;
-      await api.appointments.cancel(selectedAppointment.id);
+      // 1. Cancel the appointment itself
+      await api.appointments.cancel(appointmentIdToCancel);
+
+      // 2. Cancel associated scheduled communications
+      try {
+         await api.communications.cancelByAppointment(appointmentIdToCancel);
+         console.log(`Cancellation request sent for communications related to appointment ${appointmentIdToCancel}`);
+      } catch (cancelCommError) {
+         console.error(`Failed to cancel communications for appointment ${appointmentIdToCancel}:`, cancelCommError);
+         // Decide if this should prevent UI update or just log error
+         toast({
+            variant: "destructive",
+            title: "Communication Cancellation Failed",
+            description: "Could not cancel scheduled reminders. Please check manually.",
+         });
+      }
+
+      // 3. Update UI
       setShowAppointmentModal(false);
-      await fetchAppointments();
+      await fetchAppointments(); // Refetch to show updated status
+      toast({ title: "Appointment Cancelled", description: "The appointment and any scheduled reminders have been cancelled." });
+
     } catch (error) {
       console.error('Error cancelling appointment:', error);
-      alert(`Failed to cancel appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast({ // Show error toast for main cancellation failure
+        variant: "destructive",
+        title: "Cancellation Failed",
+        description: `Could not cancel appointment: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
     }
   };
 
@@ -299,6 +449,8 @@ export function Appointments() {
       alert(`Failed to update appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
+
+  // --- Calendar Rendering Helpers ---
 
   const calculateAppointmentHeight = (startTime: string | null, endTime: string | null): number => {
     if (!startTime || !endTime) return 10;
@@ -410,7 +562,7 @@ export function Appointments() {
   };
   // --- End PatientForm Callbacks ---
 
-  // Navigation functions
+  // --- Navigation Handlers ---
   const handlePreviousWeek = () => setSelectedDate(subWeeks(selectedDate, 1));
   const handleNextWeek = () => setSelectedDate(addWeeks(selectedDate, 1));
   const handlePreviousDay = () => setSelectedDate(addDays(selectedDate, -1));
@@ -424,18 +576,38 @@ export function Appointments() {
       setSelectedDate(parsedDate);
       setDateInput('');
     } else {
-      alert('Please enter a valid date in DD/MM/YYYY format');
+      toast({ variant: "destructive", title: "Invalid Date Format", description: "Please enter date as DD/MM/YYYY." });
     }
   };
 
+  // --- Slot Click Handler ---
   const handleSlotClick = (date: Date, time: string) => {
+    const todayStart = startOfDay(new Date());
+    const clickedDayStart = startOfDay(date);
+
+    // Check if the selected date is before today
+    if (isBefore(clickedDayStart, todayStart)) {
+      toast({
+        variant: "destructive",
+        title: "Booking Restricted",
+        description: "Cannot book appointments for past dates.",
+      });
+      return; // Prevent opening the modal
+    }
+
+    // Proceed if the date is valid (today or future)
     setSelectedSlot({ date, time });
     setBookingStep('patient-select');
     setSelectedPatient(null);
     setSelectedDoctor(null);
-    setAppointmentFormData({ type: 'checkup', duration: '30', notes: '' });
+    setAppointmentFormData({ type: 'checkup', duration: '30', notes: '', reason_for_visit: '' }); // Added missing reason_for_visit reset
     setShowBookingModal(true);
+    // Fetch available doctors when opening modal via slot click
+    const duration = parseInt(appointmentFormData.duration); // Use default duration initially
+    fetchAvailableDoctorsForSlot(date, time, duration);
   };
+
+  // --- Render Functions ---
 
   const renderPatientSelectionStep = () => (
     <div className="space-y-4">
@@ -477,8 +649,6 @@ export function Appointments() {
     </div>
   );
 
-  // Remove renderNewPatientStep function definition
-
   const renderAppointmentDetailsStep = () => {
     return (
       <div className="space-y-4">
@@ -507,19 +677,32 @@ export function Appointments() {
         )}
         <div className="space-y-2">
           <Label>Select Doctor</Label>
-          <Select value={selectedDoctor?.id || ''} onValueChange={(value) => {
-              console.log("Doctor selected (value):", value); // Log selected value
-              const doctor = doctors.find(d => d.id === value);
-              console.log("Found doctor object:", doctor); // Log found doctor object
+          <Select
+            value={selectedDoctor?.id || ''}
+            onValueChange={(value) => {
+              const doctor = availableDoctors.find(d => d.id === value); // Find from available doctors
               setSelectedDoctor(doctor || null);
-            }}>
-            <SelectTrigger><SelectValue placeholder="Choose a doctor" /></SelectTrigger>
+            }}
+            disabled={isLoadingDoctors} // Disable while loading
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={isLoadingDoctors ? "Loading doctors..." : "Choose an available doctor"} />
+            </SelectTrigger>
             <SelectContent>
-              {Array.isArray(doctors) && doctors.map((doctor) => (
+              {!isLoadingDoctors && availableDoctors.length === 0 && (
+                <SelectItem value="no-doctors" disabled>No doctors available for this slot</SelectItem>
+              )}
+              {availableDoctors.map((doctor) => (
                 <SelectItem key={doctor.id} value={doctor.id}>
                   Dr. {doctor.first_name} {doctor.last_name} {doctor.specialization && `(${doctor.specialization})`}
                 </SelectItem>
               ))}
+              {/* Optionally show unavailable doctors, disabled */}
+              {/* {allDoctors.filter(doc => !availableDoctors.some(avail => avail.id === doc.id)).map(doctor => (
+                <SelectItem key={doctor.id} value={doctor.id} disabled>
+                  Dr. {doctor.first_name} {doctor.last_name} (Unavailable)
+                </SelectItem>
+              ))} */}
             </SelectContent>
           </Select>
         </div>
@@ -546,7 +729,26 @@ export function Appointments() {
         </div>
         <div className="space-y-2">
           <Label>Duration</Label>
-          <Select value={appointmentFormData.duration} onValueChange={(value) => setAppointmentFormData({ ...appointmentFormData, duration: value })}>
+          <Select
+            value={appointmentFormData.duration}
+            onValueChange={(value) => {
+              setAppointmentFormData({ ...appointmentFormData, duration: value });
+              // Re-fetch doctors when duration changes
+              const durationMinutes = parseInt(value);
+              let effectiveDate: Date | null = null;
+              let effectiveTime: string = '';
+              if (selectedSlot) {
+                effectiveDate = selectedSlot.date;
+                effectiveTime = selectedSlot.time;
+              } else if (manualDate && manualTime) {
+                effectiveDate = manualDate;
+                effectiveTime = manualTime;
+              }
+              if (effectiveDate && effectiveTime && !isNaN(durationMinutes)) {
+                 fetchAvailableDoctorsForSlot(effectiveDate, effectiveTime, durationMinutes);
+              }
+            }}
+          >
             <SelectTrigger><SelectValue placeholder="Select duration" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="30">30 minutes</SelectItem>
@@ -556,9 +758,20 @@ export function Appointments() {
             </SelectContent>
           </Select>
         </div>
+        {/* Added Reason for Visit field */}
         <div className="space-y-2">
-          <Label>Notes</Label>
-          <Textarea value={appointmentFormData.notes} onChange={(e) => setAppointmentFormData({ ...appointmentFormData, notes: e.target.value })} placeholder="Add any notes about the appointment..." />
+          <Label htmlFor="reason-for-visit">Reason for Visit</Label>
+          <Textarea
+            id="reason-for-visit"
+            value={appointmentFormData.reason_for_visit}
+            onChange={(e) => setAppointmentFormData({ ...appointmentFormData, reason_for_visit: e.target.value })}
+            placeholder="Briefly describe the reason for your visit..."
+          />
+        </div>
+        {/* End Added Reason for Visit field */}
+        <div className="space-y-2">
+          <Label htmlFor="notes">Notes</Label>
+          <Textarea id="notes" value={appointmentFormData.notes} onChange={(e) => setAppointmentFormData({ ...appointmentFormData, notes: e.target.value })} placeholder="Add any other relevant notes..." />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setBookingStep('patient-select')}>Back</Button>
@@ -797,7 +1010,13 @@ export function Appointments() {
             <Input className="w-32" placeholder="DD/MM/YYYY" value={dateInput} onChange={(e) => setDateInput(e.target.value)} />
             <Button variant="outline" onClick={handleGoToDate}>Go to Date</Button>
           </div>
-          <Button onClick={() => { setSelectedSlot(null); setBookingStep('patient-select'); setShowBookingModal(true); }}>
+          <Button onClick={() => {
+            setSelectedSlot(null);
+            setBookingStep('patient-select');
+            setShowBookingModal(true);
+            setAvailableDoctors([]); // Clear available doctors when opening for manual entry
+            setSelectedDoctor(null); // Reset selected doctor
+          }}>
             <Plus className="h-4 w-4 mr-2" /> New Appointment
           </Button>
         </div>
@@ -805,7 +1024,7 @@ export function Appointments() {
       {renderCalendar()}
       <Dialog open={showBookingModal} onOpenChange={setShowBookingModal}>
         {/* Remove max-width, keep overflow-y-auto */}
-        <DialogContent className="overflow-y-auto"> 
+        <DialogContent className="overflow-y-auto">
           <DialogHeader>
             {/* Update Dialog Title based on step */}
             <DialogTitle>{bookingStep === 'patient-select' ? 'Select Patient' : bookingStep === 'new-patient' ? 'New Patient Registration' : 'Appointment Details'}</DialogTitle>
@@ -814,10 +1033,10 @@ export function Appointments() {
             {bookingStep === 'new-patient' && (<DialogDescription>Enter the new patient's details below.</DialogDescription>)}
           </DialogHeader>
           {/* Wrap content steps in a div with height and overflow */}
-          <div className="max-h-[75vh] overflow-y-auto p-4"> 
+          <div className="max-h-[75vh] overflow-y-auto p-4">
             {bookingStep === 'patient-select' && renderPatientSelectionStep()}
-            {/* Render PatientForm when bookingStep is 'new-patient' */}
-            {bookingStep === 'new-patient' && <PatientForm onSuccess={handlePatientFormSuccess} onCancel={handlePatientFormCancel} />}
+            {/* Render PatientForm in simplified mode when bookingStep is 'new-patient' */}
+            {bookingStep === 'new-patient' && <PatientForm mode="simplified" onSuccess={handlePatientFormSuccess} onCancel={handlePatientFormCancel} />}
             {bookingStep === 'appointment-details' && renderAppointmentDetailsStep()}
           </div>
         </DialogContent>
@@ -847,13 +1066,19 @@ export function Appointments() {
               </div>
               <div className="space-y-2">
                 <Label>Status</Label>
-                <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedAppointment.status === 'completed' ? 'bg-green-100 text-green-800' : selectedAppointment.status === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
+                {/* Treat 'confirmed' like 'scheduled' for display purposes */}
+                <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  selectedAppointment.status === 'completed' ? 'bg-green-100 text-green-800'
+                  : selectedAppointment.status === 'cancelled' ? 'bg-red-100 text-red-800'
+                  : 'bg-blue-100 text-blue-800' // Default blue for scheduled/confirmed
+                }`}>
                   {selectedAppointment.status}
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Type</Label>
-                <Select value={selectedAppointment.type} onValueChange={(value) => setSelectedAppointment({ ...selectedAppointment, type: value })} disabled={selectedAppointment.status !== 'scheduled'}>
+                {/* Allow editing if status is scheduled OR confirmed */}
+                <Select value={selectedAppointment.type} onValueChange={(value) => setSelectedAppointment({ ...selectedAppointment, type: value })} disabled={selectedAppointment.status !== 'scheduled' && selectedAppointment.status !== 'confirmed'}>
                   <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="checkup">Checkup</SelectItem>
@@ -865,16 +1090,19 @@ export function Appointments() {
               </div>
               <div className="space-y-2">
                 <Label>Notes</Label>
-                <Textarea value={selectedAppointment.notes || ''} onChange={(e) => setSelectedAppointment({ ...selectedAppointment, notes: e.target.value })} placeholder="Add any notes about the appointment..." disabled={selectedAppointment.status !== 'scheduled'} />
+                 {/* Allow editing if status is scheduled OR confirmed */}
+                <Textarea value={selectedAppointment.notes || ''} onChange={(e) => setSelectedAppointment({ ...selectedAppointment, notes: e.target.value })} placeholder="Add any notes about the appointment..." disabled={selectedAppointment.status !== 'scheduled' && selectedAppointment.status !== 'confirmed'} />
               </div>
               <DialogFooter>
-                {selectedAppointment.status === 'scheduled' && (
+                 {/* Show Cancel/Update buttons if status is scheduled OR confirmed */}
+                {(selectedAppointment.status === 'scheduled' || selectedAppointment.status === 'confirmed') && (
                   <>
                     <Button variant="destructive" onClick={handleCancelAppointment}>Cancel Appointment</Button>
                     <Button onClick={() => handleUpdateAppointment({ type: selectedAppointment.type, notes: selectedAppointment.notes || '' })}>Update Appointment</Button>
                   </>
                 )}
-                {selectedAppointment.status !== 'scheduled' && (<Button variant="outline" onClick={() => setShowAppointmentModal(false)}>Close</Button>)}
+                 {/* Show Close button if status is NOT scheduled or confirmed */}
+                {selectedAppointment.status !== 'scheduled' && selectedAppointment.status !== 'confirmed' && (<Button variant="outline" onClick={() => setShowAppointmentModal(false)}>Close</Button>)}
               </DialogFooter>
             </div>
           )}

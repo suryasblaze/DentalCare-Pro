@@ -1,3 +1,4 @@
+import React from 'react'; // Added React import for JSX
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -6,6 +7,7 @@ import {
   Calendar,
   Users,
   Stethoscope,
+  ClipboardList, // Added icon for medical records
   Settings as SettingsIcon,
 } from "lucide-react";
 
@@ -29,6 +31,11 @@ const navigation = [
     name: "Treatment Plans",
     href: "/treatment-plans",
     icon: Stethoscope,
+  },
+  {
+    name: "Patient Medical Record", // New navigation item
+    href: "/patient-medical-records", // New route
+    icon: ClipboardList, // Use the imported icon
   },
   {
     name: "Settings",
