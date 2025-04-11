@@ -48,9 +48,11 @@ export function TreatmentPlansPage() {
   const [showAIGeneratorDialog, setShowAIGeneratorDialog] = useState(false); // Added state for AI dialog
   
   // Handle creating a new treatment plan
-  const handleCreatePlan = async (planData: any) => {
+  // Update signature to accept toothIds
+  const handleCreatePlan = async (planData: any, toothIds: number[]) => { 
     try {
-      const newPlan = await createTreatmentPlan(planData);
+      // Pass toothIds to the hook function (will update hook next)
+      const newPlan = await createTreatmentPlan(planData, toothIds); 
       setShowNewPlanDialog(false);
       
       // Show the details of the new plan
@@ -65,7 +67,9 @@ export function TreatmentPlansPage() {
   const handleAIGeneratePlan = async (planData: any) => {
     try {
       // Assuming the AI generator returns data compatible with createTreatmentPlan
-      const newPlan = await createTreatmentPlan(planData); 
+      // Pass empty array for toothIds as AI generator doesn't provide them directly here
+      // Note: This function might be redundant now as AITreatmentGenerator handles its own logic.
+      const newPlan = await createTreatmentPlan(planData, []); 
       setShowAIGeneratorDialog(false);
       
       // Show the details of the new plan
@@ -255,9 +259,9 @@ export function TreatmentPlansPage() {
       <AITreatmentGenerator
         open={showAIGeneratorDialog}
         onOpenChange={setShowAIGeneratorDialog}
-        onSubmit={handleAIGeneratePlan}
+        // Remove the non-existent onSubmit prop
         patients={patients}
-        loading={loading}
+        // Remove the non-existent loading prop
       />
     </div>
   );

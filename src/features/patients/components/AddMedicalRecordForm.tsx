@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // Import useEffect
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,25 +14,27 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Re-add single Select imports
 import { Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { supabase } from '@/lib/supabase'; // Import supabase client
+import { MultiSelectCheckbox, MultiSelectOption } from '@/components/ui/multi-select-checkbox'; // Import MultiSelectCheckbox
 
-// Define the schema for the form
-const medicalRecordSchema = z.object({
-  record_date: z.string().refine((date) => !isNaN(Date.parse(date)), {
-    message: "Invalid date format",
-  }),
-  record_type: z.enum([
-    "consultation",
-    "diagnosis",
-    "treatment",
-    "prescription",
-    "lab_result",
-    "other"
-  ], { required_error: "Record type is required" }),
-  // General description/notes for all types
-  general_notes: z.string().optional(),
+ // Define the schema for the form using DB valid types
+ const medicalRecordSchema = z.object({
+   record_date: z.string().refine((date) => !isNaN(Date.parse(date)), {
+     message: "Invalid date format",
+   }),
+   // Use database-allowed enum values
+   record_type: z.enum([
+     "examination", 
+     "procedure", 
+     "prescription", 
+     "lab_result", 
+     "note"
+   ], { required_error: "Record type is required" }),
+   // General description/notes for all types
+   general_notes: z.string().optional(),
   // Type-specific fields (optional)
   consultation_subjective: z.string().optional(),
   consultation_objective: z.string().optional(),
@@ -51,23 +53,36 @@ const medicalRecordSchema = z.object({
   lab_units: z.string().optional(),
   lab_reference_range: z.string().optional(),
   other_details: z.string().optional(),
+  // Removed tooth_ids from the main schema
 });
 
-type MedicalRecordFormValues = z.infer<typeof medicalRecordSchema>;
+// Define type for tooth data
+interface Tooth {
+  id: number;
+  description: string;
+}
+
+// Explicit type for form values excluding tooth_ids
+type MedicalRecordFormSchemaValues = Omit<z.infer<typeof medicalRecordSchema>, 'tooth_ids'>;
 
 interface AddMedicalRecordFormProps {
   patientId: string;
-  // Modify onSubmit to accept the raw form values
-  onSubmit: (values: MedicalRecordFormValues) => Promise<void>; 
-  onCancel: () => void;
-  isLoading: boolean;
+// Update onSubmit prop type to use the explicit schema type
+onSubmit: (values: MedicalRecordFormSchemaValues, toothIds: number[]) => Promise<void>; 
+onCancel: () => void;
+isLoading: boolean;
 }
 
 export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading }: AddMedicalRecordFormProps) {
   const [selectedRecordType, setSelectedRecordType] = useState<string | undefined>(undefined);
+  const [teeth, setTeeth] = useState<Tooth[]>([]); // State for teeth
+  const [fetchError, setFetchError] = useState<string | null>(null); // State for fetch error
+  // Add separate state for selected teeth
+  const [selectedToothIds, setSelectedToothIds] = useState<number[]>([]); 
 
-  const form = useForm<MedicalRecordFormValues>({
-    resolver: zodResolver(medicalRecordSchema),
+  // Use the explicit schema type for useForm
+  const form = useForm<MedicalRecordFormSchemaValues>({ 
+    resolver: zodResolver(medicalRecordSchema), // Keep original schema for validation rules
     defaultValues: {
       record_date: format(new Date(), 'yyyy-MM-dd'),
       record_type: undefined, // Start with no type selected
@@ -89,18 +104,49 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
       lab_units: '',
       lab_reference_range: '',
       other_details: '',
+      // Removed tooth_ids default
     },
   });
+
+  // Fetch teeth data on component mount
+  useEffect(() => {
+    const fetchTeeth = async () => {
+      setFetchError(null);
+      const { data, error } = await supabase
+        .from('teeth')
+        .select('id, description')
+        .order('id', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching teeth:', error);
+        setFetchError('Failed to load teeth data.');
+        setTeeth([]);
+      } else {
+        setTeeth(data || []);
+      }
+    };
+    fetchTeeth();
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   // Watch the record_type field to update state
   const watchedRecordType = form.watch("record_type");
   React.useEffect(() => {
     setSelectedRecordType(watchedRecordType);
+    // Reset selected teeth when record type changes? Maybe not necessary.
   }, [watchedRecordType]);
 
-  const handleFormSubmit = async (values: MedicalRecordFormValues) => {
-    // The parent component's onSubmit will now handle structuring the data
-    await onSubmit(values); 
+  // Handler for teeth selection change
+  const handleTeethChange = (selected: (string | number)[]) => {
+    const numericIds = selected.map(id => Number(id)).filter(id => !isNaN(id));
+    setSelectedToothIds(numericIds);
+  };
+
+  // Update type hint for values
+  const handleFormSubmit = async (values: MedicalRecordFormSchemaValues) => { 
+    // Pass separated data and selected teeth to parent onSubmit
+    await onSubmit(values, selectedToothIds); 
+    // Reset selected teeth after submission
+    setSelectedToothIds([]); 
   };
 
   return (
@@ -129,16 +175,17 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a record type" />
+                     <SelectValue placeholder="Select a record type" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="consultation">Consultation Note</SelectItem>
-                    <SelectItem value="diagnosis">Diagnosis</SelectItem>
-                    <SelectItem value="treatment">Treatment</SelectItem>
+                    {/* Use DB values but keep user-friendly labels */}
+                    <SelectItem value="examination">Consultation / Examination / Diagnosis</SelectItem> 
+                    {/* <SelectItem value="examination">Diagnosis</SelectItem>  Combined into one */}
+                    <SelectItem value="procedure">Treatment / Procedure</SelectItem>
                     <SelectItem value="prescription">Prescription</SelectItem>
                     <SelectItem value="lab_result">Lab Result</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    <SelectItem value="note">Other Note</SelectItem>
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -147,12 +194,30 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
           />
         </div>
 
-        {/* Conditional Fields based on selectedRecordType */}
+         {/* Tooth Selection Field - Unlink from react-hook-form */}
+         <FormItem>
+            <FormLabel>Teeth</FormLabel>
+            <MultiSelectCheckbox
+              options={teeth.map(t => ({ value: t.id, label: `${t.id} - ${t.description}` }))}
+              selectedValues={selectedToothIds} // Use separate state
+              onChange={handleTeethChange} // Use separate handler
+              placeholder="Select teeth..."
+              className="w-full"
+              disabled={fetchError !== null || teeth.length === 0}
+            />
+            {fetchError && <FormDescription className="text-destructive">{fetchError}</FormDescription>}
+            {/* Manual validation message if needed */}
+            {/* <FormMessage /> */} {/* Removed as it's not linked to form state */}
+         </FormItem>
 
-        {selectedRecordType === 'consultation' && (
+        {/* Conditional Fields based on selectedRecordType (using DB values now) */}
+        {/* Show SOAP fields for 'examination' */}
+        {selectedRecordType === 'examination' && ( 
           <div className="space-y-4 p-4 border rounded bg-muted/30">
-            <h4 className="font-medium text-sm mb-4">Consultation Details (SOAP)</h4>
-            {/* Use a 2-column grid for SOAP fields */}
+            <h4 className="font-medium text-sm mb-4">Consultation / Examination / Diagnosis Details</h4>
+             {/* Allow SOAP notes OR Diagnosis fields for 'examination' type */}
+             <p className="text-xs text-muted-foreground mb-2">Enter SOAP notes OR Diagnosis details below.</p>
+             <h5 className="font-medium text-xs mb-2">SOAP Notes (Optional)</h5>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField control={form.control} name="consultation_subjective" render={({ field }) => (
                 <FormItem><FormLabel>Subjective</FormLabel><FormControl><Textarea rows={4} placeholder="Patient's complaints, history..." {...field} /></FormControl><FormMessage /></FormItem>
@@ -167,13 +232,8 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
                 <FormItem><FormLabel>Plan</FormLabel><FormControl><Textarea rows={4} placeholder="Treatment plan, follow-up..." {...field} /></FormControl><FormMessage /></FormItem>
               )} />
             </div>
-          </div>
-        )}
-
-        {selectedRecordType === 'diagnosis' && (
-          <div className="space-y-4 p-4 border rounded bg-muted/30">
-            <h4 className="font-medium text-sm">Diagnosis Details</h4>
-            <FormField control={form.control} name="diagnosis_code" render={({ field }) => (
+             <h5 className="font-medium text-xs mt-4 mb-2">Diagnosis Details (Optional)</h5>
+             <FormField control={form.control} name="diagnosis_code" render={({ field }) => (
               <FormItem><FormLabel>Diagnosis Code (e.g., ICD-10)</FormLabel><FormControl><Input placeholder="K02.1" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
             <FormField control={form.control} name="diagnosis_description" render={({ field }) => (
@@ -181,10 +241,11 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
             )} />
           </div>
         )}
-
-        {selectedRecordType === 'treatment' && (
+        
+        {/* Show Treatment fields for 'procedure' */}
+        {selectedRecordType === 'procedure' && ( 
           <div className="space-y-4 p-4 border rounded bg-muted/30">
-            <h4 className="font-medium text-sm">Treatment Details</h4>
+            <h4 className="font-medium text-sm">Treatment / Procedure Details</h4>
             <FormField control={form.control} name="treatment_procedure" render={({ field }) => (
               <FormItem><FormLabel>Procedure (Code or Name)</FormLabel><FormControl><Input placeholder="e.g., D2391, Composite Filling" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
@@ -193,8 +254,9 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
             )} />
           </div>
         )}
-
-        {selectedRecordType === 'prescription' && (
+        
+        {/* Prescription fields for 'prescription' */}
+        {selectedRecordType === 'prescription' && ( 
           <div className="space-y-4 p-4 border rounded bg-muted/30">
             <h4 className="font-medium text-sm">Prescription Details</h4>
              {/* Use grid for prescription fields */}
@@ -214,8 +276,9 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
             </div>
           </div>
         )}
-
-         {selectedRecordType === 'lab_result' && (
+        
+        {/* Lab Result fields for 'lab_result' */}
+         {selectedRecordType === 'lab_result' && ( 
           <div className="space-y-4 p-4 border rounded bg-muted/30">
             <h4 className="font-medium text-sm">Lab Result Details</h4>
              {/* Use grid for lab fields */}
@@ -235,10 +298,11 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
             </div>
           </div>
         )}
-
-        {selectedRecordType === 'other' && (
+        
+        {/* Other details for 'note' */}
+        {selectedRecordType === 'note' && ( 
            <div className="space-y-4 p-4 border rounded bg-muted/30">
-             <h4 className="font-medium text-sm">Other Details</h4>
+             <h4 className="font-medium text-sm">Other Note Details</h4>
              <FormField control={form.control} name="other_details" render={({ field }) => (
               <FormItem><FormLabel>Details</FormLabel><FormControl><Textarea placeholder="Enter any other relevant details..." {...field} /></FormControl><FormMessage /></FormItem>
             )} />

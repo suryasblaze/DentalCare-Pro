@@ -649,10 +649,13 @@ export const api = {
 
       let query = supabase
         .from('medical_records')
-        // Fetch related staff details using the foreign key 'created_by'
+        // Fetch related staff AND teeth details via the junction table
         .select(`
           *,
-          staff:created_by ( first_name, last_name ) 
+          staff:created_by ( first_name, last_name ),
+          medical_record_teeth (
+            teeth ( id, description )
+          )
         `)
         .order('record_date', { ascending: false });
 
@@ -665,7 +668,30 @@ export const api = {
       if (error) throw error;
 
       globalCache.set(cacheKey, data);
-      return data || []; // Return empty array if null
+
+      // Process the data to move teeth into a simpler array on the record object
+      const processedData = data?.map(record => {
+        // Ensure medical_record_teeth is an array and map teeth data
+        const teeth = Array.isArray(record.medical_record_teeth)
+          ? record.medical_record_teeth
+              .map((mrt: any) => mrt.teeth) // Extract the teeth object
+              .filter((tooth: any) => tooth !== null) // Filter out any null teeth
+          : [];
+        
+        // Return the record with a flattened 'teeth' array, removing the junction table structure
+        // Need to cast record to 'any' temporarily to add the new 'teeth' property
+        const modifiedRecord: any = { ...record }; 
+        delete modifiedRecord.medical_record_teeth; // Remove the original junction data
+        modifiedRecord.teeth = teeth; // Add the flattened teeth array
+        
+        return modifiedRecord;
+      }) || [];
+
+      // --- DEBUGGING LOG ---
+      console.log("API getMedicalRecords processedData:", processedData);
+      // --- END DEBUGGING LOG ---
+
+      return processedData; // Return the processed data
     },
 
     async getTreatmentPlans(patientId: string | null) {
@@ -679,7 +705,10 @@ export const api = {
         .from('treatment_plans')
         .select(`
           *,
-          treatments (*)
+          treatments (*),
+          treatment_plan_teeth (
+            teeth ( id, description )
+          )
         `)
         .order('start_date', { ascending: false });
 
@@ -695,19 +724,74 @@ export const api = {
       return data || []; // Return empty array if null
     },
 
-    async createMedicalRecord(record: Database['public']['Tables']['medical_records']['Insert']) { // Use Insert type
-      const { data, error } = await supabase
+    // Update createMedicalRecord to handle toothIds and map record_type
+    async createMedicalRecord(recordInput: Database['public']['Tables']['medical_records']['Insert'], toothIds: number[]) {
+      // Map frontend record_type to valid database enum values HERE
+      const mapRecordType = (frontendType: string | undefined): string => {
+        switch (frontendType) {
+          case 'consultation': return 'examination';
+          case 'diagnosis': return 'examination';
+          case 'treatment': return 'procedure';
+          case 'prescription': return 'prescription';
+          case 'lab_result': return 'lab_result';
+          case 'other': return 'note';
+          default: return 'note'; // Fallback or throw error? Defaulting to 'note'
+        }
+      };
+
+      // Create the final record object with the mapped type
+      const recordToInsert = {
+        ...recordInput,
+        record_type: mapRecordType(recordInput.record_type), // Apply mapping
+      };
+
+      // --- DEBUGGING LOG ---
+      console.log("API inserting mapped record:", recordToInsert);
+      // --- END DEBUGGING LOG ---
+
+      // Step 1: Insert the main medical record using the mapped data
+      const { data: recordData, error: recordError } = await supabase
         .from('medical_records')
-        .insert(record)
+        .insert(recordToInsert) // Use the record with the mapped type
         .select()
         .single();
 
-      if (error) throw error;
+      if (recordError) {
+        console.error("Error creating medical record:", recordError);
+        throw recordError;
+      }
+      if (!recordData) {
+        throw new Error("Failed to create medical record: No data returned.");
+      }
 
-      // Invalidate cache
-      globalCache.invalidate(`medical_records:${record.patient_id}`);
+      const newRecordId = recordData.id;
+
+      // Step 2: Insert into the medical_record_teeth junction table
+      if (toothIds && toothIds.length > 0) {
+        const teethLinks = toothIds.map(toothId => ({
+          medical_record_id: newRecordId,
+          tooth_id: toothId,
+        }));
+
+        const { error: teethError } = await supabase
+          .from('medical_record_teeth') // Junction table name
+          .insert(teethLinks);
+
+        if (teethError) {
+          console.error("Error linking teeth to medical record:", teethError);
+          // Consider transaction or error handling strategy
+          throw teethError; 
+        }
+      }
+
+      // Invalidate cache using the original input patient_id if available
+      if (recordInput.patient_id) {
+         globalCache.invalidate(`medical_records:${recordInput.patient_id}`);
+      }
       globalCache.invalidate('medical_records:all');
-      return data;
+
+      // Return the created record data
+      return recordData; 
     },
 
     async updateMedicalRecord(id: string, record: Database['public']['Tables']['medical_records']['Update']) { // Use Update type
@@ -748,19 +832,51 @@ export const api = {
       globalCache.invalidate('medical_records:all');
     },
 
-    async createTreatmentPlan(plan: TreatmentPlanInsert) { // Use Insert type
-      const { data, error } = await supabase
+    // Update createTreatmentPlan to handle toothIds
+    async createTreatmentPlan(plan: TreatmentPlanInsert, toothIds: number[]) { 
+      // Step 1: Insert the main treatment plan
+      const { data: planData, error: planError } = await supabase
         .from('treatment_plans')
         .insert(plan)
         .select()
         .single();
 
-      if (error) throw error;
+      if (planError) {
+        console.error("Error creating treatment plan:", planError);
+        throw planError;
+      }
+      if (!planData) {
+        throw new Error("Failed to create treatment plan: No data returned.");
+      }
+
+      const newPlanId = planData.id;
+
+      // Step 2: Insert into the junction table if toothIds are provided
+      if (toothIds && toothIds.length > 0) {
+        const teethLinks = toothIds.map(toothId => ({
+          treatment_plan_id: newPlanId,
+          tooth_id: toothId,
+        }));
+
+        const { error: teethError } = await supabase
+          .from('treatment_plan_teeth') // Your junction table name
+          .insert(teethLinks);
+
+        if (teethError) {
+          console.error("Error linking teeth to treatment plan:", teethError);
+          // Decide on error handling: Maybe delete the plan? Or just log and continue?
+          // For now, let's throw the error, indicating partial failure.
+          // Consider implementing a transaction (e.g., via RPC) later for atomicity.
+          throw teethError; 
+        }
+      }
 
       // Invalidate cache
       globalCache.invalidate(`treatment_plans:${plan.patient_id}`);
       globalCache.invalidate('treatment_plans:all');
-      return data;
+      
+      // Return the created plan data (without teeth links, fetch separately if needed)
+      return planData; 
     },
 
     async updateTreatmentPlan(id: string, plan: Database['public']['Tables']['treatment_plans']['Update']) { // Use Update type

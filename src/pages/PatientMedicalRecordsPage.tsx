@@ -1,18 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+// Remove Select imports if no longer needed, keep Label
 import { Label } from "@/components/ui/label";
+import { Input } from '@/components/ui/input'; // Import Input
+import { ScrollArea } from '@/components/ui/scroll-area'; // Import ScrollArea for results
 import { MedicalRecordsHistory } from '@/features/patients/components/MedicalRecordsHistory';
 import { AddMedicalRecordForm } from '@/features/patients/components/AddMedicalRecordForm'; // Import the form
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"; // Import Dialog components
-import { Button } from '@/components/ui/button'; // Import Button if needed for DialogTrigger
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"; // Import Dialog components
+import { Button } from '@/components/ui/button'; // Import Button
 import { supabase } from '@/lib/supabase'; // Import supabase client
 import { useToast } from "@/components/ui/use-toast"; // Import useToast
+import { api } from '@/lib/api'; // Import the api object
 
 // Define types (consider moving to shared types file)
 interface Patient {
   id: string;
-  full_name: string;
+  first_name: string | null; // Allow null
+  last_name: string | null; // Allow null
+  phone: string | null; // Corrected column name
+  registration_number: string | null; // Add registration_number
 }
 
 interface MedicalRecord {
@@ -28,11 +34,15 @@ interface MedicalRecord {
     first_name?: string | null;
     last_name?: string | null;
   } | null;
+  // Add teeth array to the interface
+  teeth?: { id: number; description: string }[]; 
 }
 
 export function PatientMedicalRecordsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [searchTerm, setSearchTerm] = useState(''); // Add state for search term
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [selectedPatientName, setSelectedPatientName] = useState<string | null>(null); // State to show selected patient name
   const [medicalRecords, setMedicalRecords] = useState<MedicalRecord[]>([]);
   const [isLoadingPatients, setIsLoadingPatients] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
@@ -48,17 +58,19 @@ export function PatientMedicalRecordsPage() {
       setIsLoadingPatients(true);
       setErrorPatients(null);
       try {
+        // Fetch required fields for searching using correct column names
         const { data, error } = await supabase
           .from('patients')
-          .select('id, first_name, last_name')
+          .select('id, first_name, last_name, phone, registration_number') // Corrected 'phone'
           .order('last_name', { ascending: true })
           .order('first_name', { ascending: true });
 
         if (error) throw error;
-        setPatients(data.map(p => ({ id: p.id, full_name: `${p.first_name || ''} ${p.last_name || ''}`.trim() })) || []);
+        // Map data directly to the Patient interface
+        setPatients(data || []);
       } catch (err: any) {
-        setErrorPatients('Failed to fetch patients.');
-        console.error("Error fetching patients:", err);
+        setErrorPatients('Failed to fetch patients.'); // Keep error message generic for user
+        console.error("Error fetching patients:", err); // Log specific error for debugging
       } finally {
         setIsLoadingPatients(false);
       }
@@ -100,8 +112,10 @@ export function PatientMedicalRecordsPage() {
     }
   }, [selectedPatientId, fetchMedicalRecords]);
 
-  const handlePatientSelect = (value: string) => {
-    setSelectedPatientId(value);
+  const handlePatientSelect = (patient: Patient) => {
+    setSelectedPatientId(patient.id);
+    setSelectedPatientName(`${patient.first_name || ''} ${patient.last_name || ''}`.trim());
+    setSearchTerm(''); // Clear search term after selection
   };
 
   // Handler for the "Add Record" button within MedicalRecordsHistory
@@ -119,13 +133,17 @@ export function PatientMedicalRecordsPage() {
   }; // Correct end of handleAddMedicalRecordClick
 
   // Handler for form submission from AddMedicalRecordForm
-  const handleFormSubmit = async (values: any) => { // Use 'any' for now, refine later if needed
+  // Update signature to accept values and toothIds
+  const handleFormSubmit = async (values: any, toothIds: number[]) => { 
     if (!selectedPatientId) return;
 
     setIsSubmittingRecord(true);
+
+    // Mapping is now done in api.ts, remove it from here
+
     let descriptionData: any = { general_notes: values.general_notes };
 
-    // Structure description based on record type
+    // Structure description based on record type (using original frontend type for logic)
     switch (values.record_type) {
       case 'consultation':
         descriptionData = {
@@ -176,18 +194,23 @@ export function PatientMedicalRecordsPage() {
         break;
     }
 
-    try {
-      const { error } = await supabase
-        .from('medical_records')
-        .insert({
-          patient_id: selectedPatientId,
-          record_date: values.record_date,
-          record_type: values.record_type,
-          description: JSON.stringify(descriptionData), // Store structured data as JSON string
-          // created_by: // TODO: Get current user ID if needed
-        });
+    // Prepare the main record data (pass the original form record_type to api.ts)
+    const recordData = {
+      patient_id: selectedPatientId,
+      record_date: values.record_date,
+      record_type: values.record_type, // Pass the original form value
+      description: JSON.stringify(descriptionData), // Store structured data as JSON string
+      // created_by: // TODO: Get current user ID if needed
+    };
 
-      if (error) throw error;
+    // Logging is now done in api.ts
+
+    try {
+      // Call the API layer function
+      // Pass both recordData and toothIds
+      await api.patients.createMedicalRecord(recordData, toothIds);
+
+      // No need to check error here if api function throws on error
 
       toast({
         title: "Success",
@@ -212,28 +235,66 @@ export function PatientMedicalRecordsPage() {
     <div>
       <PageHeader heading="Patient Medical Records" text="Select a patient to view or add medical records." />
 
-      <div className="mt-6 mb-8 max-w-md"> {/* Added margin-bottom */}
-        <Label htmlFor="patient-select">Select Patient</Label>
-        <Select
-          value={selectedPatientId ?? ''}
-          onValueChange={handlePatientSelect}
+      <div className="mt-6 mb-8 max-w-md relative"> {/* Added relative positioning */}
+        <Label htmlFor="patient-search">Select Patient</Label>
+        <Input
+          type="search"
+          id="patient-search"
+          value={searchTerm}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setSelectedPatientId(null); // Clear selection when searching
+            setSelectedPatientName(null);
+          }}
+          placeholder={selectedPatientName || "Search by name, phone, or registration..."} // Show selected name or placeholder
           disabled={isLoadingPatients}
-        >
-          <SelectTrigger id="patient-select" className="w-full">
-            <SelectValue placeholder={isLoadingPatients ? "Loading patients..." : "Select a patient"} />
-          </SelectTrigger>
-          <SelectContent>
-            {errorPatients && <SelectItem value="error" disabled>{errorPatients}</SelectItem>}
-            {!isLoadingPatients && !errorPatients && patients.length === 0 && (
-              <SelectItem value="no-patients" disabled>No patients found</SelectItem>
-            )}
-            {patients.map((patient) => (
-              <SelectItem key={patient.id} value={patient.id}>
-                {patient.full_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          className="w-full"
+        />
+        {isLoadingPatients && <p className="text-sm text-muted-foreground mt-1">Loading patients...</p>}
+        {errorPatients && <p className="text-sm text-destructive mt-1">{errorPatients}</p>}
+
+        {/* Search Results Dropdown */}
+        {searchTerm && !isLoadingPatients && !errorPatients && (
+          <ScrollArea className="absolute z-10 w-full bg-background border rounded-md shadow-lg mt-1 max-h-60"> {/* Dropdown styling */}
+            <div className="p-2">
+              {patients.filter(patient => {
+                const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
+                const phone = patient.phone?.toLowerCase() || ''; // Corrected 'phone'
+                const regNum = patient.registration_number?.toLowerCase() || '';
+                const searchLower = searchTerm.toLowerCase();
+                return name.includes(searchLower) || phone.includes(searchLower) || regNum.includes(searchLower);
+              }).length > 0 ? (
+                patients
+                  .filter(patient => {
+                    const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
+                    const phone = patient.phone?.toLowerCase() || ''; // Corrected 'phone'
+                    const regNum = patient.registration_number?.toLowerCase() || '';
+                    const searchLower = searchTerm.toLowerCase();
+                    return name.includes(searchLower) || phone.includes(searchLower) || regNum.includes(searchLower);
+                  })
+                  .map((patient) => (
+                    <Button
+                      key={patient.id}
+                      variant="ghost" // Use ghost variant for list items
+                      className="w-full justify-start text-left h-auto py-2 px-3 mb-1" // Adjust padding/margin
+                      onClick={() => handlePatientSelect(patient)}
+                    >
+                      <div>
+                        <div>{`${patient.first_name || ''} ${patient.last_name || ''}`.trim()}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {patient.registration_number && `Reg: ${patient.registration_number}`}
+                          {patient.registration_number && patient.phone && " | "}
+                          {patient.phone && `Ph: ${patient.phone}`} {/* Corrected 'phone' */}
+                        </div>
+                      </div>
+                    </Button>
+                  ))
+              ) : (
+                <p className="text-sm text-muted-foreground p-2">No patients found matching "{searchTerm}"</p>
+              )}
+            </div>
+          </ScrollArea>
+        )}
       </div>
 
       {/* Display loading/error state for records or the history component */}
@@ -249,8 +310,9 @@ export function PatientMedicalRecordsPage() {
           />
         )
       )}
-      {!selectedPatientId && !isLoadingPatients && (
-         <p className="text-muted-foreground mt-8">Please select a patient to view their medical records.</p>
+      {/* Keep message if no patient is selected *after* loading */}
+      {!selectedPatientId && !isLoadingPatients && !searchTerm && (
+         <p className="text-muted-foreground mt-8">Please search for and select a patient to view their medical records.</p>
       )}
 
 

@@ -158,12 +158,13 @@ export function useTreatmentPlans() {
   }, [treatmentPlans]);
   
   // Create treatment plan
-  const createTreatmentPlan = useCallback(async (planData: z.infer<typeof treatmentPlanSchema>) => {
+  // Add toothIds as the second argument
+  const createTreatmentPlan = useCallback(async (planData: z.infer<typeof treatmentPlanSchema>, toothIds: number[]) => { 
     try {
       setLoading(true);
       
-      // Create plan with validated data
-      const createdPlan = await treatmentService.createTreatmentPlan(planData);
+      // Pass toothIds to the service layer
+      const createdPlan = await treatmentService.createTreatmentPlan(planData, toothIds); 
       
       toast({
         title: "Success",

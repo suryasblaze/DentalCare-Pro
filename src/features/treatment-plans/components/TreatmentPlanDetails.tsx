@@ -24,7 +24,8 @@ import {
   FileText,
   ArrowUpRight,
   ChevronLeft, // Added for pagination
-  ChevronRight // Added for pagination
+  ChevronRight, // Added for pagination
+  ClipboardList // Replaced Tooth icon
 } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils/validation';
@@ -180,6 +181,26 @@ export function TreatmentPlanDetails({
                   </p>
                 </div>
               </div>
+
+              {/* Display Associated Teeth */}
+              {plan.teeth && plan.teeth.length > 0 && (
+                <div className="flex items-start gap-2"> {/* Use items-start for alignment */}
+                  <ClipboardList className="h-5 w-5 text-muted-foreground mt-1" /> {/* Use ClipboardList icon */}
+                  <div>
+                    <p className="text-sm font-medium">Associated Teeth</p>
+                    <div className="mt-1 flex flex-wrap gap-1"> {/* Reduced gap */}
+                      {plan.teeth.map((tooth: any) => (
+                        <span
+                          key={tooth.id}
+                          className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800" // Use blue badge style
+                        >
+                          {tooth.id} - {tooth.description}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
             <div className="space-y-4">
