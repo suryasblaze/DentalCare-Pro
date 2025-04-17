@@ -103,6 +103,7 @@ export const medicalInfoSchema = z.object({
   dental_material_allergies_details: z.string().optional(),
   // Add notes field back
   notes: z.string().optional(),
+  // Removed confirmation checkbox field
 });
 
 export type MedicalInfoValues = z.infer<typeof medicalInfoSchema>;
@@ -955,6 +956,8 @@ export function PatientMedicalInfoForm() {
            </FormItem>
          )}
         />
+
+      {/* Removed Confirmation Checkbox FormField */}
 
     </div>
   );

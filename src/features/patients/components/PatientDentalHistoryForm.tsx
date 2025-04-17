@@ -47,6 +47,7 @@ export const dentalHistorySchema = z.object({
   // Additional Comments & Future Dental Goals
   dh_additional_summary: z.string().optional(), // New field
   dh_future_goals: z.string().optional(), // New field
+  // Removed confirmation checkbox field
 
   // --- Fields removed from original simpler version ---
   // last_dental_visit_date: z.date().optional().nullable(), // Replaced by dh_treatment_dates
@@ -605,6 +606,8 @@ export function PatientDentalHistoryForm() {
              )}
            />
        </div>
+
+      {/* Removed Confirmation Checkbox FormField */}
 
     </div>
   );

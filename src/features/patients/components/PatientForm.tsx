@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'; // Added React import and useCallback
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -6,16 +6,27 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react'; // Added Icons & CheckCircle
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog"; // Use standard Dialog
+import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
+import { Label } from "@/components/ui/label"; // Import Label
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 import { Patient, BloodGroup, Gender, MaritalStatus, Json } from '@/types';
-import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form"; // Added for simplified form
-import { Input } from "@/components/ui/input"; // Added for simplified form
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Added for simplified form
+import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PatientPersonalInfoForm, personalInfoSchema } from './PatientPersonalInfoForm';
-import { PatientContactInfoForm, contactInfoSchema } from './PatientContactInfoForm'; // Re-enabled import
+import { PatientContactInfoForm, contactInfoSchema } from './PatientContactInfoForm';
 import {
   PatientMedicalInfoForm,
   medicalInfoSchema
@@ -23,35 +34,44 @@ import {
 import {
   PatientDentalHistoryForm,
   dentalHistorySchema
-} from './PatientDentalHistoryForm'; // Added Import
+} from './PatientDentalHistoryForm';
 import {
   PatientFamilyHistoryForm,
   familyHistorySchema
-} from './PatientFamilyHistoryForm'; // Added Import
+} from './PatientFamilyHistoryForm';
 import {
   PatientLifestyleForm,
   lifestyleSchema
-} from './PatientLifestyleForm'; // Added Import
-import {
-  PatientConsentForm,
-  consentSchema
-} from './PatientConsentForm'; // Added Import
+} from './PatientLifestyleForm';
+// Consent form component is no longer needed here
+// import {
+//   PatientConsentForm,
+//   consentSchema
+// } from './PatientConsentForm';
 import {
   PatientDocumentsForm,
-  documentsSchema // Keep documents form import
+  documentsSchema
 } from './PatientDocumentsForm';
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 
-// Combine schemas: Personal, Contact, Medical (which includes others), Documents
-// Combine ALL schemas
+// Keep individual schemas accessible
+const consentFieldsSchema = z.object({
+  acknowledgment: z.boolean().refine(val => val === true, {
+    message: "You must acknowledge that the information provided is accurate.",
+  }),
+  patient_signature_consent: z.string().optional(),
+  consent_date: z.date().optional().default(new Date()),
+});
+
+// Combine ALL schemas for the full form type definition, including consent
 const patientSchema = z.object({
   ...personalInfoSchema.shape,
   ...contactInfoSchema.shape,
   ...medicalInfoSchema.shape,
-  ...dentalHistorySchema.shape,   // Added Dental History
-  ...familyHistorySchema.shape,  // Added Family History
-  ...lifestyleSchema.shape,    // Added Lifestyle
-  ...consentSchema.shape,      // Added Consent
+  ...dentalHistorySchema.shape,
+  ...familyHistorySchema.shape,
+  ...lifestyleSchema.shape,
+  ...consentFieldsSchema.shape, // Add consent fields here
   ...documentsSchema.shape,
 });
 
@@ -59,11 +79,11 @@ const patientSchema = z.object({
 const simplifiedPatientSchema = z.object({
   first_name: personalInfoSchema.shape.first_name,
   last_name: personalInfoSchema.shape.last_name,
-  middle_name: personalInfoSchema.shape.middle_name.optional(), // Ensure optional if not always needed
+  middle_name: personalInfoSchema.shape.middle_name.optional(),
   gender: personalInfoSchema.shape.gender,
   age: personalInfoSchema.shape.age,
-  occupation: personalInfoSchema.shape.occupation.optional(), // Ensure optional if not always needed
-  phone: contactInfoSchema.shape.phone, // Add phone from contact schema
+  occupation: personalInfoSchema.shape.occupation.optional(),
+  phone: contactInfoSchema.shape.phone,
 });
 
 // Define the form values type based on the combined schema (for full form)
@@ -74,7 +94,6 @@ type SimplifiedPatientFormValues = z.infer<typeof simplifiedPatientSchema>;
 type PatientFormValues = FullPatientFormValues | SimplifiedPatientFormValues;
 
 // Define the structure of a document object stored in the JSONB array
-// Ensure this matches the structure used in uploadFile and onSubmit
 interface PatientDocument {
   path: string;
   url: string;
@@ -88,20 +107,57 @@ interface PatientFormProps {
   patient?: Patient | null;
   onSuccess: (patientId?: string) => void;
   onCancel: () => void;
-  mode?: 'simplified' | 'full'; // Add mode prop
+  mode?: 'simplified' | 'full';
 }
 
-export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: PatientFormProps) { // Default mode to 'full'
+// Define tab order for navigation
+const tabOrder: string[] = [
+  'personal',
+  'contact',
+  'medical',
+  'dental',
+  'family_lifestyle',
+  // 'consent', // Removed consent tab
+  'documents',
+];
+
+// Map tab names to their field names
+// Note: This assumes the schemas accurately reflect the fields in each component
+const getFieldsForSchema = (schema: ZodSchema<any>): string[] => {
+    // Use instanceof for proper type checking
+    if (schema instanceof z.ZodObject) {
+        return Object.keys(schema.shape);
+    }
+    return [];
+};
+
+const tabToFields: Record<string, string[]> = {
+  personal: getFieldsForSchema(personalInfoSchema),
+  contact: getFieldsForSchema(contactInfoSchema),
+  medical: getFieldsForSchema(medicalInfoSchema),
+  dental: getFieldsForSchema(dentalHistorySchema),
+  family_lifestyle: [
+      ...getFieldsForSchema(familyHistorySchema),
+      ...getFieldsForSchema(lifestyleSchema)
+  ],
+  // Consent fields are handled in the dialog, not a tab
+  documents: getFieldsForSchema(documentsSchema),
+};
+
+
+export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: PatientFormProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
+  // State for fields inside the dialog
+  const [dialogAcknowledgment, setDialogAcknowledgment] = useState(false);
+  const [dialogSignature, setDialogSignature] = useState('');
+  const [dialogConsentDate, setDialogConsentDate] = useState<Date | null>(new Date());
+  // ---
+  const [pendingSubmitData, setPendingSubmitData] = useState<FullPatientFormValues | null>(null); // Use Full type here
+  const [activeTab, setActiveTab] = useState(tabOrder[0]); // Start at the first tab
+  // isConsentSubmission state is no longer needed as dialog always shows consent
   const isSimplifiedMode = mode === 'simplified';
-
-  const formatArrayToString = useCallback((value: any): string => {
-    if (Array.isArray(value)) {
-      return value.join(', ');
-    }
-    return String(value ?? '');
-  }, []);
 
   // Define initial default values for the simplified form
   const simplifiedDefaultValues: SimplifiedPatientFormValues = {
@@ -109,63 +165,53 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
     occupation: '', phone: '',
   };
 
-  // Define initial default values for the full form
+  // Define initial default values for the full form (without confirmation fields)
   const fullDefaultValues: FullPatientFormValues = {
-    ...simplifiedDefaultValues, // Start with simplified defaults
-    // Add defaults for fields NOT in simplified view
+    ...simplifiedDefaultValues,
     marital_status: 'single',
     email: '', address: '', city: '', state: '', postal_code: '', country: 'USA',
     emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '',
-    // Medical Info (Core) - From PatientMedicalInfoForm
-    blood_group: 'unknown', height: null, weight: null, has_allergies: 'no', // Removed allergies_details
-    // Allergy arrays and details (initialize as empty/null)
+    blood_group: 'unknown', height: null, weight: null, has_allergies: 'no',
     medication_allergies: [], other_medication_allergy_details: '',
     food_allergies: [], other_food_allergy_details: '',
     environmental_allergies: [], other_environmental_allergy_details: '',
     other_allergies: [], other_allergy_details: '', other_allergies_manual_input: '',
-    // Rest of medical info
     diagnosed_conditions: [], other_diagnosed_condition: '', has_implants: 'no', implants_details: '',
-    taking_medications: 'no', current_medications: [], // Changed to array
+    taking_medications: 'no', current_medications: [],
     recent_health_changes: 'no', health_changes_details: '',
-    previous_surgeries: [], // Changed to array
+    previous_surgeries: [],
     immunizations_up_to_date: 'not_sure', recent_immunizations: '',
     recent_medical_screenings: 'no', screenings_details: '', dental_material_allergies: 'no',
-    dental_material_allergies_details: '', notes: '', // Ensure notes is initialized here too
-    // Dental History - From PatientDentalHistoryForm (Updated)
+    dental_material_allergies_details: '', notes: '',
     dh_reason_for_visit: undefined, dh_reason_for_visit_other: "", dh_chief_complaint: "",
     dh_has_pain: "no", dh_pain_description: "", dh_pain_scale: undefined, dh_pain_duration_onset: "",
-    dh_past_treatments: [], dh_past_treatments_other: "", // Use new fields
+    dh_past_treatments: [], dh_past_treatments_other: "",
     dh_brushing_frequency: undefined, dh_flossing_habits: undefined, dh_additional_hygiene_products: "",
     dh_technique_tools: "", dh_orthodontic_history: "no", dh_orthodontic_details: "", dh_has_records: "no",
     dh_xray_frequency: "", dh_bite_issues: "no", dh_bite_symptoms: "", dh_cosmetic_concerns: "no",
     dh_cosmetic_issues_details: "", dh_functional_concerns: "", dh_emergency_history: "no",
     dh_emergency_details: "", dh_additional_summary: "", dh_future_goals: "",
-    // Family History - From PatientFamilyHistoryForm
-    family_medical_conditions: [], family_medical_conditions_other: "", family_dental_issues: [], family_dental_issues_other: "", // Corrected key from fh_ to family_
-    // Lifestyle - From PatientLifestyleForm (Corrected keys)
+    family_medical_conditions: [], family_medical_conditions_other: "", family_dental_issues: [], family_dental_issues_other: "",
     diet_description: "", exercise_frequency: undefined, stress_level: undefined,
     has_sleep_issues: "no", sleep_issues_details: "", pregnancy_status: "not_applicable",
     pregnancy_comments: "", has_mental_health_conditions: "no", mental_health_details: "",
     additional_concerns: "", additional_comments: "",
-    acknowledgment: false, patient_signature_consent: "", consent_date: new Date(), // Consent defaults
-    consent_given: false, consent_notes: "", profile_photo: undefined, signature: undefined, id_document: undefined, // Document defaults
+    // Default values for consent fields (though they will be set in dialog)
+    acknowledgment: false, patient_signature_consent: "", consent_date: new Date(),
+    consent_given: false, consent_notes: "", profile_photo: undefined, signature: undefined, id_document: undefined,
   };
-
 
   // Calculate default values based on mode and patient prop
   const calculateDefaultValues = useCallback((currentPatient: Patient | null | undefined): Partial<PatientFormValues> => {
     const baseDefaults = isSimplifiedMode ? simplifiedDefaultValues : fullDefaultValues;
     const patientOverrides: Partial<PatientFormValues> = currentPatient ? {
-        // Always map these core fields
         first_name: currentPatient.first_name || '',
         last_name: currentPatient.last_name || '',
         middle_name: currentPatient.middle_name || '',
         gender: currentPatient.gender || 'male',
         age: currentPatient.age ?? null,
         occupation: currentPatient.occupation || '',
-        phone: currentPatient.phone || '', // Always include phone
-
-        // Map additional fields only in full mode
+        phone: currentPatient.phone || '',
         ...(!isSimplifiedMode && {
           marital_status: currentPatient.marital_status || 'single',
           email: currentPatient.email || '',
@@ -180,9 +226,7 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
           blood_group: currentPatient.blood_group || 'unknown',
           height: currentPatient.height ?? null,
           weight: currentPatient.weight ?? null,
-          // Map detailed medical info if available (assuming it's stored in detailed_medical_info JSON)
-          has_allergies: (currentPatient.detailed_medical_info as any)?.has_allergies || 'no', // Get from JSON if exists
-          // Map allergy arrays/details from JSON if they exist
+          has_allergies: (currentPatient.detailed_medical_info as any)?.has_allergies || 'no',
           medication_allergies: (currentPatient.detailed_medical_info as any)?.medication_allergies || [],
           other_medication_allergy_details: (currentPatient.detailed_medical_info as any)?.other_medication_allergy_details || '',
           food_allergies: (currentPatient.detailed_medical_info as any)?.food_allergies || [],
@@ -192,7 +236,6 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
           other_allergies: (currentPatient.detailed_medical_info as any)?.other_allergies || [],
           other_allergy_details: (currentPatient.detailed_medical_info as any)?.other_allergy_details || '',
           other_allergies_manual_input: (currentPatient.detailed_medical_info as any)?.other_allergies_manual_input || '',
-          // Map other fields
           diagnosed_conditions: Array.isArray(currentPatient.medical_conditions) ? currentPatient.medical_conditions : [],
           taking_medications: currentPatient.current_medications && Array.isArray(currentPatient.current_medications) && currentPatient.current_medications.length > 0 ? "yes" : "no",
           current_medications: Array.isArray(currentPatient.current_medications) ? (currentPatient.current_medications as { name: string; dosage?: string; frequency?: string }[]) : [],
@@ -200,7 +243,10 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
           notes: currentPatient.notes || '',
           consent_given: currentPatient.consent_given || false,
           consent_notes: currentPatient.consent_notes || "",
-          // TODO: Map detailed history/lifestyle/etc. if needed for full mode editing
+          // Map detailed history/lifestyle/etc. from JSONB fields if they exist
+          ...(currentPatient.dental_history && typeof currentPatient.dental_history === 'object' ? { ...(currentPatient.dental_history as object) } : {}),
+          ...(currentPatient.family_medical_history && typeof currentPatient.family_medical_history === 'object' ? { ...(currentPatient.family_medical_history as object) } : {}),
+          ...(currentPatient.lifestyle_habits && typeof currentPatient.lifestyle_habits === 'object' ? { ...(currentPatient.lifestyle_habits as object) } : {}),
         })
     } : {};
 
@@ -208,22 +254,19 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
       ...baseDefaults,
       ...patientOverrides,
     };
-  }, [patient, formatArrayToString, isSimplifiedMode]); // Add isSimplifiedMode dependency
+  }, [patient, isSimplifiedMode]);
 
-  // --- Initialize React Hook Form ---
+  // Use the full schema for the resolver, but validation logic will be manual for full mode save
   const form = useForm<PatientFormValues>({
-    resolver: zodResolver(isSimplifiedMode ? simplifiedPatientSchema : patientSchema), // Use correct schema based on mode
-    defaultValues: calculateDefaultValues(patient), // Calculate initial defaults
+    resolver: zodResolver(isSimplifiedMode ? simplifiedPatientSchema : patientSchema),
+    defaultValues: calculateDefaultValues(patient),
+    mode: 'onChange', // Optional: Show errors as user types
   });
-  // --- End Initialize React Hook Form ---
 
-  // Reset form if patient data or mode changes
   useEffect(() => {
     form.reset(calculateDefaultValues(patient));
-  }, [patient, mode, form.reset, calculateDefaultValues]); // Add mode dependency
+  }, [patient, mode, form.reset, calculateDefaultValues]);
 
-
-  // Helper function to upload file and get details
   const uploadFile = async (file: File, patientId: string, fieldName: string): Promise<PatientDocument | null> => {
     if (!(file instanceof File)) { return null; }
     console.log(`Uploading ${fieldName} for ${patientId}`);
@@ -238,30 +281,25 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
     return { path: filePath, url: urlData.publicUrl, name: file.name, type: fieldName, size: file.size, uploaded_at: new Date().toISOString() };
   };
 
-
-  const onSubmit = async (data: PatientFormValues) => {
+  const performSave = async (saveData: PatientFormValues) => {
     setLoading(true);
     try {
       const currentPatientId = patient?.id;
-      // Cast data to FullPatientFormValues to access document fields safely within the full mode check
-      const fullDataForUploadCheck = data as FullPatientFormValues;
+      const fullDataForUploadCheck = saveData as FullPatientFormValues;
+
       if (!currentPatientId && (fullDataForUploadCheck.profile_photo instanceof File || fullDataForUploadCheck.signature instanceof File || fullDataForUploadCheck.id_document instanceof File)) {
          throw new Error("Cannot upload files for a new patient. Save first.");
       }
 
-      // Initialize documents array, carefully handling potential Json from patient prop
       let documents: PatientDocument[] = [];
       let profilePhotoUrl = patient?.profile_photo_url || null;
       let signatureUrl = patient?.signature_url || null;
 
-      // File uploads only possible in full mode and when editing
       if (!isSimplifiedMode && currentPatientId) {
         if (Array.isArray(patient?.documents)) {
           documents = patient.documents as unknown as PatientDocument[];
         }
-        // Cast data again here for type safety when accessing document fields
-        const fullDataForUpload = data as FullPatientFormValues;
-
+        const fullDataForUpload = fullDataForUploadCheck;
         if (fullDataForUpload.profile_photo instanceof File) {
             const uploadedDoc = await uploadFile(fullDataForUpload.profile_photo, currentPatientId, 'profile_photo');
             if (uploadedDoc) { profilePhotoUrl = uploadedDoc.url; documents = documents.filter(doc => doc.type !== 'profile_photo'); documents.push(uploadedDoc); }
@@ -275,36 +313,25 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
             if (uploadedDoc) { documents = documents.filter(doc => doc.type !== 'id_document'); documents.push(uploadedDoc); }
         }
       } else if (!currentPatientId && (fullDataForUploadCheck.profile_photo instanceof File || fullDataForUploadCheck.signature instanceof File || fullDataForUploadCheck.id_document instanceof File)) {
-        // Prevent file upload on initial create even in full mode (current logic) - use the already cast variable
         throw new Error("Cannot upload files for a new patient. Save first.");
       }
 
-
-      // --- Prepare Patient Data Payload ---
-      const stringToArray = (value: string | undefined | null): string[] | null => {
-        if (!value || typeof value !== 'string') return null;
-        const arr = value.split(',').map(item => item.trim()).filter(Boolean);
-        return arr.length > 0 ? arr : null;
-      };
-
-      // Map common fields first
       const commonPatientData: Partial<Patient> = {
-        first_name: data.first_name || '',
-        last_name: data.last_name || '',
-        middle_name: data.middle_name || null,
-        gender: data.gender as Gender || null,
-        age: data.age ?? null,
-        occupation: data.occupation || null,
-        phone: data.phone || '',
+        first_name: saveData.first_name || '',
+        last_name: saveData.last_name || '',
+        middle_name: saveData.middle_name || null,
+        gender: saveData.gender as Gender || null,
+        age: saveData.age ?? null,
+        occupation: saveData.occupation || null,
+        phone: saveData.phone || '',
       };
 
       let patientData: Partial<Patient>;
 
       if (isSimplifiedMode) {
-        patientData = commonPatientData; // Only common fields for simplified mode
+        patientData = commonPatientData;
       } else {
-        // Include all fields for full mode
-        const fullData = data as FullPatientFormValues; // Cast to access all fields
+        const fullData = saveData as FullPatientFormValues;
         patientData = {
           ...commonPatientData,
           marital_status: fullData.marital_status as MaritalStatus || null,
@@ -320,7 +347,6 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
           blood_group: fullData.blood_group as BloodGroup || null,
           height: fullData.height ?? null,
           weight: fullData.weight ?? null,
-          // allergies: fullData.has_allergies === 'yes' ? stringToArray(fullData.allergies_details) : null, // Removed old allergy mapping
           medical_conditions: [
             ...(fullData.diagnosed_conditions || []),
             ...(fullData.other_diagnosed_condition ? [fullData.other_diagnosed_condition] : [])
@@ -341,8 +367,7 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
               screenings_details: fullData.screenings_details || null,
               dental_material_allergies: fullData.dental_material_allergies,
               dental_material_allergies_details: fullData.dental_material_allergies_details || null,
-              // Add detailed allergy fields here
-              has_allergies: fullData.has_allergies, // Store the yes/no flag
+              has_allergies: fullData.has_allergies,
               medication_allergies: fullData.medication_allergies || [],
               other_medication_allergy_details: fullData.other_medication_allergy_details || null,
               food_allergies: fullData.food_allergies || [],
@@ -361,10 +386,8 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
               pain_description: fullData.dh_pain_description || null,
               pain_scale: fullData.dh_pain_scale,
               pain_duration_onset: fullData.dh_pain_duration_onset || null,
-              // Use new past treatment fields
               past_treatments: fullData.dh_past_treatments || [],
               past_treatments_other: fullData.dh_past_treatments_other || null,
-              // Remove old fields: dh_past_treatments_details, dh_treatment_dates, dh_treatment_outcomes, dh_follow_up_treatments
               brushing_frequency: fullData.dh_brushing_frequency,
               flossing_habits: fullData.dh_flossing_habits,
               additional_hygiene_products: fullData.dh_additional_hygiene_products || null,
@@ -399,7 +422,7 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
               mental_health: fullData.has_mental_health_conditions === 'yes' ? fullData.mental_health_details || 'Yes, details missing' : 'No',
               additional_concerns: fullData.additional_concerns || null,
               additional_comments: fullData.additional_comments || null,
-          } as unknown as Json, // Cast lifestyle_habits to Json
+          } as unknown as Json,
           notes: fullData.notes || null,
           consent_given: fullData.consent_given || null,
           profile_photo_url: profilePhotoUrl,
@@ -407,9 +430,7 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
           documents: documents as unknown as Json,
         };
       }
-      // --- End Prepare Patient Data Payload ---
 
-      // --- Database Operation ---
       if (currentPatientId) {
         console.log(`Updating existing patient (${mode} mode):`, currentPatientId);
         await api.patients.update(currentPatientId, patientData);
@@ -417,12 +438,10 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
         onSuccess();
       } else {
         console.log(`Creating new patient (${mode} mode)...`);
-        // Ensure file URLs and documents are not sent on create
         const createPayload = { ...patientData };
         delete createPayload.profile_photo_url;
         delete createPayload.signature_url;
         delete createPayload.documents;
-        // Ensure detailed fields are null/empty if creating in simplified mode
         if (isSimplifiedMode) {
             createPayload.marital_status = null;
             createPayload.email = null;
@@ -437,7 +456,7 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
             createPayload.blood_group = null;
             createPayload.height = null;
             createPayload.weight = null;
-            createPayload.allergies = null;
+            // createPayload.allergies = null; // Field removed/replaced
             createPayload.medical_conditions = null;
             createPayload.current_medications = null;
             createPayload.previous_surgeries = null;
@@ -448,8 +467,7 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
             createPayload.notes = null;
             createPayload.consent_given = null;
         }
-
-        const newPatient = await api.patients.create(createPayload as any); // Use 'as any' or define specific create type
+        const newPatient = await api.patients.create(createPayload as any);
         console.log("New patient created:", newPatient.id);
         const successMessage = isSimplifiedMode
           ? "Basic patient info saved. Complete profile later."
@@ -470,70 +488,273 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
     }
   };
 
-  // --- Return JSX ---
+  // onSubmit is now ONLY for simplified mode (called by form.handleSubmit)
+  const onSubmit = (data: PatientFormValues) => {
+     if (isSimplifiedMode) {
+       performSave(data);
+     } else {
+       // This part should ideally not be reached if validation is handled manually before
+       console.warn("onSubmit called unexpectedly in full mode");
+     }
+  };
+
+  // New handler for the Save Changes button click in full mode
+  const handleSaveChangesClick = async () => {
+    if (isSimplifiedMode) return; // Should not happen, button is different
+
+    setLoading(true); // Show loading state early
+
+    const fieldsToValidate = tabToFields[activeTab] || [];
+    console.log(`Validating fields for tab "${activeTab}":`, fieldsToValidate);
+
+    if (fieldsToValidate.length === 0 && activeTab !== 'documents') { // Documents might have no required fields initially
+        console.warn(`No fields defined for validation on tab: ${activeTab}`);
+        // Decide if we should proceed or show an error. Let's proceed for now.
+    }
+
+    // Trigger validation only for the fields of the current tab
+    const isValid = fieldsToValidate.length > 0
+        ? await form.trigger(fieldsToValidate as any) // Cast needed as trigger expects specific field names
+        : true; // Assume valid if no fields defined for the tab (e.g., documents initially)
+
+    if (isValid) {
+      console.log(`Validation passed for tab: ${activeTab}`);
+      const currentData = form.getValues() as FullPatientFormValues;
+      setPendingSubmitData(currentData);
+      // Reset dialog fields before opening
+      setDialogAcknowledgment(false);
+      // Pre-fill signature from existing patient data if available, otherwise blank
+      setDialogSignature(currentData.patient_signature_consent || '');
+      setDialogConsentDate(new Date()); // Reset to today
+      setIsConfirmDialogOpen(true);
+    } else {
+      console.log(`Validation failed for tab: ${activeTab}`);
+      toast({
+        title: "Validation Error",
+        description: `Please fix the errors on the "${activeTab.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}" tab before saving.`,
+        variant: "destructive",
+      });
+    }
+     setLoading(false); // Hide loading state after validation attempt
+  };
+
+  // Handler for confirming the dialog and saving
+  const handleConfirmAndSave = () => {
+    // Check if acknowledgment in dialog is ticked
+    if (dialogAcknowledgment && pendingSubmitData) {
+      // Merge dialog data into pendingSubmitData before saving
+      const finalData = {
+        ...pendingSubmitData,
+        acknowledgment: dialogAcknowledgment,
+        patient_signature_consent: dialogSignature,
+        consent_date: dialogConsentDate || new Date(), // Use current date if null
+        consent_given: dialogAcknowledgment, // Link consent_given to acknowledgment
+      };
+      performSave(finalData);
+      setIsConfirmDialogOpen(false);
+      setPendingSubmitData(null);
+    } else {
+      toast({
+        title: "Acknowledgment Required",
+        description: "Please acknowledge and provide signature/date in the dialog to save.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleNextTab = () => {
+    const currentIndex = tabOrder.indexOf(activeTab);
+    if (currentIndex < tabOrder.length - 1) {
+      setActiveTab(tabOrder[currentIndex + 1]);
+    }
+  };
+
+  const handlePreviousTab = () => {
+    const currentIndex = tabOrder.indexOf(activeTab);
+    if (currentIndex > 0) {
+      setActiveTab(tabOrder[currentIndex - 1]);
+    }
+  };
+
   return (
     <FormProvider {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      {/* Use a div instead of form for onSubmit to prevent direct submission in full mode */}
+      <div className="space-y-6">
         {isSimplifiedMode ? (
           // --- Simplified Mode UI ---
-          <div className="space-y-6 pt-6 max-h-[calc(90vh-200px)] overflow-y-auto p-1">
-             <div className="space-y-2">
-                <h3 className="text-lg font-medium">Basic Patient Information</h3>
-                <p className="text-sm text-muted-foreground">
-                  Enter the essential details for the new patient.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 {/* Replicate fields from PatientPersonalInfoForm, excluding marital_status */}
-                 <FormField control={form.control} name="first_name" render={({ field }) => ( <FormItem><FormLabel>First Name</FormLabel><FormControl><Input placeholder="John" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                 <FormField control={form.control} name="middle_name" render={({ field }) => ( <FormItem><FormLabel>Middle Name</FormLabel><FormControl><Input placeholder="Michael" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                 <FormField control={form.control} name="last_name" render={({ field }) => ( <FormItem><FormLabel>Last Name</FormLabel><FormControl><Input placeholder="Doe" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                 <FormField control={form.control} name="gender" render={({ field }) => ( <FormItem><FormLabel>Gender</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger></FormControl><SelectContent><SelectItem value="male">Male</SelectItem><SelectItem value="female">Female</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select><FormMessage /></FormItem> )} />
-                 <FormField control={form.control} name="age" render={({ field }) => ( <FormItem><FormLabel>Age</FormLabel><FormControl><Input type="number" placeholder="25" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? null : e.target.valueAsNumber)} /></FormControl><FormMessage /></FormItem> )} />
-                 <FormField control={form.control} name="occupation" render={({ field }) => ( <FormItem><FormLabel>Occupation</FormLabel><FormControl><Input placeholder="Software Engineer" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                 {/* Add Phone field from PatientContactInfoForm */}
-                 <FormField control={form.control} name="phone" render={({ field }) => ( <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input placeholder="+1234567890" {...field} /></FormControl><FormMessage /></FormItem> )} />
-              </div>
-          </div>
+          // Wrap simplified form in its own form tag for direct submission
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <div className="space-y-6 pt-6 max-h-[calc(90vh-200px)] overflow-y-auto p-1">
+              <div className="space-y-2">
+                  <h3 className="text-lg font-medium">Basic Patient Information</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Enter the essential details for the new patient.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <FormField control={form.control} name="first_name" render={({ field }) => ( <FormItem><FormLabel>First Name</FormLabel><FormControl><Input placeholder="John" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="middle_name" render={({ field }) => ( <FormItem><FormLabel>Middle Name</FormLabel><FormControl><Input placeholder="Michael" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="last_name" render={({ field }) => ( <FormItem><FormLabel>Last Name</FormLabel><FormControl><Input placeholder="Doe" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="gender" render={({ field }) => ( <FormItem><FormLabel>Gender</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger></FormControl><SelectContent><SelectItem value="male">Male</SelectItem><SelectItem value="female">Female</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="age" render={({ field }) => ( <FormItem><FormLabel>Age</FormLabel><FormControl><Input type="number" placeholder="25" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? null : e.target.valueAsNumber)} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="occupation" render={({ field }) => ( <FormItem><FormLabel>Occupation</FormLabel><FormControl><Input placeholder="Software Engineer" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="phone" render={({ field }) => ( <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input placeholder="+1234567890" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                </div>
+            </div>
+             {/* Buttons for simplified mode */}
+             <div className="flex justify-end gap-2 pt-4">
+               <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+               <Button type="submit" disabled={loading}>
+                 {loading ? (<><span className="mr-2">Saving...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : ('Save Changes')}
+               </Button>
+             </div>
+          </form>
         ) : (
-          // --- Full Mode UI (Existing Tabs) ---
+          // --- Full Mode UI (Tabs) ---
           <div className="pt-6">
-            <Tabs defaultValue="personal" className="space-y-4">
+            {/* Control Tabs component value and onValueChange */}
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
               <TabsList>
-                <TabsTrigger value="personal">Personal Info</TabsTrigger>
-                <TabsTrigger value="contact">Contact Info</TabsTrigger>
-                <TabsTrigger value="medical">Medical & History</TabsTrigger>
-                <TabsTrigger value="documents">Documents</TabsTrigger>
+                {/* Map through tabOrder to create triggers */}
+                {tabOrder.map(tabValue => (
+                  <TabsTrigger key={tabValue} value={tabValue}>
+                    {/* Simple title generation */}
+                    {tabValue.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  </TabsTrigger>
+                ))}
               </TabsList>
+              {/* Keep existing TabsContent structure, ensure values match tabOrder */}
               <TabsContent value="personal" className="max-h-[calc(90vh-250px)] overflow-y-auto p-1">
                 <PatientPersonalInfoForm />
               </TabsContent>
               <TabsContent value="contact" className="max-h-[calc(90vh-250px)] overflow-y-auto p-1">
-                 {/* Render the full contact form component directly */}
                  <PatientContactInfoForm />
               </TabsContent>
               <TabsContent value="medical" className="max-h-[calc(90vh-250px)] overflow-y-auto p-1 space-y-8">
                 <PatientMedicalInfoForm />
+              </TabsContent>
+              <TabsContent value="dental" className="max-h-[calc(90vh-250px)] overflow-y-auto p-1 space-y-8">
                 <PatientDentalHistoryForm />
+              </TabsContent>
+              <TabsContent value="family_lifestyle" className="max-h-[calc(90vh-250px)] overflow-y-auto p-1 space-y-8">
                 <PatientFamilyHistoryForm />
                 <PatientLifestyleForm />
-                <PatientConsentForm />
               </TabsContent>
+               {/* Consent Tab Content Removed */}
               <TabsContent value="documents" className="max-h-[calc(90vh-250px)] overflow-y-auto p-1">
                 <PatientDocumentsForm />
               </TabsContent>
             </Tabs>
+             {/* Buttons for full mode - outside Tabs component */}
+             <div className="flex justify-between gap-2 pt-4">
+                <div> {/* Group Previous/Next buttons */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handlePreviousTab}
+                    disabled={tabOrder.indexOf(activeTab) === 0}
+                  >
+                    <ChevronLeft className="mr-2 h-4 w-4" /> Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleNextTab}
+                    disabled={tabOrder.indexOf(activeTab) === tabOrder.length - 1}
+                    className="ml-2" // Add margin between prev/next
+                  >
+                    Next <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+                <div> {/* Group Cancel/Save buttons */}
+                  <Button type="button" variant="outline" onClick={onCancel} className="mr-2">Cancel</Button>
+                  {/* Button now calls handleSaveChangesClick for manual validation */}
+                  <Button type="button" onClick={handleSaveChangesClick} disabled={loading}>
+                    {loading ? (<><span className="mr-2">Validating...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : ('Save Changes')}
+                  </Button>
+                </div>
+             </div>
           </div>
         )}
+      </div> {/* Close the outer div */}
 
-        {/* Common Buttons */}
-        <div className="flex justify-end gap-2 pt-4">
-          <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-          <Button type="submit" disabled={loading}>
-            {loading ? (<><span className="mr-2">Saving...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : ('Save Changes')}
-          </Button>
-        </div>
-      </form>
+      {/* Confirmation Dialog - Now always shows consent fields */}
+      <Dialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
+        <DialogContent className="sm:max-w-[525px]">
+          <DialogHeader>
+              <DialogTitle className="flex items-center">
+                <CheckCircle className="h-5 w-5 text-green-600 mr-2" /> Consent & Acknowledgment
+              </DialogTitle>
+              <DialogDescription>
+                Please review, acknowledge, and sign below before saving the patient information.
+              </DialogDescription>
+          </DialogHeader>
+
+          {/* Consent Fields moved into Dialog */}
+          <div className="space-y-4 py-4">
+             {/* --- Acknowledgment Checkbox --- */}
+             <div className="flex items-start space-x-3 rounded-md border p-4 shadow-sm">
+                <Checkbox
+                    id="dialog-acknowledgment"
+                    checked={dialogAcknowledgment}
+                    onCheckedChange={(checked) => setDialogAcknowledgment(checked === true)}
+                    className="mt-1" // Align checkbox better with text
+                />
+                <div className="grid gap-1.5 leading-none">
+                   <label
+                     htmlFor="dialog-acknowledgment"
+                     className="text-sm font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                   >
+                     I confirm that the information provided is complete and accurate to the best of my knowledge.
+                   </label>
+                   {!dialogAcknowledgment && ( // Show warning if not checked
+                      <p className="text-sm text-destructive">Acknowledgment is required.</p>
+                   )}
+                </div>
+             </div>
+
+             {/* --- Signature Input --- */}
+             <div className="space-y-2">
+                <Label htmlFor="dialog-signature">Patient Signature (Type full name)</Label>
+                <Input
+                  id="dialog-signature"
+                  placeholder="Type your full name"
+                  value={dialogSignature}
+                  onChange={(e) => setDialogSignature(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Typing your name here acts as your digital signature.
+                </p>
+             </div>
+
+             {/* --- Date Input --- */}
+             <div className="space-y-2">
+                <Label htmlFor="dialog-consent-date">Date</Label>
+                <Input
+                  id="dialog-consent-date"
+                  type="date"
+                  value={dialogConsentDate ? dialogConsentDate.toISOString().split('T')[0] : ''}
+                  onChange={(e) => setDialogConsentDate(e.target.value ? new Date(e.target.value) : null)}
+                />
+             </div>
+          </div>
+
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              type="button"
+              onClick={handleConfirmAndSave}
+              disabled={!dialogAcknowledgment || loading} // Disable if not acknowledged or already loading
+            >
+              {loading ? (<><span className="mr-2">Saving...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : ('Confirm & Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </FormProvider>
   );
 }

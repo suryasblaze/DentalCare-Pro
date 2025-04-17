@@ -50,9 +50,10 @@ export interface Patient {
   notes?: string | null; // General notes
   consent_given?: boolean | null;
   consent_date?: string | null; // Date when consent was given
+  patient_signature_consent?: string | null; // Typed name for consent
   consent_notes?: string | null; // Add missing consent_notes field
   profile_photo_url?: string | null; // URL to stored photo
-  signature_url?: string | null; // URL to stored signature
+  signature_url?: string | null; // URL to stored signature (e.g., from signature pad)
   documents?: Json | null; // Changed back to Json | null to match API expectation
   // audit_trail?: Json | null; // For tracking changes, if implemented
   created_at: string;
@@ -121,4 +122,32 @@ export interface TreatmentPlan {
   alternativeTreatments: string[];
   consentRequired: boolean;
   estimatedDuration: string;
+}
+
+// Define Medical Record type based on usage and potential DB structure
+export interface MedicalRecord {
+  id: string;
+  patient_id: string | null;
+  record_date: string; // ISO string format recommended
+  record_type: string; // e.g., "consultation", "diagnosis", "treatment", "filling", "extraction", "root_canal", "crown" etc.
+  description: string; // Can be plain text or JSON string for structured notes
+  tooth_ids?: number[] | null; // Array of affected tooth FDI numbers
+  attachments?: Json | null; // For storing related files, component info, medicine details etc.
+  created_at?: string | null;
+  created_by?: string | null; // Staff ID (UUID)
+
+  // Optional related data often included in API responses
+  staff?: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    role?: string | null;
+  } | null;
+  // Add other potential fields like cost, status, etc. if needed
+  cost?: number | null;
+  status?: string | null; // e.g., 'pending', 'completed', 'in_progress'
+  clinic_name?: string | null; // Added based on design
+  reservation_id?: string | null; // Added based on design
+  notes_before?: string | null; // Added for structured notes
+  notes_after?: string | null; // Added for structured notes
 }

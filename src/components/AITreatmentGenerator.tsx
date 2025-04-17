@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // Added useCallback
 import { Button } from "@/components/ui/button";
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input'; // Import Input
 import { Textarea } from '@/components/ui/textarea';
 import { Loader2, BrainCog, Bot } from 'lucide-react'; // Added Bot icon
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogFooter, DialogTitle } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// Remove Select imports
 // Add imports for Form components and MultiSelectCheckbox
 import { FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { MultiSelectCheckbox } from '@/components/ui/multi-select-checkbox';
 import { useToast } from '@/components/ui/use-toast';
-import { ScrollArea } from "@/components/ui/scroll-area"; // Import ScrollArea
+import { ScrollArea } from "@/components/ui/scroll-area"; // Keep ScrollArea
 import type { Database } from '@/../supabase_types'; // Corrected import path to root supabase_types.ts
 import { supabase } from '@/lib/supabase'; // Import supabase client
 
@@ -32,19 +33,30 @@ type PatientDetails = Database['public']['Tables']['patients']['Row'];
 // Define Patient type based on database schema (assuming it exists)
 // type Patient = Database['public']['Tables']['patients']['Row']; // Assuming this structure
 
+// Define Patient type for the prop, including necessary fields for search
+interface PatientSummary {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  phone?: string | null; // Optional phone
+  registration_number?: string | null; // Optional registration number
+}
+
 interface AITreatmentGeneratorProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  patients: { id: string; first_name: string; last_name: string }[];
+  patients: PatientSummary[]; // Use the updated type
   // Removed patientDetails prop
 }
 
 export function AITreatmentGenerator({
   open,
   onOpenChange,
-  patients,
+  patients, // Assuming patients are pre-loaded and passed as prop
 }: AITreatmentGeneratorProps) {
+  const [searchTerm, setSearchTerm] = useState(''); // State for search input
   const [selectedPatientId, setSelectedPatientId] = useState<string>('');
+  const [selectedPatientName, setSelectedPatientName] = useState<string>(''); // State for selected patient's name
   // State now holds the full patient record or null
   const [fetchedPatientDetails, setFetchedPatientDetails] = useState<PatientDetails | null>(null);
   const [currentCondition, setCurrentCondition] = useState<string>('');
@@ -297,7 +309,15 @@ export function AITreatmentGenerator({
     setSelectedSuggestionLabel(null); // Clear selected suggestion on patient change
     setGeneratedPlan(null); // Clear generated plan on patient change
     setSelectedToothIds([]); // Clear selected teeth on patient change
+    // Do NOT clear searchTerm here, only when selecting
   }, [selectedPatientId]);
+
+  // Handler for selecting a patient from search results
+  const handlePatientSelect = (patient: PatientSummary) => { // Use PatientSummary type
+    setSelectedPatientId(patient.id);
+    setSelectedPatientName(`${patient.first_name || ''} ${patient.last_name || ''}`.trim());
+    setSearchTerm(''); // Clear search term after selection
+  };
 
   // Handler for applying a suggestion (uses default pool)
   const handleSuggestionClick = (suggestion: Suggestion) => {
@@ -487,16 +507,27 @@ export function AITreatmentGenerator({
 
   // Reset state when dialog closes (or when triggered externally)
   const handleDialogClose = () => {
-    // Resetting state is handled by the parent component managing the 'open' prop
-    // and potentially resetting selectedPatientId/currentIssue when closing.
-    // No specific action needed here unless we want to clear fields on cancel explicitly.
-    // Let's keep it simple for now. If needed, we can add:
-    // setSelectedPatientId('');
-    // setCurrentIssue('');
     setGeneratedPlan(null); // Clear generated plan on dialog close
     setSelectedToothIds([]); // Clear selected teeth on dialog close
+    setSelectedPatientId(''); // Clear selected patient ID
+    setSelectedPatientName(''); // Clear selected patient name
+    setSearchTerm(''); // Clear search term
+    setCurrentCondition(''); // Clear condition
+    setCurrentQuestion(''); // Clear question
+    setFetchedPatientDetails(null); // Clear fetched details
+    setDynamicSuggestions([]); // Clear suggestions
+    setSelectedSuggestionLabel(null); // Clear selected suggestion label
     onOpenChange(false); // Notify parent that the dialog should close
   };
+
+  // Filter patients based on search term
+  const filteredPatients = patients.filter(patient => {
+    const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
+    const phone = patient.phone?.toLowerCase() || '';
+    const regNum = patient.registration_number?.toLowerCase() || '';
+    const searchLower = searchTerm.toLowerCase();
+    return name.includes(searchLower) || phone.includes(searchLower) || regNum.includes(searchLower);
+  });
 
   return (
     <Dialog open={open} onOpenChange={handleDialogClose}>
@@ -513,30 +544,61 @@ export function AITreatmentGenerator({
         </DialogHeader>
         {/* Reduced vertical spacing from space-y-4 to space-y-3 */}
         <div className="space-y-3 py-4">
-          {/* Patient Selection */}
-          <div className="space-y-2">
-            <Label htmlFor="patient-select">Select Patient</Label>
-            {/* Assuming patients prop is passed down correctly */}
-            <Select value={selectedPatientId} onValueChange={setSelectedPatientId}>
-              <SelectTrigger id="patient-select" className="w-full">
-                 {/* Display selected patient name or placeholder */}
-                 <SelectValue placeholder="Select a patient...">
-                   {selectedPatientId ? patients.find(p => p.id === selectedPatientId)?.first_name + ' ' + patients.find(p => p.id === selectedPatientId)?.last_name : "Select a patient..."}
-                 </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                 {/* Render patient options */}
-                 {patients && patients.length > 0 ? (
-                    patients.map((patient) => (
-                      <SelectItem key={patient.id} value={patient.id}>
-                        {patient.first_name} {patient.last_name} (ID: {patient.id.substring(0, 6)})
-                      </SelectItem>
+          {/* Patient Selection - Replaced with Search Input */}
+          <div className="space-y-2 relative"> {/* Added relative positioning */}
+            <Label htmlFor="patient-search">Select Patient</Label>
+            <Input
+              type="search"
+              id="patient-search"
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                // Clear selection when user starts typing again
+                if (selectedPatientId) {
+                  setSelectedPatientId('');
+                  setSelectedPatientName('');
+                  setFetchedPatientDetails(null); // Clear details if selection is cleared
+                }
+              }}
+              placeholder={selectedPatientName || "Search by name, phone, or registration..."} // Updated placeholder
+              className="w-full"
+              // Optionally disable if patients are loading (if applicable)
+              // disabled={isLoadingPatients}
+            />
+
+            {/* Search Results Dropdown */}
+            {searchTerm && ( // Only show dropdown if there's a search term
+              <ScrollArea className="absolute z-10 w-full bg-background border rounded-md shadow-lg mt-1 max-h-60"> {/* Dropdown styling */}
+                <div className="p-2">
+                  {filteredPatients.length > 0 ? (
+                    filteredPatients.map((patient) => (
+                      <Button
+                        key={patient.id}
+                        variant="ghost" // Use ghost variant for list items
+                        className="w-full justify-start text-left h-auto py-2 px-3 mb-1" // Adjust padding/margin
+                        onClick={() => handlePatientSelect(patient)}
+                      >
+                        <div>
+                          <div>{`${patient.first_name || ''} ${patient.last_name || ''}`.trim()}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {patient.registration_number && `Reg: ${patient.registration_number}`}
+                            {patient.registration_number && patient.phone && " | "}
+                            {patient.phone && `Ph: ${patient.phone}`}
+                            {/* Show ID if neither Reg nor Phone is available */}
+                            {!patient.registration_number && !patient.phone && `ID: ${patient.id.substring(0, 6)}...`}
+                          </div>
+                        </div>
+                      </Button>
                     ))
-                 ) : (
-                   <SelectItem value="loading" disabled>Loading patients...</SelectItem> // Or handle empty state
-                 )}
-              </SelectContent>
-            </Select>
+                  ) : (
+                    <p className="text-sm text-muted-foreground p-2">No patients found matching "{searchTerm}"</p>
+                  )}
+                </div>
+              </ScrollArea>
+            )}
+             {/* Optional: Add loading/error indicators if patients are fetched dynamically */}
+             {/* {isLoadingPatients && <p className="text-sm text-muted-foreground mt-1">Loading patients...</p>} */}
+             {/* {errorPatients && <p className="text-sm text-destructive mt-1">{errorPatients}</p>} */}
           </div>
 
           {/* Tooth Selection Field */}

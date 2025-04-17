@@ -1457,5 +1457,88 @@ export const api = {
       globalCache.invalidate('clinic_settings');
       return data;
     }
+  },
+
+  // Modified function to get all domain/condition pairs from ai_treatment_planning_matrix
+  async getTreatmentMatrixOptions(): Promise<{ domain: string; condition: string }[]> {
+    const cacheKey = 'treatmentMatrixOptionsPairs'; // Use a new cache key
+    const cachedData = globalCache.get<{ domain: string; condition: string }[]>(cacheKey);
+    if (cachedData) {
+      return cachedData;
+    }
+
+    try {
+      // Fetch domain and condition columns, filtering out nulls at DB level if possible
+      const { data, error } = await supabase
+        .from('ai_treatment_planning_matrix')
+        .select('domain, condition')
+        .not('domain', 'is', null) // Ensure domain is not null
+        .not('condition', 'is', null); // Ensure condition is not null
+
+      if (error) throw error;
+
+      // Process to get unique pairs (though select distinct might be better if possible via RPC)
+      const uniquePairs = data
+        ? Array.from(new Map(data.map(item => [`${item.domain}-${item.condition}`, item])).values())
+        : [];
+
+      // Sort primarily by domain, then by condition
+      uniquePairs.sort((a, b) => {
+        if (a.domain! < b.domain!) return -1;
+        if (a.domain! > b.domain!) return 1;
+        if (a.condition! < b.condition!) return -1;
+        if (a.condition! > b.condition!) return 1;
+        return 0;
+      });
+
+      // Cast to expected type, acknowledging potential TS issues
+      const result = uniquePairs as { domain: string; condition: string }[];
+      globalCache.set(cacheKey, result, 60 * 60 * 1000); // Cache for 1 hour
+      return result;
+
+    } catch (error) {
+      console.error("Error fetching treatment matrix options pairs:", error);
+      // Return empty array on error
+      return [];
+    }
+  },
+
+  // New function to get specific details from the matrix based on domain and condition
+  async getMatrixDetails(domain: string, condition: string): Promise<Database['public']['Tables']['ai_treatment_planning_matrix']['Row'] | null> {
+    // Define a specific cache key including domain and condition
+    const cacheKey = `matrixDetails:${domain}:${condition}`;
+    // Attempt to retrieve cached data, explicitly typing the expected return type
+    const cachedData = globalCache.get<Database['public']['Tables']['ai_treatment_planning_matrix']['Row'] | null>(cacheKey);
+    if (cachedData !== undefined) { // Check if cache returned a value (could be null)
+      return cachedData;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('ai_treatment_planning_matrix') // Use the correct table name
+        .select('*') // Select all columns for the details
+        .eq('domain', domain)
+        .eq('condition', condition)
+        .limit(1) // We expect only one match per domain/condition pair
+        .maybeSingle(); // Use maybeSingle() to return null if no row found, instead of error
+
+      if (error) {
+        // Don't throw if it's just "No rows found", which maybeSingle handles
+        if (error.code !== 'PGRST116') {
+          throw error;
+        }
+        // If PGRST116, data will be null, which is correct
+      }
+
+      // Cache the result (even if null) for a short period
+      globalCache.set(cacheKey, data, 5 * 60 * 1000); // Cache for 5 minutes
+      // Explicitly cast the return type due to potential ongoing TS issues
+      return data as Database['public']['Tables']['ai_treatment_planning_matrix']['Row'] | null;
+
+    } catch (error) {
+      console.error(`Error fetching matrix details for ${domain}/${condition}:`, error);
+      // Return null on error to prevent breaking the UI
+      return null;
+    }
   }
 };

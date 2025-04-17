@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 // Import subHours correctly and Database type
-import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, parseISO, parse, isValid, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, isToday, startOfDay, endOfDay, subHours, isBefore } from 'date-fns'; // Added isBefore
+import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, parseISO, parse, isValid, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, isToday, startOfDay, endOfDay, subHours, isBefore, formatISO } from 'date-fns'; // Added isBefore, formatISO
 import { Plus, ChevronLeft, ChevronRight, User, Phone } from 'lucide-react';
 import { api, subscribeToChanges } from '@/lib/api'; // Import subscribeToChanges
 import { Button } from '@/components/ui/button';
@@ -131,20 +131,27 @@ export function Appointments() {
 
     setIsLoadingDoctors(true);
     try {
-      const startDate = new Date(slotDate);
-      const [startHour, startMinute] = slotTime.split(':').map(Number);
-      if (isNaN(startHour) || isNaN(startMinute)) {
-        throw new Error("Invalid time format");
+      // Combine date and time string into a single string for parsing
+      const dateString = format(slotDate, 'yyyy-MM-dd'); // Get YYYY-MM-DD part
+      const dateTimeString = `${dateString}T${slotTime}:00`; // Combine e.g., "2025-04-12T10:00:00"
+
+      // Parse the combined string. Assume local timezone initially.
+      const startDateLocal = parse(dateTimeString, "yyyy-MM-dd'T'HH:mm:ss", new Date());
+
+      if (!isValid(startDateLocal)) {
+        throw new Error(`Invalid combined date/time string: ${dateTimeString}`);
       }
-      startDate.setHours(startHour, startMinute, 0, 0);
 
-      if (!isValid(startDate)) {
-        throw new Error("Invalid start date/time calculated");
-      }
+      // Calculate end date based on the parsed local start date
+      const endDateLocal = new Date(startDateLocal.getTime() + durationMinutes * 60000);
 
-      const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+      // Convert to ISO strings (UTC) for the API call
+      const startISO = formatISO(startDateLocal);
+      const endISO = formatISO(endDateLocal);
 
-      const available = await api.staff.getAvailableDoctors(startDate.toISOString(), endDate.toISOString());
+      // console.log(`[DEBUG] Calling getAvailableDoctors with: ${startISO} to ${endISO}`); // Optional debug log
+
+      const available = await api.staff.getAvailableDoctors(startISO, endISO);
       setAvailableDoctors(available || []);
 
       // If the currently selected doctor is no longer available, reset selection

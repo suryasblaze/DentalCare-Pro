@@ -15,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Re-add single Select imports
+import { ScrollArea } from '@/components/ui/scroll-area'; // Import ScrollArea
 import { Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase'; // Import supabase client
@@ -151,10 +152,13 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
+      {/* Wrap form content (excluding buttons) in ScrollArea */}
+      <form onSubmit={form.handleSubmit(handleFormSubmit)} className="flex flex-col h-full"> 
+        <ScrollArea className="flex-grow pr-6 max-h-[calc(80vh-150px)]"> {/* Adjust max-h as needed, pr-6 for scrollbar space */}
+          <div className="space-y-6"> {/* Add a wrapper div for space-y */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
             name="record_date"
             render={({ field }) => (
               <FormItem>
@@ -218,7 +222,8 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
              {/* Allow SOAP notes OR Diagnosis fields for 'examination' type */}
              <p className="text-xs text-muted-foreground mb-2">Enter SOAP notes OR Diagnosis details below.</p>
              <h5 className="font-medium text-xs mb-2">SOAP Notes (Optional)</h5>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Re-applying removal of grid layout, relying on default block stacking and parent space-y */}
+            <div> 
               <FormField control={form.control} name="consultation_subjective" render={({ field }) => (
                 <FormItem><FormLabel>Subjective</FormLabel><FormControl><Textarea rows={4} placeholder="Patient's complaints, history..." {...field} /></FormControl><FormMessage /></FormItem>
               )} />
@@ -327,8 +332,11 @@ export function AddMedicalRecordForm({ patientId, onSubmit, onCancel, isLoading 
             </FormItem>
           )}
         />
+          </div> {/* Close the space-y wrapper div */}
+        </ScrollArea>
 
-        <div className="flex justify-end gap-4 pt-4">
+        {/* Keep buttons outside the scroll area */}
+        <div className="flex justify-end gap-4 pt-4 border-t mt-4"> {/* Add border-t and mt-4 for separation */}
           <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
             Cancel
           </Button>
