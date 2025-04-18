@@ -284,7 +284,8 @@ export function Appointments() {
         }
       }
 
-      // --- Add validation: Check if startDate is before today ---
+      // --- Add validation: Check if startDate is before today OR if it's today but before current time ---
+      const now = new Date(); // Get current date and time
       if (isBefore(startOfDay(startDate), todayStart)) {
         toast({
           variant: "destructive",
@@ -292,6 +293,15 @@ export function Appointments() {
           description: "Cannot book appointments for past dates.",
         });
         return; // Prevent booking
+      }
+      // Add check for today's date and past time
+      if (isToday(startDate) && isBefore(startDate, now)) {
+         toast({
+           variant: "destructive",
+           title: "Booking Restricted",
+           description: "Cannot book appointments for past times on the current day.",
+         });
+         return; // Prevent booking
       }
       // --- End validation ---
 
@@ -603,7 +613,8 @@ export function Appointments() {
 
   // --- Slot Click Handler ---
   const handleSlotClick = (date: Date, time: string) => {
-    const todayStart = startOfDay(new Date());
+    const now = new Date(); // Get current date and time
+    const todayStart = startOfDay(now);
     const clickedDayStart = startOfDay(date);
 
     // Check if the selected date is before today
@@ -616,7 +627,23 @@ export function Appointments() {
       return; // Prevent opening the modal
     }
 
-    // Proceed if the date is valid (today or future)
+    // Check if the selected date is today AND the time is in the past
+    if (isToday(date)) {
+      const [hour, minute] = time.split(':').map(Number);
+      const slotDateTime = new Date(date);
+      slotDateTime.setHours(hour, minute, 0, 0);
+
+      if (isBefore(slotDateTime, now)) {
+        toast({
+          variant: "destructive",
+          title: "Booking Restricted",
+          description: "Cannot book appointments for past times on the current day.",
+        });
+        return; // Prevent opening the modal
+      }
+    }
+
+    // Proceed if the date and time are valid
     setSelectedSlot({ date, time });
     setBookingStep('patient-select');
     setSelectedPatient(null);
@@ -832,6 +859,7 @@ export function Appointments() {
     const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
     const weekEnd = endOfWeek(selectedDate, { weekStartsOn: 1 });
     const daysInWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
+    const now = new Date(); // Get current time once for the view
 
     return (
       <TooltipProvider delayDuration={100}> {/* Wrap Week View content */}
@@ -851,11 +879,24 @@ export function Appointments() {
               <div className="p-4 text-sm text-right text-muted-foreground">{time}</div>
               {daysInWeek.map((day) => {
                 const slotAppointments = getAppointmentsForTimeSlot(day, time);
+                let isPastSlot = false;
+                if (isToday(day)) {
+                  const [hour, minute] = time.split(':').map(Number);
+                  const slotDateTime = new Date(day);
+                  slotDateTime.setHours(hour, minute, 0, 0);
+                  if (isBefore(slotDateTime, now)) {
+                    isPastSlot = true;
+                  }
+                }
                 return (
                   <div
                     key={day.toISOString()}
                     onClick={() => handleSlotClick(day, time)}
-                    className={`border-l p-1 relative hover:bg-muted/50 cursor-pointer transition-colors overflow-hidden`} // Added overflow-hidden
+                    className={`border-l p-1 relative transition-colors overflow-hidden ${
+                      isPastSlot
+                        ? 'bg-muted/30 cursor-not-allowed opacity-70' // Style for past slots today
+                        : 'hover:bg-muted/50 cursor-pointer' // Style for bookable slots
+                    }`}
                     style={{ height: `${CELL_HEIGHT}px` }} // Keep fixed height for the row
                   >
                     {/* Use flex-wrap to allow icons to wrap, align items top */}
@@ -905,6 +946,7 @@ export function Appointments() {
 
   // Day view
   const renderDayView = () => {
+    const now = new Date(); // Get current time once for the view
     return (
       <TooltipProvider delayDuration={100}> {/* Wrap Day View content */}
       <Card>
@@ -918,13 +960,26 @@ export function Appointments() {
         <div>
           {timeSlots.map((time) => {
             const slotAppointments = getAppointmentsForTimeSlot(selectedDate, time);
+            let isPastSlot = false;
+            if (isToday(selectedDate)) {
+              const [hour, minute] = time.split(':').map(Number);
+              const slotDateTime = new Date(selectedDate);
+              slotDateTime.setHours(hour, minute, 0, 0);
+              if (isBefore(slotDateTime, now)) {
+                isPastSlot = true;
+              }
+            }
             return (
               <div key={time} className="grid grid-cols-2 border-b last:border-0">
                 <div className="p-4 text-sm text-right text-muted-foreground">{time}</div>
                 {/* Apply the same flexbox layout and styling as renderWeekView */}
                 <div
                   onClick={() => handleSlotClick(selectedDate, time)}
-                  className={`border-l relative hover:bg-muted/50 cursor-pointer transition-colors overflow-hidden`} // Removed fixed padding, added overflow-hidden
+                  className={`border-l relative transition-colors overflow-hidden ${
+                    isPastSlot
+                      ? 'bg-muted/30 cursor-not-allowed opacity-70' // Style for past slots today
+                      : 'hover:bg-muted/50 cursor-pointer' // Style for bookable slots
+                  }`}
                   style={{ height: `${CELL_HEIGHT}px` }} // Keep fixed height for the row
                 >
                   {/* Use flex-wrap to allow cards to wrap, align items top */}

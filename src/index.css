@@ -88,15 +88,24 @@
   transition: stroke 0.3s ease;
 }
 
-/* Hover State (Scale + Glow) */
+/* Hover State (Scale + Glow, Keep White Fill) - Reverted */
 .dental-chart-dialog-content svg g[id^="ID_"].tooth-hovered:not(.tooth-selected):not(.tooth-missing):not(.tooth-selection-processed) {
-  transform: scale(var(--hover-scale)); /* Keep scale */
-  filter: drop-shadow(0 4px 10px var(--hover-glow-color)); /* Keep glow */
+  transform: scale(var(--hover-scale)); /* Re-add scale */
+  filter: drop-shadow(0 4px 10px var(--hover-glow-color)); /* Re-add glow to group */
   cursor: pointer;
 }
+/* Ensure path fill stays white on hover */
+.dental-chart-dialog-content svg g[id^="ID_"].tooth-hovered:not(.tooth-selected):not(.tooth-missing):not(.tooth-selection-processed) path:first-of-type {
+  fill: var(--tooth-default-fill) !important; /* Keep white */
+  stroke: var(--tooth-outline); /* Keep default stroke */
+  stroke-width: 1.5; /* Keep default stroke width */
+  animation: none; /* Remove animation */
+  filter: none; /* Remove filter from path */
+}
 
-/* Wave Animation for Selected Tooth (Active Selection) - Enhanced Glow */
-@keyframes wave-glow {
+
+/* Wave Animation - No longer used */
+/* @keyframes wave-glow-active {
   0%, 100% {
     filter: drop-shadow(0 0 5px var(--active-selection-glow-color)) drop-shadow(0 0 10px var(--active-selection-glow-color));
     stroke-width: 2;
@@ -105,26 +114,25 @@
     filter: drop-shadow(0 0 12px var(--active-selection-glow-color)) drop-shadow(0 0 20px var(--active-selection-glow-color));
     stroke-width: 2.5;
   }
-}
+} */
 
-/* Apply wave animation to the main path of the active selection */
-.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) path:first-of-type {
-  /* fill: none; */ /* REMOVED: Keep original fill visible */
-  stroke: var(--active-selection-glow-color); /* Use active glow color for stroke */
-  stroke-width: 2; /* Initial stroke width */
-  filter: drop-shadow(0 0 5px var(--active-selection-glow-color)) drop-shadow(0 0 10px var(--active-selection-glow-color)); /* Initial filter */
-  animation: wave-glow 1.8s ease-in-out infinite; /* Use new animation */
-}
-/* Reset group styles for active selection */
-.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) {
+/* Active Selection Style (Solid Fill + Static Glow) - Reverted */
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing):not(.tooth-selection-processed) {
+  /* Apply static glow to the group */
+  filter: drop-shadow(0 0 var(--glow-intensity) var(--selection-glow-color)); /* Use processed glow color */
   transform: none !important; /* Override hover transform */
-  filter: none !important; /* Override hover filter */
-  animation: none; /* Animation is on the path */
+  animation: none; /* Ensure no animation */
 }
-/* Keep inner markings default for active selection */
-.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) path:not(:first-of-type),
-.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) line,
-.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) polyline {
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing):not(.tooth-selection-processed) path:first-of-type {
+  fill: var(--selection-fill-color); /* Dark fill */
+  stroke: none; /* No stroke */
+  filter: none; /* Ensure no filter/animation on path */
+  animation: none;
+}
+/* White inner markings for active selection */
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing):not(.tooth-selection-processed) path:not(:first-of-type),
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing):not(.tooth-selection-processed) line,
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing):not(.tooth-selection-processed) polyline {
   stroke: var(--tooth-markings); /* Use default marking color */
   stroke-width: 1;
 }

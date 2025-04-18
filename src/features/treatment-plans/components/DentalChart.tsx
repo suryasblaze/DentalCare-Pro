@@ -148,7 +148,7 @@ const DentalChart: React.FC<DentalChartProps> = ({ initialState, onToothSelect, 
   // State for tooltip content and trigger positioning using event delegation
   const [tooltipContentData, setTooltipContentData] = useState<{ id: number; name: string; conditions: ToothCondition[] } | null>(null);
   const [tooltipTriggerPosition, setTooltipTriggerPosition] = useState<{ top: number; left: number; } | null>(null);
-  const svgContainerRef = useRef<HTMLDivElement>(null);
+  const svgContainerRef = useRef<HTMLDivElement>(null); // Ref for the SVG container
 
   // Update internal state if initialState prop changes (run only once on mount for now)
   useEffect(() => {
@@ -337,20 +337,26 @@ const DentalChart: React.FC<DentalChartProps> = ({ initialState, onToothSelect, 
             const toothId = parseInt(toothIdStr, 10);
             currentHoveredId = toothId; // Set the ID found
             const toothData = teethData[toothId];
-            if (toothData) {
-                const rect = groupElement.getBoundingClientRect();
+            if (toothData && svgContainerRef.current) { // Ensure container ref is available
+                const containerRect = svgContainerRef.current.getBoundingClientRect();
+                const toothRect = groupElement.getBoundingClientRect();
+
+                // Calculate position relative to the container
+                const relativeTop = toothRect.top - containerRect.top + svgContainerRef.current.scrollTop; // Account for container scroll
+                const relativeLeft = toothRect.left - containerRect.left + toothRect.width / 2 + svgContainerRef.current.scrollLeft; // Center horizontally, account for scroll
+
                 // Set tooltip content data
                 setTooltipContentData({
                     id: toothId,
                     name: getToothName(toothId),
                     conditions: toothData.conditions,
                 });
-                // Set tooltip trigger position (top-center of the tooth)
+                // Set tooltip trigger position relative to the container
                 setTooltipTriggerPosition({
-                    top: rect.top,
-                    left: rect.left + rect.width / 2,
+                    top: relativeTop,
+                    left: relativeLeft,
                 });
-                // Don't return early, need to update hover state below
+                 // Don't return early, need to update hover state below
             }
         }
     }
@@ -575,22 +581,23 @@ const DentalChart: React.FC<DentalChartProps> = ({ initialState, onToothSelect, 
 
          {/* Modern Tooltip Implementation - Event Delegation Based */}
          <Tooltip open={tooltipContentData !== null && tooltipTriggerPosition !== null}>
-           {/* Dummy Trigger positioned by state */}
+           {/* Dummy Trigger positioned absolutely within the relative container */}
            <TooltipTrigger asChild>
                <span style={{
-                   position: 'fixed',
+                   position: 'absolute', // Changed from 'fixed'
                    top: tooltipTriggerPosition?.top ?? 0,
                    left: tooltipTriggerPosition?.left ?? 0,
-                   transform: 'translate(-50%, -50%)', // Bring tooltip even closer (less negative Y)
+                   transform: 'translate(-50%, -100%)', // Position above the calculated point
                    pointerEvents: 'none',
-                   width: 0, height: 0
+                   width: 1, height: 1 // Give it minimal size just in case
                }} />
            </TooltipTrigger>
            <TooltipContent
-             side="top"
+             side="top" // Display above the trigger point
              align="center"
-             sideOffset={5}
-             collisionPadding={30} // Increase collision padding significantly
+             sideOffset={2} // Reduced offset for closer proximity
+             collisionPadding={10} // Standard collision padding
+             className="z-50" // Ensure tooltip is above other elements
            >
              {tooltipContentData ? (
                <div className="flex flex-col items-center gap-1 p-1">

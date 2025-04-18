@@ -6,26 +6,29 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
-// Define the schema for lifestyle and special considerations
-export const lifestyleSchema = z.object({
-  // Diet and Nutrition
-  diet_description: z.string().optional(),
-  // Exercise & Stress Levels
-  exercise_frequency: z.enum(['never', 'occasionally', '1-2_per_week', '3-4_per_week', 'daily']).optional(),
-  stress_level: z.enum(['low', 'moderate', 'high']).optional(),
-  // Sleep Patterns
-  has_sleep_issues: z.enum(['yes', 'no']).optional(),
-  sleep_issues_details: z.string().optional(),
-  // Pregnancy and/or Lactation
-  pregnancy_status: z.enum(['yes', 'no', 'not_applicable']).optional(),
-  pregnancy_comments: z.string().optional(),
-  // Mental Health
-  has_mental_health_conditions: z.enum(['yes', 'no']).optional(),
-  mental_health_details: z.string().optional(),
-  // Additional Concerns and Comments (Moved here from original request structure)
-  additional_concerns: z.string().optional(),
-  additional_comments: z.string().optional(),
-});
+    // Define the schema for lifestyle and special considerations
+    export const lifestyleSchema = z.object({
+      // Diet and Nutrition
+        diet_description: z.string().optional().nullable(), // Allow null
+        // Exercise & Stress Levels
+        exercise_frequency: z.preprocess(
+          (val) => (typeof val === 'string' || val === null || val === undefined ? val : undefined), // Coerce unexpected types to undefined
+          z.enum(['never', 'occasionally', '1-2_per_week', '3-4_per_week', 'daily']).optional().nullable()
+        ),
+        stress_level: z.enum(['low', 'moderate', 'high']).optional().nullable(), // Allow null
+        // Sleep Patterns
+       has_sleep_issues: z.enum(['yes', 'no']).optional().nullable(), // Allow null
+       sleep_issues_details: z.string().optional().nullable(), // Allow null
+       // Pregnancy and/or Lactation
+       pregnancy_status: z.enum(['yes', 'no', 'not_applicable']).optional().nullable(), // Allow null
+       pregnancy_comments: z.string().optional().nullable(), // Allow null
+       // Mental Health
+       has_mental_health_conditions: z.enum(['yes', 'no']).optional().nullable(), // Allow null
+       mental_health_details: z.string().optional().nullable(), // Allow null
+       // Additional Concerns and Comments (Moved here from original request structure)
+      additional_concerns: z.string().optional().nullable(), // Allow null
+      additional_comments: z.string().optional().nullable(), // Allow null
+    });
 
 export type LifestyleValues = z.infer<typeof lifestyleSchema>;
 
@@ -50,11 +53,11 @@ export function PatientLifestyleForm() {
           name="diet_description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Describe your typical diet (include details on sugar consumption, acidic foods, etc.):</FormLabel>
-              <FormControl>
-                <Textarea placeholder="e.g., Balanced diet, occasional sugary snacks, drink coffee daily..." {...field} />
-              </FormControl>
-              <FormMessage />
+                 <FormLabel>Describe your typical diet (include details on sugar consumption, acidic foods, etc.):</FormLabel>
+                 <FormControl>
+                   <Textarea placeholder="e.g., Balanced diet, occasional sugary snacks, drink coffee daily..." {...field} value={field.value ?? ''} />
+                 </FormControl>
+                 <FormMessage />
             </FormItem>
           )}
         />
@@ -68,10 +71,14 @@ export function PatientLifestyleForm() {
           name="exercise_frequency"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>How often do you exercise?</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger><SelectValue placeholder="Select frequency" /></SelectTrigger>
+             <FormLabel>How often do you exercise?</FormLabel>
+             {/* Explicitly handle potential boolean value before passing to Select */}
+             <Select
+               onValueChange={field.onChange}
+               value={typeof field.value === 'boolean' ? undefined : field.value ?? undefined}
+             >
+               <FormControl>
+                 <SelectTrigger><SelectValue placeholder="Select frequency" /></SelectTrigger>
                 </FormControl>
                 <SelectContent>
                   <SelectItem value="never">Never</SelectItem>
@@ -90,10 +97,11 @@ export function PatientLifestyleForm() {
           name="stress_level"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Rate your overall stress level:</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger><SelectValue placeholder="Select stress level" /></SelectTrigger>
+               <FormLabel>Rate your overall stress level:</FormLabel>
+               {/* Ensure value passed to Select is not null */}
+               <Select onValueChange={field.onChange} value={field.value ?? undefined}>
+                 <FormControl>
+                   <SelectTrigger><SelectValue placeholder="Select stress level" /></SelectTrigger>
                 </FormControl>
                 <SelectContent>
                   <SelectItem value="low">Low</SelectItem>
@@ -115,11 +123,12 @@ export function PatientLifestyleForm() {
           name="has_sleep_issues"
           render={({ field }) => (
             <FormItem className="space-y-3">
-              <FormLabel>Do you have any sleep-related issues?</FormLabel>
-              <FormControl>
-                <RadioGroup onValueChange={field.onChange} value={field.value} className="flex space-x-4">
-                   <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="yes" /></FormControl><FormLabel className="font-normal">Yes</FormLabel></FormItem>
-                   <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="no" /></FormControl><FormLabel className="font-normal">No</FormLabel></FormItem>
+               <FormLabel>Do you have any sleep-related issues?</FormLabel>
+               <FormControl>
+                 {/* Ensure value passed to RadioGroup is not null */}
+                 <RadioGroup onValueChange={field.onChange} value={field.value ?? undefined} className="flex space-x-4">
+                    <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="yes" /></FormControl><FormLabel className="font-normal">Yes</FormLabel></FormItem>
+                    <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="no" /></FormControl><FormLabel className="font-normal">No</FormLabel></FormItem>
                 </RadioGroup>
               </FormControl>
               <FormMessage />
@@ -132,11 +141,11 @@ export function PatientLifestyleForm() {
             name="sleep_issues_details"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>If yes, specify (e.g., sleep apnea, bruxism/teeth grinding):</FormLabel>
-                <FormControl>
-                  <Input placeholder="e.g., Diagnosed sleep apnea, grind teeth at night" {...field} />
-                </FormControl>
-                <FormMessage />
+                   <FormLabel>If yes, specify (e.g., sleep apnea, bruxism/teeth grinding):</FormLabel>
+                   <FormControl>
+                     <Input placeholder="e.g., Diagnosed sleep apnea, grind teeth at night" {...field} value={field.value ?? ''} />
+                   </FormControl>
+                   <FormMessage />
               </FormItem>
             )}
           />
@@ -151,12 +160,13 @@ export function PatientLifestyleForm() {
           name="pregnancy_status"
           render={({ field }) => (
             <FormItem className="space-y-3">
-              <FormLabel>Are you pregnant, planning to become pregnant, or currently breastfeeding?</FormLabel>
-              <FormControl>
-                <RadioGroup onValueChange={field.onChange} value={field.value} className="flex space-x-4">
-                   <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="yes" /></FormControl><FormLabel className="font-normal">Yes</FormLabel></FormItem>
-                   <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="no" /></FormControl><FormLabel className="font-normal">No</FormLabel></FormItem>
-                   <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="not_applicable" /></FormControl><FormLabel className="font-normal">Not Applicable</FormLabel></FormItem>
+               <FormLabel>Are you pregnant, planning to become pregnant, or currently breastfeeding?</FormLabel>
+               <FormControl>
+                 {/* Ensure value passed to RadioGroup is not null */}
+                 <RadioGroup onValueChange={field.onChange} value={field.value ?? undefined} className="flex space-x-4">
+                    <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="yes" /></FormControl><FormLabel className="font-normal">Yes</FormLabel></FormItem>
+                    <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="no" /></FormControl><FormLabel className="font-normal">No</FormLabel></FormItem>
+                    <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="not_applicable" /></FormControl><FormLabel className="font-normal">Not Applicable</FormLabel></FormItem>
                 </RadioGroup>
               </FormControl>
               <FormMessage />
@@ -169,11 +179,11 @@ export function PatientLifestyleForm() {
             name="pregnancy_comments"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Additional comments (if applicable):</FormLabel>
-                <FormControl>
-                  <Textarea placeholder="e.g., Due date, specific concerns..." {...field} />
-                </FormControl>
-                <FormMessage />
+                   <FormLabel>Additional comments (if applicable):</FormLabel>
+                   <FormControl>
+                     <Textarea placeholder="e.g., Due date, specific concerns..." {...field} value={field.value ?? ''} />
+                   </FormControl>
+                   <FormMessage />
               </FormItem>
             )}
           />
@@ -188,11 +198,12 @@ export function PatientLifestyleForm() {
           name="has_mental_health_conditions"
           render={({ field }) => (
             <FormItem className="space-y-3">
-              <FormLabel>Do you have any mental health conditions (e.g., anxiety, depression) or medications for such conditions?</FormLabel>
-              <FormControl>
-                <RadioGroup onValueChange={field.onChange} value={field.value} className="flex space-x-4">
-                   <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="yes" /></FormControl><FormLabel className="font-normal">Yes</FormLabel></FormItem>
-                   <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="no" /></FormControl><FormLabel className="font-normal">No</FormLabel></FormItem>
+               <FormLabel>Do you have any mental health conditions (e.g., anxiety, depression) or medications for such conditions?</FormLabel>
+               <FormControl>
+                 {/* Ensure value passed to RadioGroup is not null */}
+                 <RadioGroup onValueChange={field.onChange} value={field.value ?? undefined} className="flex space-x-4">
+                    <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="yes" /></FormControl><FormLabel className="font-normal">Yes</FormLabel></FormItem>
+                    <FormItem className="flex items-center space-x-2 space-y-0"><FormControl><RadioGroupItem value="no" /></FormControl><FormLabel className="font-normal">No</FormLabel></FormItem>
                 </RadioGroup>
               </FormControl>
               <FormMessage />
@@ -205,11 +216,11 @@ export function PatientLifestyleForm() {
             name="mental_health_details"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>If yes, provide details:</FormLabel>
-                <FormControl>
-                  <Textarea placeholder="e.g., Diagnosed with anxiety, taking Sertraline" {...field} />
-                </FormControl>
-                <FormMessage />
+                   <FormLabel>If yes, provide details:</FormLabel>
+                   <FormControl>
+                     <Textarea placeholder="e.g., Diagnosed with anxiety, taking Sertraline" {...field} value={field.value ?? ''} />
+                   </FormControl>
+                   <FormMessage />
               </FormItem>
             )}
           />
@@ -224,11 +235,11 @@ export function PatientLifestyleForm() {
             name="additional_concerns"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Please list any other issues or concerns:</FormLabel>
-                <FormControl>
-                  <Textarea placeholder="Any other specific concerns you want to mention?" {...field} />
-                </FormControl>
-                <FormMessage />
+                  <FormLabel>Please list any other issues or concerns:</FormLabel>
+                  <FormControl>
+                     <Textarea placeholder="Any other specific concerns you want to mention?" {...field} value={field.value ?? ''} />
+                   </FormControl>
+                   <FormMessage />
               </FormItem>
             )}
           />
@@ -237,11 +248,11 @@ export function PatientLifestyleForm() {
             name="additional_comments"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Additional comments regarding dental or general health:</FormLabel>
-                <FormControl>
-                  <Textarea placeholder="General comments..." {...field} />
-                </FormControl>
-                <FormMessage />
+                   <FormLabel>Additional comments regarding dental or general health:</FormLabel>
+                   <FormControl>
+                     <Textarea placeholder="General comments..." {...field} value={field.value ?? ''} />
+                   </FormControl>
+                   <FormMessage />
               </FormItem>
             )}
           />

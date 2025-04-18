@@ -156,10 +156,11 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
   // ---
   const [pendingSubmitData, setPendingSubmitData] = useState<FullPatientFormValues | null>(null); // Use Full type here
   const [activeTab, setActiveTab] = useState(tabOrder[0]); // Start at the first tab
-  // isConsentSubmission state is no longer needed as dialog always shows consent
-  const isSimplifiedMode = mode === 'simplified';
+   // isConsentSubmission state is no longer needed as dialog always shows consent
+   // --- Moved isSimplifiedMode declaration before calculateDefaultValues ---
+   const isSimplifiedMode = mode === 'simplified';
 
-  // Define initial default values for the simplified form
+   // Define initial default values for the simplified form
   const simplifiedDefaultValues: SimplifiedPatientFormValues = {
     first_name: '', last_name: '', middle_name: '', gender: 'male', age: null,
     occupation: '', phone: '',
@@ -201,10 +202,11 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
     consent_given: false, consent_notes: "", profile_photo: undefined, signature: undefined, id_document: undefined,
   };
 
-  // Calculate default values based on mode and patient prop
-  const calculateDefaultValues = useCallback((currentPatient: Patient | null | undefined): Partial<PatientFormValues> => {
-    const baseDefaults = isSimplifiedMode ? simplifiedDefaultValues : fullDefaultValues;
-    const patientOverrides: Partial<PatientFormValues> = currentPatient ? {
+   // Calculate default values based on mode and patient prop
+   // --- Ensure isSimplifiedMode is accessible here ---
+   const calculateDefaultValues = useCallback((currentPatient: Patient | null | undefined): Partial<PatientFormValues> => {
+     const baseDefaults = isSimplifiedMode ? simplifiedDefaultValues : fullDefaultValues;
+     const patientOverrides: Partial<PatientFormValues> = currentPatient ? {
         first_name: currentPatient.first_name || '',
         last_name: currentPatient.last_name || '',
         middle_name: currentPatient.middle_name || '',
@@ -243,20 +245,37 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
           notes: currentPatient.notes || '',
           consent_given: currentPatient.consent_given || false,
           consent_notes: currentPatient.consent_notes || "",
-          // Map detailed history/lifestyle/etc. from JSONB fields if they exist
-          ...(currentPatient.dental_history && typeof currentPatient.dental_history === 'object' ? { ...(currentPatient.dental_history as object) } : {}),
-          ...(currentPatient.family_medical_history && typeof currentPatient.family_medical_history === 'object' ? { ...(currentPatient.family_medical_history as object) } : {}),
-          ...(currentPatient.lifestyle_habits && typeof currentPatient.lifestyle_habits === 'object' ? { ...(currentPatient.lifestyle_habits as object) } : {}),
-        })
-    } : {};
+           // Map detailed history/etc. from JSONB fields if they exist
+           ...(currentPatient.dental_history && typeof currentPatient.dental_history === 'object' ? { ...(currentPatient.dental_history as object) } : {}),
+           ...(currentPatient.family_medical_history && typeof currentPatient.family_medical_history === 'object' ? { ...(currentPatient.family_medical_history as object) } : {}),
+             // Explicitly map lifestyle habits with safe defaults (use '' for strings, undefined for optional enums/radios)
+             diet_description: (currentPatient.lifestyle_habits as any)?.diet ?? '', // Use '' for textarea
+             exercise_frequency: (currentPatient.lifestyle_habits as any)?.exercise ?? undefined, // Use undefined for optional enum
+             stress_level: (currentPatient.lifestyle_habits as any)?.stress ?? undefined, // Use undefined for optional enum
+             // Handle potential string 'Yes, details missing' or 'No' from DB
+            has_sleep_issues: (currentPatient.lifestyle_habits as any)?.sleep_issues?.startsWith('Yes') ? 'yes' : ((currentPatient.lifestyle_habits as any)?.sleep_issues === 'No' ? 'no' : null), // null is ok
+            sleep_issues_details: (currentPatient.lifestyle_habits as any)?.sleep_issues?.startsWith('Yes')
+                 ? ((currentPatient.lifestyle_habits as any)?.sleep_issues.replace('Yes, ', '') !== 'details missing' ? (currentPatient.lifestyle_habits as any)?.sleep_issues.replace('Yes, ', '') : '')
+                 : '', // Use '' for input
+             pregnancy_status: (currentPatient.lifestyle_habits as any)?.pregnancy_status ?? undefined, // Use undefined for optional enum
+             pregnancy_comments: (currentPatient.lifestyle_habits as any)?.pregnancy_comments ?? '', // Use '' for textarea
+             has_mental_health_conditions: (currentPatient.lifestyle_habits as any)?.mental_health?.startsWith('Yes') ? 'yes' : ((currentPatient.lifestyle_habits as any)?.mental_health === 'No' ? 'no' : undefined), // Use undefined for optional enum
+             mental_health_details: (currentPatient.lifestyle_habits as any)?.mental_health?.startsWith('Yes')
+                 ? ((currentPatient.lifestyle_habits as any)?.mental_health.replace('Yes, ', '') !== 'details missing' ? (currentPatient.lifestyle_habits as any)?.mental_health.replace('Yes, ', '') : '')
+                : '', // Use '' for textarea
+             additional_concerns: (currentPatient.lifestyle_habits as any)?.additional_concerns ?? '', // Use '' for textarea
+             additional_comments: (currentPatient.lifestyle_habits as any)?.additional_comments ?? '', // Use '' for textarea
+          }) // Close the !isSimplifiedMode block here
+      } : {}; // Close the currentPatient ternary
 
-    return {
-      ...baseDefaults,
-      ...patientOverrides,
-    };
-  }, [patient, isSimplifiedMode]);
+     // --- Correctly return the merged object ---
+     return {
+       ...baseDefaults,
+       ...patientOverrides,
+     };
+   }, [patient, isSimplifiedMode]); // Keep dependencies
 
-  // Use the full schema for the resolver, but validation logic will be manual for full mode save
+   // Use the full schema for the resolver, but validation logic will be manual for full mode save
   const form = useForm<PatientFormValues>({
     resolver: zodResolver(isSimplifiedMode ? simplifiedPatientSchema : patientSchema),
     defaultValues: calculateDefaultValues(patient),
@@ -412,18 +431,24 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
               dental_issues: fullData.family_dental_issues || [],
               dental_other: fullData.family_dental_issues_other || null,
           },
-          lifestyle_habits: {
-              diet: fullData.diet_description || null,
-              exercise: fullData.exercise_frequency || null,
-              stress: fullData.stress_level || null,
-              sleep_issues: fullData.has_sleep_issues === 'yes' ? fullData.sleep_issues_details || 'Yes, details missing' : 'No',
-              pregnancy_status: fullData.pregnancy_status || null,
-              pregnancy_comments: fullData.pregnancy_comments || null,
-              mental_health: fullData.has_mental_health_conditions === 'yes' ? fullData.mental_health_details || 'Yes, details missing' : 'No',
-              additional_concerns: fullData.additional_concerns || null,
-              additional_comments: fullData.additional_comments || null,
-          } as unknown as Json,
-          notes: fullData.notes || null,
+           lifestyle_habits: {
+               diet: fullData.diet_description || null,
+               exercise: fullData.exercise_frequency || null, // Keep as is, DB expects enum value or null
+               stress: fullData.stress_level || null, // Keep as is
+               // Convert back to DB format
+               sleep_issues: fullData.has_sleep_issues === 'yes'
+                   ? (fullData.sleep_issues_details ? `Yes, ${fullData.sleep_issues_details}` : 'Yes, details missing')
+                   : 'No',
+               pregnancy_status: fullData.pregnancy_status || null, // Keep as is
+               pregnancy_comments: fullData.pregnancy_comments || null,
+               // Convert back to DB format
+               mental_health: fullData.has_mental_health_conditions === 'yes'
+                   ? (fullData.mental_health_details ? `Yes, ${fullData.mental_health_details}` : 'Yes, details missing')
+                   : 'No',
+               additional_concerns: fullData.additional_concerns || null,
+               additional_comments: fullData.additional_comments || null,
+           } as unknown as Json,
+           notes: fullData.notes || null,
           consent_given: fullData.consent_given || null,
           profile_photo_url: profilePhotoUrl,
           signature_url: signatureUrl,
@@ -510,15 +535,15 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
     if (fieldsToValidate.length === 0 && activeTab !== 'documents') { // Documents might have no required fields initially
         console.warn(`No fields defined for validation on tab: ${activeTab}`);
         // Decide if we should proceed or show an error. Let's proceed for now.
-    }
+     }
 
-    // Trigger validation only for the fields of the current tab
-    const isValid = fieldsToValidate.length > 0
-        ? await form.trigger(fieldsToValidate as any) // Cast needed as trigger expects specific field names
-        : true; // Assume valid if no fields defined for the tab (e.g., documents initially)
+     // Trigger validation only for the fields of the current tab
+     const isValid = fieldsToValidate.length > 0
+         ? await form.trigger(fieldsToValidate as any) // Cast needed as trigger expects specific field names
+         : true; // Assume valid if no fields defined for the tab (e.g., documents initially)
 
-    if (isValid) {
-      console.log(`Validation passed for tab: ${activeTab}`);
+     if (isValid) {
+       console.log(`Validation passed for tab: ${activeTab}`);
       const currentData = form.getValues() as FullPatientFormValues;
       setPendingSubmitData(currentData);
       // Reset dialog fields before opening
@@ -528,12 +553,12 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
       setDialogConsentDate(new Date()); // Reset to today
       setIsConfirmDialogOpen(true);
     } else {
-      console.log(`Validation failed for tab: ${activeTab}`);
-      toast({
-        title: "Validation Error",
-        description: `Please fix the errors on the "${activeTab.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}" tab before saving.`,
-        variant: "destructive",
-      });
+       console.log(`Validation failed for tab: ${activeTab}`);
+       toast({
+         title: "Validation Error",
+         description: `Please fix the errors on the "${activeTab.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}" tab before saving.`,
+         variant: "destructive",
+       });
     }
      setLoading(false); // Hide loading state after validation attempt
   };
