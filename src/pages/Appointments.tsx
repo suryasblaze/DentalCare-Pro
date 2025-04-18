@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 // Import subHours correctly and Database type
 import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, parseISO, parse, isValid, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, isToday, startOfDay, endOfDay, subHours, isBefore, formatISO } from 'date-fns'; // Added isBefore, formatISO
-import { Plus, ChevronLeft, ChevronRight, User, Phone } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, User, Phone, Clock, Tag, Armchair } from 'lucide-react'; // Added Clock, Tag, Armchair
 import { api, subscribeToChanges } from '@/lib/api'; // Import subscribeToChanges
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -13,6 +13,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast'; // Import useToast
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"; // Import Tooltip
 // Import PatientForm
 import { PatientForm } from '@/features/patients/components/PatientForm';
 // Import Database type and specific table types from the correct path
@@ -49,8 +50,21 @@ export function Appointments() {
   const [manualDate, setManualDate] = useState<Date | null>(null);
   const [manualTime, setManualTime] = useState<string>(''); // e.g., "09:00"
   const { toast } = useToast(); // Initialize toast hook
-  const CELL_HEIGHT = 80; // Height of a 1-hour cell in pixels
+  const CELL_HEIGHT = 100; // Increased height to accommodate cards better
   const HOUR_IN_MINUTES = 60;
+  // Define some colors for appointment icons (using softer tones like reference)
+  const appointmentColors = [
+    'bg-blue-100 text-blue-700 border border-blue-200', // Adjusted colors for icons
+    'bg-green-100 text-green-700 border border-green-200',
+    'bg-purple-100 text-purple-700 border border-purple-200',
+    'bg-yellow-100 text-yellow-700 border border-yellow-200',
+    'bg-pink-100 text-pink-700 border border-pink-200',
+    'bg-indigo-100 text-indigo-700 border border-indigo-200',
+    'bg-teal-100 text-teal-700 border border-teal-200',
+    'bg-orange-100 text-orange-700 border border-orange-200',
+  ];
+  const cancelledColor = 'bg-red-100 text-red-700 border border-red-200 line-through opacity-70';
+
 
   const [appointmentFormData, setAppointmentFormData] = useState({
     type: 'checkup',
@@ -796,6 +810,23 @@ export function Appointments() {
     return null; // Should not happen
   };
 
+  // Helper to get color based on staff ID or status
+  const getAppointmentColor = (staffId: string | undefined | null, status: string | undefined | null): string => {
+    if (status === 'cancelled') return cancelledColor;
+    if (!staffId) return appointmentColors[0]; // Default color if no staff ID
+
+    // Simple hash function to get a somewhat consistent index based on staff ID
+    let hash = 0;
+    for (let i = 0; i < staffId.length; i++) {
+      const char = staffId.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash |= 0; // Convert to 32bit integer
+    }
+    const index = Math.abs(hash) % appointmentColors.length;
+    return appointmentColors[index];
+  };
+
+
   // Week view
   const renderWeekView = () => {
     const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
@@ -803,6 +834,7 @@ export function Appointments() {
     const daysInWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
     return (
+      <TooltipProvider delayDuration={100}> {/* Wrap Week View content */}
       <Card>
         <div className="grid grid-cols-8 border-b">
           <div className="p-4 font-medium text-muted-foreground">Time</div>
@@ -819,41 +851,47 @@ export function Appointments() {
               <div className="p-4 text-sm text-right text-muted-foreground">{time}</div>
               {daysInWeek.map((day) => {
                 const slotAppointments = getAppointmentsForTimeSlot(day, time);
-                const totalInSlot = slotAppointments.length;
                 return (
-                  <div key={day.toISOString()} onClick={() => handleSlotClick(day, time)} className={`border-l p-2 relative ${slotAppointments.some(apt => apt.status !== 'cancelled') ? 'bg-blue-50/50' : ''} hover:bg-muted/50 cursor-pointer transition-colors`} style={{ height: `${CELL_HEIGHT}px` }}>
-                    {slotAppointments.map((apt, index) => {
-                      // Overlap handling: Adjust width/left, reduce horizontal padding
-                      const calculatedWidth = totalInSlot > 1 ? `${100 / totalInSlot - 4}%` : '95%'; // Increased gap slightly
-                      const calculatedLeft = totalInSlot > 1 ? `${index * (100 / totalInSlot) + 1}%` : '2.5%'; // Added small offset
-
-                      return (
-                      <div
-                        key={apt.id}
-                        className={`text-sm px-1 py-2 absolute rounded-md transition-colors ${ // Changed p-2 to px-1 py-2, removed overflow-hidden
-                          apt.status === 'cancelled'
-                            ? 'bg-red-100/50 text-red-700/60 border border-red-200 line-through opacity-70'
-                            : 'bg-primary/10 text-primary hover:bg-primary/20'
-                        }`}
-                        onClick={(e) => handleAppointmentClick(e, apt)}
-                        style={{
-                          height: `${calculateAppointmentHeight(apt.start_time, apt.end_time)}px`,
-                          top: `${calculateAppointmentOffset(apt.start_time)}px`,
-                          zIndex: apt.status === 'cancelled' ? 5 : 10 + index, // Adjust zIndex slightly based on index
-                          width: calculatedWidth, // Apply calculated width
-                          left: calculatedLeft,   // Apply calculated left offset
-                        }}
-                        title={`${apt.type}${apt.status === 'cancelled' ? ' (Cancelled)' : ''} - ${apt.start_time ? format(parseISO(apt.start_time), 'h:mm a') : ''} to ${apt.end_time ? format(parseISO(apt.end_time), 'h:mm a') : ''}`}
-                      >
-                        <div className="font-medium">
-                          <div>{apt.patients?.first_name} {apt.patients?.last_name}</div>
-                          <div className="text-xs text-muted-foreground">Dr. {apt.staff?.first_name} {apt.staff?.last_name}</div>
-                        </div>
-                        <div className="text-xs">{apt.type} ({apt.start_time ? format(parseISO(apt.start_time), 'h:mm a') : ''} - {apt.end_time ? format(parseISO(apt.end_time), 'h:mm a') : ''})</div>
-                         {apt.status === 'cancelled' && <div className="text-xs font-semibold text-red-700/80">(Cancelled)</div>}
-                      </div>
-                      );
-                    })}
+                  <div
+                    key={day.toISOString()}
+                    onClick={() => handleSlotClick(day, time)}
+                    className={`border-l p-1 relative hover:bg-muted/50 cursor-pointer transition-colors overflow-hidden`} // Added overflow-hidden
+                    style={{ height: `${CELL_HEIGHT}px` }} // Keep fixed height for the row
+                  >
+                    {/* Use flex-wrap to allow icons to wrap, align items top */}
+                    <div className="flex flex-wrap gap-2 h-full items-start content-start p-1.5"> {/* Increased gap slightly */}
+                      {slotAppointments.map((apt) => (
+                        <Tooltip key={apt.id}>
+                          <TooltipTrigger asChild>
+                            {/* Render colored icon instead of full card */}
+                            <div
+                              className={`w-7 h-7 rounded-md flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-offset-1 transition-all ${getAppointmentColor(apt.staff?.id, apt.status)} ${apt.status === 'cancelled' ? 'opacity-60' : 'hover:opacity-80'}`}
+                              onClick={(e) => handleAppointmentClick(e, apt)}
+                            >
+                              <Armchair className={`h-4 w-4 ${apt.status === 'cancelled' ? 'text-red-900' : 'text-current opacity-70'}`} />
+                            </div>
+                          </TooltipTrigger>
+                          {/* Tooltip Content with full details */}
+                          <TooltipContent side="top" align="center" className="bg-background border shadow-lg rounded-lg p-3 text-sm w-60">
+                             <div className="flex items-center mb-2">
+                               <User className="h-5 w-5 mr-2 text-muted-foreground flex-shrink-0" /> {/* Avatar Placeholder */}
+                               <span className="font-semibold">{apt.patients?.first_name} {apt.patients?.last_name}</span>
+                             </div>
+                             <p className="text-muted-foreground text-xs mb-1">Dr. {apt.staff?.first_name} {apt.staff?.last_name}</p>
+                             <p className="text-muted-foreground text-xs mb-1">
+                               <Clock className="inline h-3 w-3 mr-1" />
+                               {apt.start_time ? format(parseISO(apt.start_time), 'h:mm a') : 'No time'} - {apt.end_time ? format(parseISO(apt.end_time), 'h:mm a') : ''}
+                             </p>
+                             <p className="text-muted-foreground text-xs">
+                               <Tag className="inline h-3 w-3 mr-1" />
+                               {apt.type}
+                             </p>
+                             {apt.status === 'cancelled' && <p className="text-red-600 text-xs font-semibold mt-1">(Cancelled)</p>}
+                           </TooltipContent>
+                        </Tooltip>
+                      ))}
+                      {/* Removed Available Slot Placeholders */}
+                    </div>
                   </div>
                 );
               })}
@@ -861,12 +899,14 @@ export function Appointments() {
           ))}
         </div>
       </Card>
+      </TooltipProvider>
     );
   };
 
   // Day view
   const renderDayView = () => {
     return (
+      <TooltipProvider delayDuration={100}> {/* Wrap Day View content */}
       <Card>
         <div className="grid grid-cols-2 border-b">
           <div className="p-4 font-medium text-muted-foreground">Time</div>
@@ -878,49 +918,56 @@ export function Appointments() {
         <div>
           {timeSlots.map((time) => {
             const slotAppointments = getAppointmentsForTimeSlot(selectedDate, time);
-            const totalInSlot = slotAppointments.length;
             return (
               <div key={time} className="grid grid-cols-2 border-b last:border-0">
                 <div className="p-4 text-sm text-right text-muted-foreground">{time}</div>
-                <div onClick={() => handleSlotClick(selectedDate, time)} className={`border-l p-2 relative ${slotAppointments.some(apt => apt.status !== 'cancelled') ? 'bg-blue-50/50' : ''} hover:bg-muted/50 cursor-pointer transition-colors`} style={{ height: `${CELL_HEIGHT}px` }}>
-                  {slotAppointments.map((apt, index) => {
-                     // Overlap handling: Adjust width/left, reduce horizontal padding
-                     const calculatedWidth = totalInSlot > 1 ? `${100 / totalInSlot - 4}%` : '95%'; // Increased gap slightly
-                     const calculatedLeft = totalInSlot > 1 ? `${index * (100 / totalInSlot) + 1}%` : '2.5%'; // Added small offset
-
-                     return (
-                     <div
-                        key={apt.id}
-                        className={`text-sm px-1 py-2 absolute rounded-md transition-colors ${ // Changed p-2 to px-1 py-2, removed overflow-hidden
-                          apt.status === 'cancelled'
-                            ? 'bg-red-100/50 text-red-700/60 border border-red-200 line-through opacity-70'
-                            : 'bg-primary/10 text-primary hover:bg-primary/20'
-                        }`}
-                        onClick={(e) => handleAppointmentClick(e, apt)}
-                        style={{
-                          height: `${calculateAppointmentHeight(apt.start_time, apt.end_time)}px`,
-                          top: `${calculateAppointmentOffset(apt.start_time)}px`,
-                          zIndex: apt.status === 'cancelled' ? 5 : 10 + index, // Adjust zIndex slightly based on index
-                          width: calculatedWidth, // Apply calculated width
-                          left: calculatedLeft,   // Apply calculated left offset
-                        }}
-                        title={`${apt.type}${apt.status === 'cancelled' ? ' (Cancelled)' : ''} - ${apt.start_time ? format(parseISO(apt.start_time), 'h:mm a') : ''} to ${apt.end_time ? format(parseISO(apt.end_time), 'h:mm a') : ''}`}
-                      >
-                      <div className="font-medium">
-                        <div>{apt.patients?.first_name} {apt.patients?.last_name}</div>
-                        <div className="text-xs text-muted-foreground">Dr. {apt.staff?.first_name} {apt.staff?.last_name}</div>
-                      </div>
-                      <div className="text-xs">{apt.type} ({apt.start_time ? format(parseISO(apt.start_time), 'h:mm a') : ''} - {apt.end_time ? format(parseISO(apt.end_time), 'h:mm a') : ''})</div>
-                       {apt.status === 'cancelled' && <div className="text-xs font-semibold text-red-700/80">(Cancelled)</div>}
-                    </div>
-                    );
-                  })}
+                {/* Apply the same flexbox layout and styling as renderWeekView */}
+                <div
+                  onClick={() => handleSlotClick(selectedDate, time)}
+                  className={`border-l relative hover:bg-muted/50 cursor-pointer transition-colors overflow-hidden`} // Removed fixed padding, added overflow-hidden
+                  style={{ height: `${CELL_HEIGHT}px` }} // Keep fixed height for the row
+                >
+                  {/* Use flex-wrap to allow cards to wrap, align items top */}
+                  <div className="flex flex-wrap gap-2 h-full items-start content-start p-1.5"> {/* Increased gap slightly */}
+                    {slotAppointments.map((apt) => (
+                      <Tooltip key={apt.id}>
+                        <TooltipTrigger asChild>
+                          {/* Render colored icon instead of full card */}
+                          <div
+                            className={`w-7 h-7 rounded-md flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-offset-1 transition-all ${getAppointmentColor(apt.staff?.id, apt.status)} ${apt.status === 'cancelled' ? 'opacity-60' : 'hover:opacity-80'}`}
+                            onClick={(e) => handleAppointmentClick(e, apt)}
+                          >
+                            <Armchair className={`h-4 w-4 ${apt.status === 'cancelled' ? 'text-red-900' : 'text-current opacity-70'}`} />
+                          </div>
+                        </TooltipTrigger>
+                        {/* Tooltip Content with full details */}
+                        <TooltipContent side="top" align="center" className="bg-background border shadow-lg rounded-lg p-3 text-sm w-60">
+                           <div className="flex items-center mb-2">
+                             <User className="h-5 w-5 mr-2 text-muted-foreground flex-shrink-0" /> {/* Avatar Placeholder */}
+                             <span className="font-semibold">{apt.patients?.first_name} {apt.patients?.last_name}</span>
+                           </div>
+                           <p className="text-muted-foreground text-xs mb-1">Dr. {apt.staff?.first_name} {apt.staff?.last_name}</p>
+                           <p className="text-muted-foreground text-xs mb-1">
+                             <Clock className="inline h-3 w-3 mr-1" />
+                             {apt.start_time ? format(parseISO(apt.start_time), 'h:mm a') : 'No time'} - {apt.end_time ? format(parseISO(apt.end_time), 'h:mm a') : ''}
+                           </p>
+                           <p className="text-muted-foreground text-xs">
+                             <Tag className="inline h-3 w-3 mr-1" />
+                             {apt.type}
+                           </p>
+                           {apt.status === 'cancelled' && <p className="text-red-600 text-xs font-semibold mt-1">(Cancelled)</p>}
+                         </TooltipContent>
+                      </Tooltip>
+                    ))}
+                    {/* Removed Available Slot Placeholders */}
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
       </Card>
+      </TooltipProvider>
     );
   };
 
@@ -944,6 +991,7 @@ export function Appointments() {
 
     return (
       <Card>
+        <TooltipProvider delayDuration={300}> {/* Wrap month view content in TooltipProvider */}
         <div className="grid grid-cols-7 border-b">
           {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (<div key={day} className="p-2 text-center font-medium">{day}</div>))}
         </div>
@@ -957,19 +1005,37 @@ export function Appointments() {
                 return (
                   <div key={day.toISOString()} onClick={() => { setSelectedDate(day); setView('day'); }} className={`border p-2 min-h-[120px] relative ${!isCurrentMonth ? 'bg-gray-100 text-gray-400' : isToday(day) ? 'bg-blue-50' : ''} hover:bg-muted/50 cursor-pointer transition-colors`}>
                     <div className={`text-right font-medium ${isToday(day) ? 'text-blue-600' : ''}`}>{format(day, 'd')}</div>
-                    <div className="mt-1 space-y-1 overflow-hidden max-h-[80px]">
+                    {/* Display icons instead of text in month view */}
+                    <div className="mt-1 flex flex-wrap gap-1 overflow-hidden max-h-[80px]">
                       {dayAppointments.slice(0, 3).map((apt) => (
-                        <div
-                          key={apt.id}
-                          className={`text-xs p-1 rounded truncate ${
-                            apt.status === 'cancelled'
-                              ? 'bg-red-100/50 text-red-700/60 line-through opacity-70'
-                              : 'bg-primary/10 text-primary'
-                          }`}
-                          onClick={(e) => { e.stopPropagation(); handleAppointmentClick(e, apt); }}
-                        >
-                          {apt.start_time ? format(parseISO(apt.start_time), 'HH:mm') : ''} - {apt.patients?.first_name} {apt.status === 'cancelled' ? '(C)' : ''}
-                        </div>
+                        <Tooltip key={apt.id}>
+                          <TooltipTrigger asChild>
+                             {/* Render small colored icon */}
+                             <div
+                              className={`w-5 h-5 rounded flex items-center justify-center cursor-pointer hover:ring-1 hover:ring-offset-1 transition-all ${getAppointmentColor(apt.staff?.id, apt.status)} ${apt.status === 'cancelled' ? 'opacity-60' : 'hover:opacity-80'}`}
+                              onClick={(e) => { e.stopPropagation(); handleAppointmentClick(e, apt); }}
+                            >
+                              <Armchair className={`h-3 w-3 ${apt.status === 'cancelled' ? 'text-red-900' : 'text-current opacity-70'}`} />
+                            </div>
+                          </TooltipTrigger>
+                          {/* Use the same improved Tooltip Content */}
+                          <TooltipContent side="top" align="start" className="bg-gradient-to-b from-white to-gray-50 border border-gray-200 shadow-xl rounded-lg p-4 text-sm w-64">
+                            <div className="flex items-center mb-2">
+                              <User className="h-5 w-5 mr-2 text-muted-foreground" /> {/* Avatar Placeholder */}
+                              <span className="font-bold text-gray-800">{apt.patients?.first_name} {apt.patients?.last_name}</span> {/* Bolder Name */}
+                            </div>
+                            <p className="text-gray-600 text-xs mb-1 font-medium">Dr. {apt.staff?.first_name} {apt.staff?.last_name}</p> {/* Medium Doctor Name */}
+                            <p className="text-muted-foreground text-xs mb-1">
+                              <Clock className="inline h-3 w-3 mr-1" />
+                              {apt.start_time ? format(parseISO(apt.start_time), 'h:mm a') : 'No time'} - {apt.end_time ? format(parseISO(apt.end_time), 'h:mm a') : ''}
+                            </p>
+                            <p className="text-muted-foreground text-xs">
+                              <Tag className="inline h-3 w-3 mr-1" />
+                              {apt.type}
+                            </p>
+                            {apt.status === 'cancelled' && <p className="text-red-600 text-xs font-semibold mt-1">(Cancelled)</p>}
+                          </TooltipContent>
+                        </Tooltip>
                       ))}
                       {/* Show count of non-cancelled appointments if more than 3 total */}
                       {dayAppointments.length > 3 && (<div className="text-xs text-muted-foreground text-center">+{nonCancelledAppointments.length - 3} more</div>)}
@@ -980,6 +1046,7 @@ export function Appointments() {
             </div>
           ))}
         </div>
+        </TooltipProvider> {/* Close TooltipProvider */}
       </Card>
     );
   };

@@ -9,9 +9,9 @@ export default defineConfig(({ mode }) => {
   return {
     base: '/DentalCare-Pro/', // Updated base path for new repo name
     plugins: [react(), svgr()], // Add svgr plugin here
-    optimizeDeps: {
-      exclude: ['lucide-react'],
-    },
+    // optimizeDeps: {
+    //   exclude: ['lucide-react'],
+    // },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

@@ -49,106 +49,133 @@
   }
 }
 
-/* --- Dental Chart Enhancements --- */
+/* --- Revised Dental Chart Styles (User Colors & Simplified Hover) --- */
 
-/* Base style for all tooth groups */
+:root {
+  /* Using user-provided colors - mapping based on feedback */
+  --selection-fill-color: #2D46B9;       /* Dark blue for processed fill */
+  --selection-glow-color: #A0A0F0;       /* Lighter blue for processed glow */
+  --active-selection-glow-color: #007bff; /* Brighter blue for active wave/glow */
+  --hover-glow-color: #0056b3;           /* Slightly adjusted blue for hover glow */
+  --tooth-default-fill: #fff;             /* Default white fill */
+  --tooth-outline: #6B7280;              /* Darker outline (Gray-500) */
+  --tooth-markings: #374151;             /* Darker inner markings (Gray-700) */
+  --hover-scale: 1.08;                  /* Slightly increased hover scale */
+  --glow-intensity: 10px;                /* Slightly increased processed glow intensity */
+}
+
+/* Tooth Base Group */
 .dental-chart-dialog-content svg g[id^="ID_"] {
-  transform-origin: center center; /* Set transform origin for scaling */
-  transition: filter 0.15s ease-in-out; /* Transition filter for hover glow */
+  transform-origin: center;
+  transition: transform 0.3s ease, filter 0.3s ease;
+  transform-style: preserve-3d; /* Re-add for 3D effect */
 }
 
-/* Define pop animation */
-@keyframes pop-effect {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.15); /* Scale up */
-  }
-  100% {
-    transform: scale(1); /* Scale back down */
-  }
+/* Tooth Base Path */
+.dental-chart-dialog-content svg g[id^="ID_"] path:first-of-type {
+  fill: var(--tooth-default-fill); /* Use white default fill */
+  stroke: var(--tooth-outline); /* Use default outline color */
+  stroke-width: 1.5; /* Increased default outline width */
+  transition: fill 0.3s ease, stroke 0.3s ease, stroke-width 0.3s ease, filter 0.3s ease;
 }
 
-/* Hover effect - change stroke on the path */
-.dental-chart-dialog-content svg g[id^="ID_"].tooth-hovered:not(.tooth-missing):not(.tooth-selected) path {
-  stroke: #60A5FA; /* Lighter blue (blue-400) */
-  stroke-width: 1.5; /* Slightly thicker */
+/* Inner Lines / Cracks */
+.dental-chart-dialog-content svg g[id^="ID_"] path:not(:first-of-type),
+.dental-chart-dialog-content svg g[id^="ID_"] line,
+.dental-chart-dialog-content svg g[id^="ID_"] polyline {
+  stroke: var(--tooth-markings); /* Use default marking color */
+  stroke-width: 1;
+  transition: stroke 0.3s ease;
+}
+
+/* Hover State (Scale + Glow) */
+.dental-chart-dialog-content svg g[id^="ID_"].tooth-hovered:not(.tooth-selected):not(.tooth-missing):not(.tooth-selection-processed) {
+  transform: scale(var(--hover-scale)); /* Keep scale */
+  filter: drop-shadow(0 4px 10px var(--hover-glow-color)); /* Keep glow */
   cursor: pointer;
 }
-/* Optional: Add subtle glow on hover */
-.dental-chart-dialog-content svg g[id^="ID_"].tooth-hovered:not(.tooth-missing):not(.tooth-selected) {
-   filter: drop-shadow(0px 0px 2px rgba(96, 165, 250, 0.7)); /* Blue-400 glow */
-}
 
-
-/* Selection effect - apply pop animation and persistent styles */
-.dental-chart-dialog-content svg g[id^="ID_"].tooth-selected:not(.tooth-missing) {
-  animation: pop-effect 0.3s ease-out forwards; /* Apply pop animation once */
-  /* Persistent selected styles (stroke) */
-  path {
-    stroke: #2563EB !important; /* Darker blue (blue-600) */
-    stroke-width: 2 !important; /* Even thicker */
+/* Wave Animation for Selected Tooth (Active Selection) - Enhanced Glow */
+@keyframes wave-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 5px var(--active-selection-glow-color)) drop-shadow(0 0 10px var(--active-selection-glow-color));
+    stroke-width: 2;
   }
-  /* Optional: Add a persistent subtle glow after the pop */
-   filter: drop-shadow(0px 0px 3px rgba(59, 130, 246, 0.6));
+  50% {
+    filter: drop-shadow(0 0 12px var(--active-selection-glow-color)) drop-shadow(0 0 20px var(--active-selection-glow-color));
+    stroke-width: 2.5;
+  }
 }
 
-/* --- Blinking Dot Styles --- */
-@keyframes blink-effect {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+/* Apply wave animation to the main path of the active selection */
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) path:first-of-type {
+  /* fill: none; */ /* REMOVED: Keep original fill visible */
+  stroke: var(--active-selection-glow-color); /* Use active glow color for stroke */
+  stroke-width: 2; /* Initial stroke width */
+  filter: drop-shadow(0 0 5px var(--active-selection-glow-color)) drop-shadow(0 0 10px var(--active-selection-glow-color)); /* Initial filter */
+  animation: wave-glow 1.8s ease-in-out infinite; /* Use new animation */
+}
+/* Reset group styles for active selection */
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) {
+  transform: none !important; /* Override hover transform */
+  filter: none !important; /* Override hover filter */
+  animation: none; /* Animation is on the path */
+}
+/* Keep inner markings default for active selection */
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) path:not(:first-of-type),
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) line,
+.dental-chart-dialog-content svg g.tooth-selected:not(.tooth-missing) polyline {
+  stroke: var(--tooth-markings); /* Use default marking color */
+  stroke-width: 1;
 }
 
-.condition-indicator-dot {
-  animation: blink-effect 1.5s infinite ease-in-out;
-  /* Optional: Add a subtle stroke for definition */
-  /* stroke: rgba(0,0,0,0.2); */
-  /* stroke-width: 0.5px; */
+
+/* Processed Tooth - Solid Fill + Static Glow */
+.dental-chart-dialog-content svg g.tooth-selection-processed:not(.tooth-missing) {
+  /* Apply static glow to the group */
+  filter: drop-shadow(0 0 var(--glow-intensity) var(--selection-glow-color)); /* Use processed glow color */
+  transform: none !important; /* Override hover transform */
+  animation: none; /* Ensure no animation */
 }
-/* Stop blinking on hover for clarity */
-.dental-chart-dialog-content svg g[id^="ID_"].tooth-hovered .condition-indicator-dot {
+
+.dental-chart-dialog-content svg g.tooth-selection-processed:not(.tooth-missing) path:first-of-type {
+  fill: var(--selection-fill-color); /* Dark fill */
+  stroke: none; /* No stroke */
+  filter: none; /* Ensure no filter/animation on path */
   animation: none;
-  opacity: 1;
-}
-/* --- End Blinking Dot Styles --- */
-
-/* Style for missing teeth */
-.dental-chart-dialog-content svg g[id^="ID_"].tooth-missing path {
-   fill: transparent !important;
-   stroke: #9ca3af !important; /* gray-400 */
-   stroke-dasharray: 3, 3;
-   /* opacity: 0.4; /* Let the group handle opacity */
-}
-.dental-chart-dialog-content svg g[id^="ID_"].tooth-missing {
-   opacity: 0.4; /* Make missing teeth less prominent */
-}
-/* Hide numbers for missing teeth */
-.dental-chart-dialog-content svg g[id^="ID_"].tooth-missing .tooth-number-text {
-  display: none;
 }
 
-
-/* Tooth Number Text Styling */
-.dental-chart-dialog-content svg .tooth-number-text {
-  font-family: system-ui, sans-serif;
-  font-size: 9px;
-  font-weight: 500;
-  fill: #4b5563; /* gray-600 */
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  transition: fill 0.15s ease-out;
-}
-/* Slightly change number color on hover for feedback */
-.dental-chart-dialog-content svg g[id^="ID_"].tooth-hovered:not(.tooth-missing):not(.tooth-selected) .tooth-number-text {
-   fill: #3b82f6; /* blue-500 */
+.dental-chart-dialog-content svg g.tooth-selection-processed:not(.tooth-missing) path:not(:first-of-type),
+.dental-chart-dialog-content svg g.tooth-selection-processed:not(.tooth-missing) line,
+.dental-chart-dialog-content svg g.tooth-selection-processed:not(.tooth-missing) polyline {
+  stroke: white; /* White inner markings */
+  stroke-width: 1.5;
 }
 
+/* Missing Tooth */
+.dental-chart-dialog-content svg g.tooth-missing {
+  opacity: 0.35; /* User specified */
+  cursor: not-allowed;
+  transform: none !important;
+  filter: none !important;
+  animation: none !important;
+}
 
-/* --- End Dental Chart Enhancements --- */
+.dental-chart-dialog-content svg g.tooth-missing path:first-of-type {
+  fill: transparent !important;
+  stroke: #64748B !important; /* User specified */
+  stroke-dasharray: 3 3; /* User specified */
+  filter: none !important;
+  animation: none !important;
+}
+
+.dental-chart-dialog-content svg g.tooth-missing path:not(:first-of-type),
+.dental-chart-dialog-content svg g.tooth-missing line,
+.dental-chart-dialog-content svg g.tooth-missing polyline {
+  stroke: #64748B !important; /* User specified */
+}
+
+/* --- End Revised Dental Chart Styles --- */
 
 @keyframes fadeOut {
   0% {
@@ -174,24 +201,18 @@
   }
 }
 
-/* Dental Chart SVG Styles - Base */
-
-/* Default Tooth Appearance (Path) */
+/* REMOVE Potentially Conflicting Base Styles */
+/*
 .dental-chart-dialog-content svg g[id^="ID_"] path {
-  fill: #FFFFFF; /* Explicitly set default fill to white */
-  stroke: #4B5563; /* Default stroke (gray-600) */
+  fill: #FFFFFF;
+  stroke: #4B5563;
   stroke-width: 1;
   stroke-dasharray: none;
-  transition: stroke 0.15s ease-in-out, stroke-width 0.15s ease-in-out; /* Removed fill transition */
+  transition: stroke 0.15s ease-in-out, stroke-width 0.15s ease-in-out;
 }
-/* Default Tooth Appearance (Group) */
 .dental-chart-dialog-content svg g[id^="ID_"] {
   opacity: 1;
-  transition: opacity 0.15s ease-in-out, filter 0.15s ease-in-out, transform 0.15s ease-out; /* Added transform transition */
-  filter: none; /* Ensure no filter by default */
+  transition: opacity 0.15s ease-in-out, filter 0.15s ease-in-out, transform 0.15s ease-out;
+  filter: none;
 }
-
-/* --- Removed old styles below this line that might conflict --- */
-/* (Removed old .tooth-missing, .tooth-hovered, .tooth-selected rules that were duplicated or superseded) */
-/* --- Removed Condition Indicator Styles --- */
-/* --- Removed old Tooth Number Text styles --- */
+*/
