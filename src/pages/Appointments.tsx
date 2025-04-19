@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 // Import subHours correctly and Database type
 import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, parseISO, parse, isValid, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, isToday, startOfDay, endOfDay, subHours, isBefore, formatISO } from 'date-fns'; // Added isBefore, formatISO
-import { Plus, ChevronLeft, ChevronRight, User, Phone, Clock, Tag, Armchair } from 'lucide-react'; // Added Clock, Tag, Armchair
+import { Plus, ChevronLeft, ChevronRight, User, Phone, Clock, Tag, Armchair, Ban } from 'lucide-react'; // Added Clock, Tag, Armchair, Ban
 import { api, subscribeToChanges } from '@/lib/api'; // Import subscribeToChanges
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -61,9 +61,11 @@ export function Appointments() {
     'bg-pink-100 text-pink-700 border border-pink-200',
     'bg-indigo-100 text-indigo-700 border border-indigo-200',
     'bg-teal-100 text-teal-700 border border-teal-200',
-    'bg-orange-100 text-orange-700 border border-orange-200',
+    // 'bg-orange-100 text-orange-700 border border-orange-200', // Keep for reference if needed later
   ];
-  const cancelledColor = 'bg-red-100 text-red-700 border border-red-200 line-through opacity-70';
+  // Define base classes using the new custom colors
+  const bookedColor = 'bg-booked-bg text-booked-icon border border-booked-border';
+  const cancelledColor = 'bg-canceled-bg text-canceled-icon border border-canceled-border line-through opacity-70';
 
 
   const [appointmentFormData, setAppointmentFormData] = useState({
@@ -837,20 +839,14 @@ export function Appointments() {
     return null; // Should not happen
   };
 
-  // Helper to get color based on staff ID or status
-  const getAppointmentColor = (staffId: string | undefined | null, status: string | undefined | null): string => {
-    if (status === 'cancelled') return cancelledColor;
-    if (!staffId) return appointmentColors[0]; // Default color if no staff ID
-
-    // Simple hash function to get a somewhat consistent index based on staff ID
-    let hash = 0;
-    for (let i = 0; i < staffId.length; i++) {
-      const char = staffId.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash |= 0; // Convert to 32bit integer
+  // Helper to get color based on status using the new custom colors
+  const getAppointmentColor = (status: string | undefined | null): string => {
+    if (status === 'cancelled') {
+      return cancelledColor;
     }
-    const index = Math.abs(hash) % appointmentColors.length;
-    return appointmentColors[index];
+    // Use the booked color for scheduled, confirmed, completed, or any other non-cancelled status
+    return bookedColor;
+    // Removed staff-based color logic based on the request. Can be added back if needed.
   };
 
 
@@ -904,12 +900,17 @@ export function Appointments() {
                       {slotAppointments.map((apt) => (
                         <Tooltip key={apt.id}>
                           <TooltipTrigger asChild>
-                            {/* Render colored icon instead of full card */}
+                            {/* Render colored icon with ring and animation */}
                             <div
-                              className={`w-7 h-7 rounded-md flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-offset-1 transition-all ${getAppointmentColor(apt.staff?.id, apt.status)} ${apt.status === 'cancelled' ? 'opacity-60' : 'hover:opacity-80'}`}
+                              className={`w-7 h-7 rounded-md flex items-center justify-center cursor-pointer ring-2 transition-all ${getAppointmentColor(apt.status)} ${apt.status === 'cancelled' ? 'ring-canceled-ring animate-shake' : 'ring-booked-ring animate-pulse hover:ring-offset-1'}`}
                               onClick={(e) => handleAppointmentClick(e, apt)}
                             >
-                              <Armchair className={`h-4 w-4 ${apt.status === 'cancelled' ? 'text-red-900' : 'text-current opacity-70'}`} />
+                              {/* Conditionally render Ban or Armchair icon */}
+                              {apt.status === 'cancelled' ? (
+                                <Ban className={`h-4 w-4 text-canceled-icon`} />
+                              ) : (
+                                <Armchair className={`h-4 w-4 text-booked-icon`} />
+                              )}
                             </div>
                           </TooltipTrigger>
                           {/* Tooltip Content with full details */}
@@ -987,12 +988,17 @@ export function Appointments() {
                     {slotAppointments.map((apt) => (
                       <Tooltip key={apt.id}>
                         <TooltipTrigger asChild>
-                          {/* Render colored icon instead of full card */}
-                          <div
-                            className={`w-7 h-7 rounded-md flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-offset-1 transition-all ${getAppointmentColor(apt.staff?.id, apt.status)} ${apt.status === 'cancelled' ? 'opacity-60' : 'hover:opacity-80'}`}
-                            onClick={(e) => handleAppointmentClick(e, apt)}
-                          >
-                            <Armchair className={`h-4 w-4 ${apt.status === 'cancelled' ? 'text-red-900' : 'text-current opacity-70'}`} />
+                            {/* Render colored icon with ring and animation */}
+                            <div
+                              className={`w-7 h-7 rounded-md flex items-center justify-center cursor-pointer ring-2 transition-all ${getAppointmentColor(apt.status)} ${apt.status === 'cancelled' ? 'ring-canceled-ring animate-shake' : 'ring-booked-ring animate-pulse hover:ring-offset-1'}`}
+                              onClick={(e) => handleAppointmentClick(e, apt)}
+                            >
+                              {/* Conditionally render Ban or Armchair icon */}
+                              {apt.status === 'cancelled' ? (
+                                <Ban className={`h-4 w-4 text-canceled-icon`} />
+                              ) : (
+                                <Armchair className={`h-4 w-4 text-booked-icon`} />
+                              )}
                           </div>
                         </TooltipTrigger>
                         {/* Tooltip Content with full details */}
@@ -1065,12 +1071,17 @@ export function Appointments() {
                       {dayAppointments.slice(0, 3).map((apt) => (
                         <Tooltip key={apt.id}>
                           <TooltipTrigger asChild>
-                             {/* Render small colored icon */}
+                             {/* Render small colored icon with ring and animation */}
                              <div
-                              className={`w-5 h-5 rounded flex items-center justify-center cursor-pointer hover:ring-1 hover:ring-offset-1 transition-all ${getAppointmentColor(apt.staff?.id, apt.status)} ${apt.status === 'cancelled' ? 'opacity-60' : 'hover:opacity-80'}`}
+                              className={`w-5 h-5 rounded flex items-center justify-center cursor-pointer ring-1 transition-all ${getAppointmentColor(apt.status)} ${apt.status === 'cancelled' ? 'ring-canceled-ring animate-shake' : 'ring-booked-ring animate-pulse hover:ring-offset-1'}`}
                               onClick={(e) => { e.stopPropagation(); handleAppointmentClick(e, apt); }}
                             >
-                              <Armchair className={`h-3 w-3 ${apt.status === 'cancelled' ? 'text-red-900' : 'text-current opacity-70'}`} />
+                              {/* Conditionally render Ban or Armchair icon */}
+                              {apt.status === 'cancelled' ? (
+                                <Ban className={`h-3 w-3 text-canceled-icon`} />
+                              ) : (
+                                <Armchair className={`h-3 w-3 text-booked-icon`} />
+                              )}
                             </div>
                           </TooltipTrigger>
                           {/* Use the same improved Tooltip Content */}

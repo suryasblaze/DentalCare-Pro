@@ -100,31 +100,82 @@ const getDisplayRecordType = (details: any, dbRecordType: string): string => {
 // Helper component to display structured record details
 const StructuredRecordDetails = ({ record }: { record: MedicalRecord }) => {
   let details: any = null;
-  try {
-    // Ensure description is a string before parsing
-    if (typeof record.description === 'string') {
+  let isJson = false; // Flag to track if description is valid JSON
+
+  // Attempt to parse description as JSON, but only if it looks like JSON
+  if (typeof record.description === 'string' && record.description.trim().startsWith('{') && record.description.trim().endsWith('}')) {
+    try {
       details = JSON.parse(record.description);
-    } else {
-       // If description is not a string (e.g., already an object somehow?), use it directly
-       // Or handle as an error/fallback case
-       console.warn(`Record description is not a string for record ${record.id}`);
-       return <p className="text-sm text-muted-foreground">Could not display details.</p>;
+      isJson = true; // Successfully parsed as JSON
+    } catch (e) {
+      // Parsing failed, treat description as a raw string
+      console.warn(`Failed to parse description JSON for record ${record.id}, treating as raw string:`, e);
+      isJson = false;
     }
-  } catch (e) {
-    // If parsing fails, display the raw description (if it's a simple string)
-    console.warn(`Failed to parse description JSON for record ${record.id}:`, e);
-    return <p className="text-sm whitespace-pre-wrap">{record.description}</p>;
+  } else if (typeof record.description === 'string') {
+     // Description is a string but doesn't look like JSON, treat as raw text
+     isJson = false;
+  } else {
+     // Description is not a string or is null/undefined
+     console.warn(`Record description is not a string for record ${record.id}`);
+     return <p className="text-sm text-muted-foreground">Could not display details.</p>;
   }
 
-  // If details couldn't be parsed or are not an object, show fallback
-  if (typeof details !== 'object' || details === null) {
-     return <p className="text-sm whitespace-pre-wrap">{record.description || 'No details available.'}</p>;
+  // --- Logic based on whether description was JSON or raw string ---
+
+  if (!isJson) {
+    // If description was not valid JSON, display it directly as raw text
+    // unless it's empty/whitespace
+    if (record.description && record.description.trim() !== '') {
+      return <p className="text-sm whitespace-pre-wrap">{record.description}</p>;
+    } else {
+      return <p className="text-sm text-muted-foreground">No details provided.</p>;
+    }
   }
 
-  // Display logic based on DB record_type, accessing keys from original form structure
+  // --- If description WAS valid JSON (details object exists) ---
+
+  // Handle empty details object explicitly
+  if (details === null || typeof details !== 'object' || Object.keys(details).length === 0) {
+    return <p className="text-sm text-muted-foreground">No details provided.</p>;
+  }
+
+  // Check if only general_notes is present and if it's empty/whitespace
+  const detailKeys = Object.keys(details);
+  const hasOnlyGeneralNotes = detailKeys.length === 1 && detailKeys[0] === 'general_notes';
+  const generalNotesIsEmpty = !details.general_notes || String(details.general_notes).trim() === '';
+
+  if (hasOnlyGeneralNotes && generalNotesIsEmpty) {
+    return <p className="text-sm text-muted-foreground">No details provided.</p>;
+  }
+
+  // Check if any *other* structured data keys (besides general_notes) have actual content
+  const hasOtherStructuredData = [
+    'subjective', 'objective', 'assessment', 'plan', // SOAP
+    'code', 'description', // Diagnosis
+    'procedure', 'details', // Treatment / Other Note (JSON 'details' key)
+    'medication', 'dosage', 'frequency', 'duration', // Prescription
+    'test_name', 'result_value', 'reference_range', // Lab
+  ].some(key => details[key] !== undefined && details[key] !== null && String(details[key]).trim() !== '');
+
+  // If only general_notes has content (and no other structured fields do), display it directly
+  if (hasOnlyGeneralNotes && !generalNotesIsEmpty) {
+     return <p className="text-sm whitespace-pre-wrap">{details.general_notes}</p>;
+  }
+
+  // If there's no other structured data AND general_notes is also empty, show fallback
+  if (!hasOtherStructuredData && generalNotesIsEmpty) {
+     return <p className="text-sm text-muted-foreground">No details provided.</p>;
+  }
+
+  // --- Display Structured Fields (including general_notes if present and non-empty) ---
   return (
     <div className="text-sm space-y-1 mt-2">
-      {details.general_notes && <p><strong>General Notes:</strong> {details.general_notes}</p>}
+      {/* Display general_notes first if it exists and has content */}
+      {details.general_notes && !generalNotesIsEmpty && <p><strong>General Notes:</strong> {details.general_notes}</p>}
+
+      {/* Display fields based on the actual keys present in the 'details' object */}
+      {/* Consultation/SOAP */}
 
       {/* Display fields based on the actual keys present in the 'details' object */}
       {/* Consultation/SOAP */}
@@ -187,20 +238,58 @@ export function MedicalRecordsHistory({ medicalRecords = [], onAddMedicalRecord 
      };
    });
  
+   // Filter records based on search term
    const filteredRecords = processedRecords.filter((record) => {
-     // Include displayType and teeth in search string
      const teethString = record.teeth?.map(t => t.id).join(' ') || '';
      const recordString = JSON.stringify({...record, description: '', teeth: ''}).toLowerCase(); // Avoid searching raw description/teeth objects
      const detailsString = typeof record.description === 'string' ? record.description.toLowerCase() : ''; // Search description separately if needed
      
      const searchLower = searchTerm.toLowerCase();
      return recordString.includes(searchLower) || 
-            detailsString.includes(searchLower) || 
-            teethString.includes(searchLower);
+             detailsString.includes(searchLower) ||
+             teethString.includes(searchLower);
    });
-
-  return (
-    <Card>
+ 
+   // --- Group records by date ---
+   const groupedRecords = filteredRecords.reduce((acc, record) => {
+     const recordDate = record.record_date ? new Date(record.record_date).toLocaleDateString(undefined, {
+       year: 'numeric', month: 'short', day: 'numeric'
+     }) : 'Unknown Date';
+ 
+     if (!acc[recordDate]) {
+       acc[recordDate] = [];
+     }
+     // Add to the beginning of the array to keep recent records first within the date group
+     acc[recordDate].unshift(record); 
+     return acc;
+   }, {} as Record<string, ProcessedMedicalRecord[]>);
+ 
+   // Sort dates chronologically (most recent first)
+   const sortedDates = Object.keys(groupedRecords).sort((a, b) => {
+     // Handle 'Unknown Date' safely
+     if (a === 'Unknown Date') return 1; 
+     if (b === 'Unknown Date') return -1;
+     return new Date(b).getTime() - new Date(a).getTime();
+   });
+ 
+   // --- State for expanded dates ---
+   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+ 
+   const toggleDateExpansion = (date: string) => {
+     setExpandedDates(prev => {
+       const newSet = new Set(prev);
+       if (newSet.has(date)) {
+         newSet.delete(date);
+       } else {
+         newSet.add(date);
+       }
+       return newSet;
+     });
+   };
+   // --- End grouping and state ---
+ 
+   return (
+     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Medical Records History</CardTitle>
         <Button variant="outline" size="sm" onClick={onAddMedicalRecord}>
@@ -213,51 +302,74 @@ export function MedicalRecordsHistory({ medicalRecords = [], onAddMedicalRecord 
             type="search"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search records (type, details, teeth...)"
-          />
-        </div>
-         {filteredRecords && filteredRecords.length > 0 ? (
-           <div className="space-y-4">
-             {/* Use filteredRecords (which are processed) for mapping */}
-             {filteredRecords.map((record) => ( 
-               <div key={record.id} className="p-3 border rounded">
-                 {/* Use the pre-calculated displayType */}
-                 <p className="font-semibold">{record.displayType}</p>
-                 <p className="text-sm text-muted-foreground">
-                   Date: {formatDateTime(record.record_date)}
-                 </p>
-                <StructuredRecordDetails record={record} />
-                {record.staff && (
-                   <p className="text-xs text-muted-foreground mt-1">
-                     Recorded by: {record.staff.first_name} {record.staff.last_name}
-                   </p>
-                )}
-                {/* Display Teeth Information */}
-                {record.teeth && record.teeth.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-dashed">
-                    <p className="text-xs font-medium text-muted-foreground mb-1">Associated Teeth:</p>
-                    <div className="flex flex-wrap gap-1">
-                      {record.teeth.map(tooth => (
-                        // Use Badge component for better styling
-                        <Badge key={tooth.id} variant="secondary" className="text-xs font-normal"> 
-                          {tooth.id}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                 {record.attachments && record.attachments.length > 0 && ( // Check if attachments array has items
-                   <div className="mt-2 pt-2 border-t border-dashed">
-                     <p className="text-xs font-medium text-muted-foreground mb-1">Attachments:</p>
-                     {/* TODO: Implement proper attachment display/download links */}
-                     <p className="text-sm">{JSON.stringify(record.attachments)}</p> 
+             placeholder="Search records (type, details, teeth...)"
+           />
+         </div>
+         {sortedDates.length > 0 ? (
+           <div className="space-y-6">
+             {/* Iterate over sorted dates */}
+             {sortedDates.map((date) => {
+               const recordsForDate = groupedRecords[date];
+               const isExpanded = expandedDates.has(date);
+ 
+               return (
+                 <div key={date}>
+                   <div className="flex justify-between items-center mb-2 pb-2 border-b">
+                     <h3 className="text-lg font-medium">{date}</h3>
+                     <Button
+                       variant="ghost"
+                       size="sm"
+                       onClick={() => toggleDateExpansion(date)}
+                     >
+                       {isExpanded ? 'Hide Details' : `View Details (${recordsForDate.length})`}
+                     </Button>
                    </div>
-                 )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No medical records found{searchTerm ? ' matching your search' : ''}.</p>
+ 
+                   {/* Conditionally render records for the date */}
+                   {isExpanded && (
+                     <div className="space-y-4 pl-4 border-l-2 border-muted">
+                       {recordsForDate.map((record) => (
+                         <div key={record.id} className="p-3 border rounded bg-background"> {/* Added bg-background for contrast if needed */}
+                           <p className="font-semibold">{record.displayType}</p>
+                           <p className="text-sm text-muted-foreground">
+                             Time: {formatDateTime(record.record_date)?.split(', ').pop()} {/* Show only time */}
+                           </p>
+                           <StructuredRecordDetails record={record} />
+                           {record.staff && (
+                             <p className="text-xs text-muted-foreground mt-1">
+                               Recorded by: {record.staff.first_name} {record.staff.last_name}
+                             </p>
+                           )}
+                           {/* Display Teeth Information */}
+                           {record.teeth && record.teeth.length > 0 && (
+                             <div className="mt-2 pt-2 border-t border-dashed">
+                               <p className="text-xs font-medium text-muted-foreground mb-1">Associated Teeth:</p>
+                               <div className="flex flex-wrap gap-1">
+                                 {record.teeth.map(tooth => (
+                                   <Badge key={tooth.id} variant="secondary" className="text-xs font-normal">
+                                     {tooth.id}
+                                   </Badge>
+                                 ))}
+                               </div>
+                             </div>
+                           )}
+                           {record.attachments && record.attachments.length > 0 && (
+                             <div className="mt-2 pt-2 border-t border-dashed">
+                               <p className="text-xs font-medium text-muted-foreground mb-1">Attachments:</p>
+                               {/* TODO: Implement proper attachment display/download links */}
+                               <p className="text-sm">{JSON.stringify(record.attachments)}</p>
+                             </div>
+                           )}
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                 </div>
+               );
+             })}
+           </div>
+         ) : (
+           <p className="text-sm text-muted-foreground">No medical records found{searchTerm ? ' matching your search' : ''}.</p>
         )}
       </CardContent>
     </Card>

@@ -3,11 +3,11 @@ import { PageHeader } from '@/components/ui/page-header';
 // Remove Select imports if no longer needed, keep Label
 import { Label } from "@/components/ui/label";
 import { Input } from '@/components/ui/input'; // Import Input
-import { ScrollArea } from '@/components/ui/scroll-area'; // Import ScrollArea for results
-import { MedicalRecordsHistory } from '@/features/patients/components/MedicalRecordsHistory';
-import { AddMedicalRecordForm } from '@/features/patients/components/AddMedicalRecordForm'; // Import the form
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"; // Import Dialog components
-import { Button } from '@/components/ui/button'; // Import Button
+ import { ScrollArea } from '@/components/ui/scroll-area'; // Import ScrollArea for results
+ import { MedicalRecordsHistory } from '@/features/patients/components/MedicalRecordsHistory';
+ import { AddMedicalRecordForm, type MedicalRecordFormSchemaValues } from '@/features/patients/components/AddMedicalRecordForm'; // Import the form AND the type
+ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"; // Import Dialog components
+ import { Button } from '@/components/ui/button'; // Import Button
 import { supabase } from '@/lib/supabase'; // Import supabase client
 import { useToast } from "@/components/ui/use-toast"; // Import useToast
 import { api } from '@/lib/api'; // Import the api object
@@ -82,22 +82,41 @@ export function PatientMedicalRecordsPage() {
   const fetchMedicalRecords = useCallback(async (patientId: string) => {
     if (!patientId) return;
     setIsLoadingRecords(true);
-    setErrorRecords(null);
-    setMedicalRecords([]); // Clear previous records
-    try {
-      const { data, error } = await supabase
-        .from('medical_records')
-        .select(`
-          *,
-          staff:created_by ( first_name, last_name )
-        `)
-        .eq('patient_id', patientId)
-        .order('record_date', { ascending: false });
-
-      if (error) throw error;
-      setMedicalRecords(data || []);
-    } catch (err: any) {
-      setErrorRecords('Failed to fetch medical records.');
+     setErrorRecords(null);
+     setMedicalRecords([]); // Clear previous records
+     try {
+       // Add explicit check again inside try, although the top guard should suffice
+       if (!patientId) { 
+         throw new Error("Patient ID became null unexpectedly.");
+       }
+       const { data, error } = await supabase
+         .from('medical_records')
+         .select(`
+           *,
+           staff:created_by ( first_name, last_name ),
+           teeth:medical_record_teeth ( teeth ( id, description ) ) 
+         `) // Fetch teeth via junction table
+         .eq('patient_id', patientId)
+         .order('record_date', { ascending: false });
+ 
+       if (error) throw error;
+ 
+       // Process the data to flatten the teeth structure
+       const processedData = (data || []).map(record => {
+         // The 'teeth' property from the query is actually the junction table result array
+         const junctionTeeth = record.teeth || []; 
+         // Map the junction array to extract the actual tooth object
+         const flattenedTeeth = junctionTeeth.map((junctionEntry: any) => junctionEntry.teeth).filter(Boolean); // Filter out null/undefined if any
+         
+         return {
+           ...record,
+           teeth: flattenedTeeth // Assign the flattened array
+         };
+       });
+ 
+       setMedicalRecords(processedData);
+     } catch (err: any) {
+       setErrorRecords('Failed to fetch medical records.');
       console.error("Error fetching medical records:", err);
     } finally {
       setIsLoadingRecords(false);
@@ -132,76 +151,99 @@ export function PatientMedicalRecordsPage() {
     setIsAddRecordModalOpen(true);
   }; // Correct end of handleAddMedicalRecordClick
 
-  // Handler for form submission from AddMedicalRecordForm
-  // Update signature to accept values and toothIds
-  const handleFormSubmit = async (values: any, toothIds: number[]) => { 
-    if (!selectedPatientId) return;
-
+   // Handler for form submission from AddMedicalRecordForm
+   // Explicitly type 'values' and ensure return type matches Promise<void>
+   const handleFormSubmit = async (values: MedicalRecordFormSchemaValues, toothIds: number[]): Promise<void> => { 
+     if (!selectedPatientId) return;
+ 
     setIsSubmittingRecord(true);
 
     // Mapping is now done in api.ts, remove it from here
 
-    let descriptionData: any = { general_notes: values.general_notes };
-
-    // Structure description based on record type (using original frontend type for logic)
-    switch (values.record_type) {
-      case 'consultation':
-        descriptionData = {
-          ...descriptionData,
-          subjective: values.consultation_subjective,
-          objective: values.consultation_objective,
-          assessment: values.consultation_assessment,
-          plan: values.consultation_plan,
-        };
-        break;
-      case 'diagnosis':
-        descriptionData = {
-          ...descriptionData,
-          code: values.diagnosis_code,
-          description: values.diagnosis_description,
-        };
-        break;
-      case 'treatment':
-        descriptionData = {
-          ...descriptionData,
-          procedure: values.treatment_procedure,
-          details: values.treatment_details,
-        };
-        break;
-      case 'prescription':
+     // Initialize descriptionData, always include general_notes if it exists
+     let descriptionData: any = {};
+     if (values.general_notes && String(values.general_notes).trim() !== '') {
+        descriptionData.general_notes = values.general_notes;
+     }
+ 
+     // Structure description based on the actual DB record_type value from the form
+     switch (values.record_type) {
+       case 'examination': // Handles Consultation/Examination/Diagnosis
+         // Add SOAP fields if they exist
+         if (values.consultation_subjective) descriptionData.subjective = values.consultation_subjective;
+         if (values.consultation_objective) descriptionData.objective = values.consultation_objective;
+         if (values.consultation_assessment) descriptionData.assessment = values.consultation_assessment;
+         if (values.consultation_plan) descriptionData.plan = values.consultation_plan;
+         // Add Diagnosis fields if they exist
+         if (values.diagnosis_code) descriptionData.code = values.diagnosis_code;
+         if (values.diagnosis_description) descriptionData.description = values.diagnosis_description;
+         break;
+       // case 'diagnosis': // Combined into 'examination'
+       //   descriptionData = {
+       //     ...descriptionData,
+       //     code: values.diagnosis_code,
+       //     description: values.diagnosis_description,
+       //   };
+       //   break;
+       case 'procedure': // Handles Treatment/Procedure
          descriptionData = {
-          ...descriptionData,
-          medication: values.prescription_medication,
-          dosage: values.prescription_dosage,
-          frequency: values.prescription_frequency,
-          duration: values.prescription_duration,
-        };
-        break;
-      case 'lab_result':
-         descriptionData = {
-          ...descriptionData,
-          test_name: values.lab_test_name,
-          result_value: values.lab_result_value,
-          units: values.lab_units,
-          reference_range: values.lab_reference_range,
-        };
-        break;
-       case 'other':
-         descriptionData = {
-          ...descriptionData,
-          details: values.other_details,
-        };
-        break;
-    }
-
-    // Prepare the main record data (pass the original form record_type to api.ts)
-    const recordData = {
-      patient_id: selectedPatientId,
-      record_date: values.record_date,
-      record_type: values.record_type, // Pass the original form value
-      description: JSON.stringify(descriptionData), // Store structured data as JSON string
-      // created_by: // TODO: Get current user ID if needed
-    };
+           ...descriptionData,
+           procedure: values.treatment_procedure,
+           details: values.treatment_details, // This is likely the field for treatment notes
+         };
+         break;
+       case 'prescription':
+          descriptionData = {
+            ...descriptionData,
+           // Remove incorrect objective/assessment fields from prescription
+           // objective: values.consultation_objective, 
+           // assessment: values.consultation_assessment, 
+            medication: values.prescription_medication,
+            dosage: values.prescription_dosage,
+            frequency: values.prescription_frequency,
+           duration: values.prescription_duration,
+         };
+         break;
+       case 'lab_result':
+          descriptionData = {
+           ...descriptionData,
+           test_name: values.lab_test_name,
+           result_value: values.lab_result_value,
+           units: values.lab_units,
+           reference_range: values.lab_reference_range,
+         };
+         break;
+        case 'note': // Handles Other Note
+          // Use 'other_details' field from the form for the 'details' key in JSON
+          if (values.other_details && String(values.other_details).trim() !== '') {
+             descriptionData.details = values.other_details;
+          }
+          // If only general_notes was filled, descriptionData already contains it.
+          // If both were filled, both will be included.
+           // If neither was filled for 'note', descriptionData might be empty {}
+          break;
+     } // <-- Add missing closing brace for switch statement
+      // Ensure descriptionData is not empty before stringifying, otherwise use null or empty string?
+      // Let's store '{}' if nothing was added besides potentially empty general_notes initially.
+      const descriptionString = Object.keys(descriptionData).length > 0 ? JSON.stringify(descriptionData) : '{}';
+ 
+     // Combine selected date with current time for a full timestamp
+     const recordDateTime = new Date(); // Get current date and time
+     const formDate = new Date(values.record_date + 'T00:00:00'); // Parse form date as local midnight
+     // Set the date part from the form, keep the current time part
+     recordDateTime.setFullYear(formDate.getFullYear());
+     recordDateTime.setMonth(formDate.getMonth());
+     recordDateTime.setDate(formDate.getDate());
+     const recordTimestamp = recordDateTime.toISOString(); // Convert to ISO string (UTC)
+ 
+     // Prepare the main record data
+     const recordData = {
+       patient_id: selectedPatientId,
+       record_date: recordTimestamp, // Use the full timestamp
+       record_type: values.record_type, // Use the DB enum value
+       description: descriptionString, // Store structured data as JSON string
+       // created_by: // TODO: Get current user ID if needed
+     };
 
     // Logging is now done in api.ts
 

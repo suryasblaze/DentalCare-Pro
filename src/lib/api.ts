@@ -16,7 +16,12 @@ type TreatmentPlanRow = Database['public']['Tables']['treatment_plans']['Row'];
 type TreatmentPlanInsert = Database['public']['Tables']['treatment_plans']['Insert'];
 type TreatmentRow = Database['public']['Tables']['treatments']['Row'];
 type TreatmentInsert = Database['public']['Tables']['treatments']['Insert'];
-type StaffRow = Database['public']['Tables']['staff']['Row']; // Uncommenting StaffRow
+type StaffRow = Database['public']['Tables']['staff']['Row'];
+// Add type for the new table
+type PatientToothConditionRow = Database['public']['Tables']['patient_tooth_conditions']['Row'];
+type PatientToothConditionInsert = Database['public']['Tables']['patient_tooth_conditions']['Insert'];
+type PatientToothConditionUpdate = Database['public']['Tables']['patient_tooth_conditions']['Update'];
+
 
 // Re-adding placeholder types as they are referenced in generateTreatmentPlan
 type PatientAssessmentRow = any;
@@ -832,8 +837,64 @@ export const api = {
       globalCache.invalidate('medical_records:all');
     },
 
+    // --- NEW: Patient Tooth Conditions ---
+    async getPatientToothConditions(patientId: string): Promise<PatientToothConditionRow[]> {
+      const cacheKey = `patient_tooth_conditions:${patientId}`;
+      const cachedData = globalCache.get<PatientToothConditionRow[]>(cacheKey);
+      if (cachedData) {
+        return cachedData;
+      }
+
+      const { data, error } = await supabase
+        .from('patient_tooth_conditions')
+        .select('*')
+        .eq('patient_id', patientId);
+
+      if (error) {
+        console.error(`Error fetching tooth conditions for patient ${patientId}:`, error);
+        throw error;
+      }
+
+      globalCache.set(cacheKey, data || [], 60 * 1000); // Cache for 1 minute
+      return data || [];
+    },
+
+    async savePatientToothConditions(patientId: string, teethData: Record<number, { id: number; conditions: string[] }>) {
+      // Prepare data for upsert
+      const upsertData: PatientToothConditionInsert[] = Object.values(teethData).map(tooth => ({
+        patient_id: patientId,
+        tooth_id: tooth.id,
+        conditions: tooth.conditions,
+        // last_updated_at is handled by the trigger
+      }));
+
+      if (upsertData.length === 0) {
+        console.log("No tooth conditions to save.");
+        return { success: true, data: [] }; // Nothing to do
+      }
+
+      // Perform upsert operation
+      // 'patient_id, tooth_id' is the unique constraint name from the migration
+      const { data, error } = await supabase
+        .from('patient_tooth_conditions')
+        .upsert(upsertData, { onConflict: 'patient_id, tooth_id' })
+        .select(); // Select the upserted rows
+
+      if (error) {
+        console.error(`Error saving tooth conditions for patient ${patientId}:`, error);
+        throw error;
+      }
+
+      // Invalidate cache
+      globalCache.invalidate(`patient_tooth_conditions:${patientId}`);
+
+      return { success: true, data: data };
+    },
+    // --- END NEW: Patient Tooth Conditions ---
+
+
     // Update createTreatmentPlan to handle toothIds
-    async createTreatmentPlan(plan: TreatmentPlanInsert, toothIds: number[]) { 
+    async createTreatmentPlan(plan: TreatmentPlanInsert, toothIds: number[]) {
       // Step 1: Insert the main treatment plan
       const { data: planData, error: planError } = await supabase
         .from('treatment_plans')

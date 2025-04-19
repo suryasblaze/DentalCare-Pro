@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'; // Added useCallback
+import React, { useState, useEffect, useCallback, useRef } from 'react'; // Added useRef
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -25,9 +25,10 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Smile, BrainCog } from 'lucide-react'; // Use Smile icon, Add BrainCog
+import { Loader2, Plus, Smile, BrainCog, Save } from 'lucide-react'; // Use Smile icon, Add BrainCog, Add Save
 import { format } from 'date-fns';
-import DentalChart, { InitialToothState } from './DentalChart'; // Import DentalChart and InitialToothState
+// Import DentalChart, InitialToothState, ToothCondition, and DentalChartHandle
+import DentalChart, { InitialToothState, ToothCondition, DentalChartHandle } from './DentalChart';
 import { api } from '@/lib/api'; // Import the api object
 import { useToast } from '@/components/ui/use-toast'; // Import useToast
 
@@ -93,8 +94,10 @@ export function TreatmentPlanForm({
   // State for AI suggestions
   const [aiSuggestions, setAiSuggestions] = useState<any[]>([]); // Store AI suggestions (use a more specific type if known)
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
+  const [isSavingChart, setIsSavingChart] = useState(false); // State for saving indicator
 
   const { toast } = useToast(); // Initialize toast
+  const dentalChartRef = useRef<DentalChartHandle>(null); // Ref for DentalChart component
 
   const form = useForm<TreatmentPlanFormValues>({
     resolver: zodResolver(treatmentPlanSchema),
@@ -218,12 +221,61 @@ export function TreatmentPlanForm({
 
   }, [selectedDomain, selectedCondition]); // Dependencies: selected domain and condition
 
-  // Handler for patient selection from search results
-  const handlePatientSelect = (patient: any) => {
+  // Handler for patient selection from search results - Fetch conditions and set initial selection
+  const handlePatientSelect = async (patient: any) => {
     setSelectedPatientId(patient.id);
     setSelectedPatientName(`${patient.first_name || ''} ${patient.last_name || ''}`.trim());
     form.setValue('patient_id', patient.id, { shouldValidate: true });
     setSearchTerm('');
+    setChartInitialState({}); // Clear previous patient's chart state immediately
+    setSelectedToothIds([]); // Clear selected teeth for the new patient
+
+    // Fetch existing tooth conditions for the selected patient
+    try {
+      console.log(`Fetching tooth conditions for patient: ${patient.id}`);
+      const conditionsData = await api.patients.getPatientToothConditions(patient.id);
+      console.log("Fetched conditions data:", conditionsData);
+
+      // Format the fetched data and determine initial selection
+      const formattedInitialState: InitialToothState = {};
+      const initiallySelectedIds: number[] = []; // Store IDs to be initially selected
+
+      conditionsData.forEach(item => {
+        // Ensure conditions is an array and filter out null/undefined if necessary
+        const validConditions = Array.isArray(item.conditions)
+          ? item.conditions.filter((c): c is ToothCondition => c !== null && c !== undefined)
+          : [];
+
+        const finalConditions = validConditions.length > 0 ? validConditions : ['healthy'];
+        const isInitiallySelected = finalConditions.length > 1 || (finalConditions.length === 1 && finalConditions[0] !== 'healthy');
+
+        if (item.tooth_id) { // Check if tooth_id is not null
+          formattedInitialState[item.tooth_id] = {
+            conditions: finalConditions,
+            isSelected: isInitiallySelected // Set selection based on conditions
+          };
+          if (isInitiallySelected) {
+            initiallySelectedIds.push(item.tooth_id); // Add to list if selected
+          }
+        }
+      });
+
+      console.log("Formatted initialState for chart:", formattedInitialState);
+      console.log("Initially selected IDs based on conditions:", initiallySelectedIds);
+
+      setChartInitialState(formattedInitialState); // Set the state to be used when opening the dialog
+      setSelectedToothIds(initiallySelectedIds); // Update the main display of selected teeth
+      // No need to set dialogSelectedToothIds here, it's set when the dialog opens
+
+    } catch (error) {
+      console.error("Failed to fetch patient tooth conditions:", error);
+      toast({
+        title: "Error Loading Chart",
+        description: "Could not load existing tooth conditions.",
+        variant: "destructive",
+      });
+      setChartInitialState({}); // Reset to empty on error
+    }
   };
 
   // Handler for selection changes *inside* the dental chart dialog
@@ -232,24 +284,83 @@ export function TreatmentPlanForm({
     // If tracking conditions: update temporary chart state here
   };
 
-  // Handler for confirming the selection from the dialog
-  const handleConfirmChartSelection = () => {
-    setSelectedToothIds(dialogSelectedToothIds); // Update main state
-    // If tracking conditions: setChartState(temporaryChartState);
-    setIsChartDialogOpen(false); // Close dialog
+  // Handler for confirming the selection from the dialog - SAVE DATA HERE
+  const handleConfirmChartSelection = async () => {
+    if (!dentalChartRef.current || !selectedPatientId) {
+      console.error("Dental chart ref not available or no patient selected.");
+      toast({
+        title: "Error",
+        description: "Could not save chart data. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSavingChart(true);
+    try {
+      // 1. Get the current state from the DentalChart component via ref
+      const currentTeethData = dentalChartRef.current.getTeethData();
+      console.log("Data from chart ref to save:", currentTeethData);
+
+      // 2. Call the API to save the data
+      await api.patients.savePatientToothConditions(selectedPatientId, currentTeethData);
+
+      // 3. Update the local state (selectedToothIds and potentially chartInitialState for consistency)
+      const currentSelectedIds = Object.entries(currentTeethData)
+        .filter(([, data]) => data.isSelected)
+        .map(([id]) => parseInt(id, 10));
+      setSelectedToothIds(currentSelectedIds); // Update the main form's selected IDs display
+
+      // Update chartInitialState to reflect the saved state, so reopening shows the saved data
+      const formattedSavedState: InitialToothState = {};
+      Object.entries(currentTeethData).forEach(([id, data]) => {
+         // Ensure data.conditions is treated as ToothCondition[] if possible,
+         // We know data.conditions contains valid ToothCondition strings,
+         // so we can safely assert the type here after the deep copy.
+         formattedSavedState[parseInt(id, 10)] = {
+           conditions: data.conditions as ToothCondition[], // Re-add type assertion here
+           isSelected: data.isSelected
+         };
+      });
+      setChartInitialState(formattedSavedState);
+
+      toast({
+        title: "Chart Saved",
+        description: "Patient's tooth conditions have been updated.",
+        variant: "default", // Use default variant for success
+      });
+      setIsChartDialogOpen(false); // Close dialog on success
+
+    } catch (error) {
+      console.error("Failed to save tooth conditions:", error);
+      toast({
+        title: "Save Failed",
+        description: "Could not save tooth conditions to the database.",
+        variant: "destructive",
+      });
+      // Keep dialog open on error? Or close? Closing for now.
+      // setIsChartDialogOpen(false);
+    } finally {
+      setIsSavingChart(false);
+    }
   };
 
-  // Open dialog handler - set initial state and key, then open
+  // Open dialog handler - use fetched initial state, set key, then open
   const openChartDialog = () => {
-    // Prepare the initial state based on the *confirmed* selection
-    const initialSelectionState = Object.fromEntries(
-      selectedToothIds.map(id => [id, { isSelected: true }])
-    );
-    setChartInitialState(initialSelectionState);
-    setDialogSelectedToothIds([...selectedToothIds]); // Sync temporary IDs too
-    setChartDialogKey(Date.now()); // Generate a new key to force re-mount
-    // If tracking conditions: setTemporaryChartState(chartState);
-    console.log("Opening chart dialog with initial state:", initialSelectionState);
+    if (!selectedPatientId) {
+      toast({
+        title: "No Patient Selected",
+        description: "Please select a patient before opening the dental chart.",
+        variant: "default",
+      });
+      return;
+    }
+    // chartInitialState should already be populated by handlePatientSelect
+    // We just need to ensure the dialog uses it and syncs temporary selections
+    console.log("Opening chart dialog with prepared initial state:", chartInitialState);
+    // Sync temporary dialog selection state with the initially selected IDs derived from conditions
+    setDialogSelectedToothIds([...selectedToothIds]);
+    setChartDialogKey(Date.now()); // Generate a new key to force re-mount with potentially new initialState
     setIsChartDialogOpen(true);
   };
 
@@ -801,8 +912,9 @@ export function TreatmentPlanForm({
              </DialogDescription>
            </DialogHeader>
 
-           {/* Pass initial state and handler, use key to force re-mount */}
+           {/* Pass initial state, handler, and REF, use key to force re-mount */}
            <DentalChart
+             ref={dentalChartRef} // Pass the ref here
              key={chartDialogKey} // Force re-mount when dialog opens
              initialState={chartInitialState} // Pass the state prepared on open
              onToothSelect={handleDialogChartSelectionChange}
@@ -810,8 +922,11 @@ export function TreatmentPlanForm({
            />
 
            <DialogFooter>
-             <Button variant="outline" onClick={() => setIsChartDialogOpen(false)}>Cancel</Button>
-             <Button onClick={handleConfirmChartSelection}>Confirm Selection</Button>
+             <Button variant="outline" onClick={() => setIsChartDialogOpen(false)} disabled={isSavingChart}>Cancel</Button>
+             <Button onClick={handleConfirmChartSelection} disabled={isSavingChart}>
+               {isSavingChart ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+               Confirm & Save Chart
+             </Button>
            </DialogFooter>
          </DialogContent>
        </Dialog>
