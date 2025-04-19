@@ -2,6 +2,7 @@
   "name": "dental-clinic-saas",
   "private": true,
   "version": "0.0.0",
+  "homepage": "https://suryasblaze.github.io/DentalCare-Pro",
   "type": "module",
   "scripts": {
     "dev": "vite",
