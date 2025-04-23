@@ -1,16 +1,27 @@
-import React, { useState, useMemo } from 'react'; // Import useState and useMemo
-import { format } from 'date-fns';
+import React, { useState, useMemo } from 'react';
+import { format, differenceInDays, formatDistanceStrict } from 'date-fns'; // Import date calculation functions
 import { 
   Dialog, 
   DialogContent, 
   DialogHeader, 
-  DialogTitle, 
+  DialogTitle,
   DialogDescription,
-  DialogFooter 
-} from '@/components/ui/dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
+  DialogFooter,
+} from '@/components/ui/dialog'; // Corrected path if needed, removed extra quotes
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"; // Component should now be available
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'; 
+import { Button } from '@/components/ui/button'; 
+import { Progress } from '@/components/ui/progress'; 
 import { 
   User, 
   Calendar, 
@@ -23,23 +34,29 @@ import {
   Plus,
   FileText,
   ArrowUpRight,
-  ChevronLeft, // Added for pagination
-  ChevronRight, // Added for pagination
-  ClipboardList // Replaced Tooth icon
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList, // Replaced Tooth icon
+  RotateCcw // Icon for Reopen
 } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils/validation';
+import { formatCurrency } from '@/lib/utils/validation'; // Assuming formatCurrency exists
 import { TreatmentItem } from './TreatmentItem';
+import TreatmentProgressBar from './TreatmentProgressBar'; // Import the new component
+
+// Import status type (only TreatmentStatus is needed)
+import type { TreatmentStatus } from '@/types'; // Ensure path is correct
 
 interface TreatmentPlanDetailsProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  plan: any;
+  plan: any; // Consider using a more specific type if available
   onRefresh: () => Promise<void>;
   onAddTreatment: () => void;
-  onStatusChange: (planId: string, status: string) => Promise<void>;
+  // Use TreatmentStatus for both plan and treatment status changes
+  onStatusChange: (planId: string, status: TreatmentStatus) => Promise<void>;
   onDeletePlan: (planId: string) => Promise<void>;
-  onTreatmentStatusChange: (treatmentId: string, status: string) => Promise<void>;
+  onTreatmentStatusChange: (treatmentId: string, status: TreatmentStatus) => Promise<void>;
   onDeleteTreatment: (treatmentId: string) => Promise<void>;
   loading?: boolean;
   navigateToPatient?: (patientId: string) => void;
@@ -56,8 +73,12 @@ export function TreatmentPlanDetails({
   onTreatmentStatusChange,
   onDeleteTreatment,
   loading = false,
-  navigateToPatient
+  navigateToPatient,
 }: TreatmentPlanDetailsProps) {
+  // --- Confirmation Dialog State ---
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  // --- End Confirmation Dialog State ---
 
   // --- Pagination State ---
   const [currentPage, setCurrentPage] = useState(1);
@@ -77,7 +98,65 @@ export function TreatmentPlanDetails({
   // --- End Pagination State ---
 
   if (!plan) return null;
-  
+
+  // Calculate duration
+  const duration = useMemo(() => {
+    if (!plan.start_date || !plan.end_date) return null;
+    try {
+      const start = new Date(plan.start_date);
+      const end = new Date(plan.end_date);
+      // Add 1 day because differenceInDays is exclusive of the end date for durations
+      // return differenceInDays(end, start) + 1; 
+      // Using formatDistanceStrict for better readability (e.g., "1 month", "2 weeks", "10 days")
+      return formatDistanceStrict(end, start, { addSuffix: false }); 
+    } catch (error) {
+      console.error("Error calculating duration:", error);
+      return null; // Handle potential invalid date formats
+    }
+  }, [plan.start_date, plan.end_date]);
+
+  // --- Progress Bar Logic ---
+  const treatmentSteps = useMemo(() => [
+    { id: 'planned', title: 'Planned', description: 'Plan created' },
+    { id: 'in_progress', title: 'In Progress', description: 'Treatment started' },
+    { id: 'completed', title: 'Completed', description: 'Plan finished' },
+    // Consider adding 'cancelled' if needed visually
+  ], []);
+
+  const completedStepIds = useMemo(() => {
+    const completed: string[] = [];
+    if (!plan?.status) return completed;
+
+    const currentIndex = treatmentSteps.findIndex(step => step.id === plan.status);
+
+    // Mark all steps before the current one as completed
+    for (let i = 0; i < currentIndex; i++) {
+      completed.push(treatmentSteps[i].id);
+    }
+    
+    // If the status is 'completed', mark 'in_progress' as completed too
+    if (plan.status === 'completed') {
+        if (!completed.includes('planned')) completed.push('planned');
+        if (!completed.includes('in_progress')) completed.push('in_progress');
+    }
+
+    // Handle cancellation - show progress up to the point of cancellation
+    if (plan.status === 'cancelled') {
+        // This logic depends on how cancellation is tracked. Assuming we know the status *before* cancellation.
+        // For simplicity, let's assume if cancelled, we show progress based on treatments done, or just the 'planned' stage if none started.
+        // A more robust approach would store the status before cancellation.
+        // Let's default to showing only 'planned' as potentially complete if cancelled early.
+        // If any treatments were done, 'in_progress' might be considered complete before cancellation.
+        // For now, let's keep it simple: if cancelled, completed steps depend on when it happened.
+        // We'll pass the current status ('cancelled') as currentStepId, but the completed logic needs refinement if pre-cancel status isn't available.
+        // Let's assume for now cancellation doesn't mark prior steps as 'complete' in the visual.
+    }
+
+
+    return completed;
+  }, [plan?.status, treatmentSteps]);
+  // --- End Progress Bar Logic ---
+
   // Render status badge with appropriate color
   const renderStatusBadge = (status: string) => {
     let color = 'bg-gray-100 text-gray-800';
@@ -150,6 +229,20 @@ export function TreatmentPlanDetails({
               {plan.priority && renderPriorityBadge(plan.priority)}
             </div>
           </div>
+
+          {/* --- Add Treatment Progress Bar --- */}
+          {/* Only show progress bar for active statuses, hide if cancelled? Or show cancelled state? */}
+          {/* Let's show it unless cancelled for now */}
+          {plan.status !== 'cancelled' && (
+             <div className="my-6"> {/* Add margin */}
+               <TreatmentProgressBar
+                 steps={treatmentSteps}
+                 currentStepId={plan.status} // Current status is the current step
+                 completedStepIds={completedStepIds}
+               />
+             </div>
+          )}
+          {/* --- End Treatment Progress Bar --- */}
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-4">
@@ -179,6 +272,9 @@ export function TreatmentPlanDetails({
                     {format(new Date(plan.start_date), 'MMMM d, yyyy')}
                     {plan.end_date && ` to ${format(new Date(plan.end_date), 'MMMM d, yyyy')}`}
                   </p>
+                  {duration && (
+                     <p className="text-sm text-muted-foreground">Duration: {duration}</p>
+                  )}
                 </div>
               </div>
 
@@ -212,16 +308,8 @@ export function TreatmentPlanDetails({
                 </div>
               </div>
               
-              <div className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Progress</p>
-                  <div className="flex items-center gap-2">
-                    <Progress value={plan.progress} className="flex-1" />
-                    <span className="text-sm">{plan.progress}%</span>
-                  </div>
-                </div>
-              </div>
+              {/* Removed the old Progress component section */}
+              
             </div>
           </div>
           
@@ -331,41 +419,95 @@ export function TreatmentPlanDetails({
         </div>
         <div className="flex justify-between">
           <span className="text-sm">Insurance Coverage (Est.):</span>
-          <span className="font-medium">₹0.00</span>
+          {/* Assuming plan.insurance_coverage exists */}
+          <span className="font-medium">{formatCurrency(plan.insurance_coverage ?? 0)}</span> 
         </div>
         <div className="flex justify-between">
           <span className="text-sm">Patient Responsibility:</span>
-          <span className="font-medium">{formatCurrency(plan.totalCost - 0)}</span>
+          {/* Calculate based on totalCost and insurance_coverage */}
+          <span className="font-medium">{formatCurrency(plan.totalCost - (plan.insurance_coverage ?? 0))}</span>
         </div>
       </div>
     </div>
   </TabsContent>
 </Tabs>
-          
-          <DialogFooter className="flex justify-between">
-            <div className="flex gap-2">
-              <Button
-                variant="destructive"
-                onClick={() => onDeletePlan(plan.id)}
-                disabled={loading}
-              >
-                {loading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4 mr-1" />
-                )}
-                Delete Plan
-              </Button>
+          <DialogFooter className="flex justify-between mt-6"> {/* Added margin-top */}
+            {/* Left side: Delete Button with Confirmation */}
+            <div>
+              <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    disabled={loading}
+                    title="Delete this treatment plan permanently"
+                  >
+                    {loading && showDeleteConfirm ? ( // Show loader only if this action is loading
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4 mr-1" />
+                    )}
+                    Delete Plan
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This action cannot be undone. This will permanently delete the treatment plan "{plan.title}".
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction 
+                    onClick={() => onDeletePlan(plan.id)} 
+                    disabled={loading}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Yes, delete plan
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
-            
-            <div className="flex gap-2">
-              {plan.status !== 'in_progress' && plan.status !== 'cancelled' && (
+
+            {/* Right side: Action Buttons & Close */}
+            <div className="flex gap-2 items-center"> {/* Wrap actions in a div */}
+              {/* Cancel Confirmation Dialog (Triggered by Cancel Plan button below) */}
+              <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+                <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirm Cancellation</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to cancel the treatment plan "{plan.title}"? This action can be reopened later.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={loading}>Back</AlertDialogCancel>
+                  <AlertDialogAction 
+                    onClick={() => onStatusChange(plan.id, 'cancelled')} 
+                    disabled={loading}
+                    // Optional: Add specific styling for cancel confirmation
+                  >
+                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Yes, cancel plan
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+              {/* Note: AlertDialogTrigger is placed below where the button is rendered */}
+              </AlertDialog>
+
+              {/* --- Refined Button Logic --- */}
+
+              {/* Start Treatment: Only show if status is 'planned' */}
+              {plan.status === 'planned' && (
                 <Button
                   variant="outline"
                   onClick={() => onStatusChange(plan.id, 'in_progress')}
                   disabled={loading}
+                  title="Start this treatment plan"
                 >
-                  {loading ? (
+                  {loading && !showDeleteConfirm && !showCancelConfirm ? ( // Show loader only if this action is loading
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Clock className="h-4 w-4 mr-1" />
@@ -373,14 +515,16 @@ export function TreatmentPlanDetails({
                   Start Treatment
                 </Button>
               )}
-              
-              {plan.status !== 'completed' && plan.status !== 'cancelled' && (
+
+              {/* Mark Completed: Only show if status is 'in_progress' */}
+              {plan.status === 'in_progress' && (
                 <Button
                   variant="outline"
                   onClick={() => onStatusChange(plan.id, 'completed')}
                   disabled={loading}
+                  title="Mark this plan as completed"
                 >
-                  {loading ? (
+                  {loading && !showDeleteConfirm && !showCancelConfirm ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Check className="h-4 w-4 mr-1" />
@@ -388,14 +532,50 @@ export function TreatmentPlanDetails({
                   Mark Completed
                 </Button>
               )}
-              
+
+              {/* Cancel Plan: Show if 'planned' or 'in_progress', triggers confirmation */}
+              {(plan.status === 'planned' || plan.status === 'in_progress') && (
+                 <AlertDialogTrigger asChild>
+                   <Button
+                     variant="outline"
+                     disabled={loading}
+                     title="Cancel this treatment plan"
+                   >
+                     {loading && showCancelConfirm ? ( // Show loader only if this action is loading
+                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                     ) : (
+                       <X className="h-4 w-4 mr-1" /> // Use X icon for Cancel
+                     )}
+                     Cancel Plan
+                   </Button>
+                 </AlertDialogTrigger>
+              )}
+
+              {/* Reopen Plan: Show if 'completed' or 'cancelled' */}
+              {(plan.status === 'completed' || plan.status === 'cancelled') && (
+                <Button
+                  variant="outline"
+                  onClick={() => onStatusChange(plan.id, plan.status === 'completed' ? 'in_progress' : 'planned')}
+                  disabled={loading}
+                  title={plan.status === 'completed' ? "Reopen and set to 'In Progress'" : "Reopen and set to 'Planned'"}
+                >
+                  {loading && !showDeleteConfirm && !showCancelConfirm ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4 mr-1" /> // Use RotateCcw icon for Reopen
+                  )}
+                  Reopen Plan
+                </Button>
+              )}
+              {/* --- End Refined Button Logic --- */}
+
               <Button
-                variant="secondary"
+                variant="secondary" // Keep Close button always visible
                 onClick={() => onOpenChange(false)}
               >
                 Close
               </Button>
-            </div>
+            </div> {/* End right side actions div */}
           </DialogFooter>
         </div> 
        </div> {/* End scrolling container */}

@@ -243,7 +243,8 @@ export function TreatmentPlanForm({
       conditionsData.forEach(item => {
         // Ensure conditions is an array and filter out null/undefined if necessary
         const validConditions = Array.isArray(item.conditions)
-          ? item.conditions.filter((c): c is ToothCondition => c !== null && c !== undefined)
+          // Add explicit type ToothCondition | null | undefined for 'c'
+          ? item.conditions.filter((c: ToothCondition | null | undefined): c is ToothCondition => c !== null && c !== undefined)
           : [];
 
         const finalConditions = validConditions.length > 0 ? validConditions : ['healthy'];
@@ -299,23 +300,51 @@ export function TreatmentPlanForm({
     setIsSavingChart(true);
     try {
       // 1. Get the current state from the DentalChart component via ref
-      const currentTeethData = dentalChartRef.current.getTeethData();
-      console.log("Data from chart ref to save:", currentTeethData);
+      const currentChartState = dentalChartRef.current.getTeethData(); // e.g., { 1: { conditions: ['decay'], isSelected: true }, ... }
+      console.log("Data from chart ref:", currentChartState);
 
-      // 2. Call the API to save the data
-      await api.patients.savePatientToothConditions(selectedPatientId, currentTeethData);
+      // 2. Transform the data into the format expected by the API
+      // ONLY include teeth that are selected AND have conditions other than just ['healthy']
+      const conditionsToSave = Object.entries(currentChartState)
+        .filter(([, toothData]) => {
+          const isSelected = toothData.isSelected;
+          // Check if conditions array exists, has exactly one item, and that item is 'healthy'
+          const isOnlyHealthy = Array.isArray(toothData.conditions) &&
+                                toothData.conditions.length === 1 &&
+                                toothData.conditions[0] === 'healthy';
+          // Keep if selected AND it's NOT the case that the only condition is 'healthy'
+          return isSelected && !isOnlyHealthy;
+          // If you wanted to explicitly save selected 'healthy' teeth, you would return `isSelected;` here.
+          // But based on the requirement, we only persist non-healthy selected teeth.
+        })
+        .map(([toothIdStr, toothData]) => {
+          // We already filtered, so conditions should be a valid, non-empty array here
+          // (and not just ['healthy'])
+          return {
+            tooth_id: parseInt(toothIdStr, 10),
+            // Use the actual conditions from the chart data
+            conditions: toothData.conditions as ToothCondition[], // Assert type as it passed filter
+          };
+        });
+      console.log("Filtered and transformed data to save (only selected & non-healthy):", conditionsToSave);
 
-      // 3. Update the local state (selectedToothIds and potentially chartInitialState for consistency)
-      const currentSelectedIds = Object.entries(currentTeethData)
+
+      // 3. Call the correct API function to save the data (API function also needs modification)
+      // Assuming savePatientToothConditionsDetailed is the correct function in api.ts
+      await api.patients.savePatientToothConditionsDetailed(selectedPatientId, conditionsToSave);
+
+      // 4. Update the local state (selectedToothIds and potentially chartInitialState for consistency)
+      // Use the original currentChartState for updating local UI state
+      const currentSelectedIds = Object.entries(currentChartState)
         .filter(([, data]) => data.isSelected)
         .map(([id]) => parseInt(id, 10));
       setSelectedToothIds(currentSelectedIds); // Update the main form's selected IDs display
 
       // Update chartInitialState to reflect the saved state, so reopening shows the saved data
       const formattedSavedState: InitialToothState = {};
-      Object.entries(currentTeethData).forEach(([id, data]) => {
+      Object.entries(currentChartState).forEach(([id, data]) => {
          // Ensure data.conditions is treated as ToothCondition[] if possible,
-         // We know data.conditions contains valid ToothCondition strings,
+         // We know data.conditions contains valid ToothCondition strings from the chart,
          // so we can safely assert the type here after the deep copy.
          formattedSavedState[parseInt(id, 10)] = {
            conditions: data.conditions as ToothCondition[], // Re-add type assertion here

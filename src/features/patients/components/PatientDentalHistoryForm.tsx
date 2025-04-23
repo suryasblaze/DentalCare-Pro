@@ -1,11 +1,23 @@
 import { z } from "zod";
-import { useFormContext } from 'react-hook-form';
+import { useFormContext, ControllerRenderProps, FieldValues } from 'react-hook-form'; // Import ControllerRenderProps and FieldValues
 import { FormField, FormItem, FormLabel, FormControl, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
+import { Checkbox } from "@/components/ui/checkbox";
+import React from 'react'; // Removed RefObject import
+// Removed duplicate useFormContext import, it's already imported above
+// Removed unused Controller import
+// Import the new ToothSelector component and its types
+import ToothSelector, { ToothConditionsMap } from '@/features/treatment-plans/components/ToothSelector';
+import { ToothCondition } from '@/features/treatment-plans/components/DentalChart'; // Import ToothCondition enum/type
+// Keep DentalChart imports only if needed elsewhere, otherwise remove
+// import DentalChart, {
+//   type DentalChartHandle,
+//   type InitialToothState,
+//   type ToothCondition,
+// } from '@/features/treatment-plans/components/DentalChart'; // Import DentalChart and types
 // Assuming a DatePicker component exists or needs to be created/imported
 // import { DatePicker } from "@/components/ui/date-picker";
 
@@ -49,13 +61,29 @@ export const dentalHistorySchema = z.object({
   dh_future_goals: z.string().optional(), // New field
   // Removed confirmation checkbox field
 
-  // --- Fields removed from original simpler version ---
+  // --- Selected Teeth (using the new selector) ---
+  // Define the possible condition values based on the ToothCondition type for Zod validation
+  // Using z.string() for keys as object keys are strings, ToothSelector handles conversion
+  dh_selected_teeth: z.record(z.string(), z.object({ 
+    conditions: z.array(z.enum([ // Use z.enum with the actual string values
+      'healthy', 'decayed', 'filled', 'missing', 'treatment-planned', 
+      'root-canal', 'extraction', 'crown', 'has-treatment-before', 
+      'recommended-to-be-treated'
+    ])) 
+  })).optional().default({}), // Default to empty object
+
+  // --- Fields removed or moved ---
   // last_dental_visit_date: z.date().optional().nullable(), // Replaced by dh_treatment_dates
   // additional_hygiene_products_other: z.string().optional(), // Merged into dh_additional_hygiene_products
   // uses_tobacco / tobacco_details / consumes_alcohol / alcohol_frequency -> Moved to Lifestyle form
 });
 
 export type DentalHistoryValues = z.infer<typeof dentalHistorySchema>;
+
+// Define props for the form component (ref removed)
+interface PatientDentalHistoryFormProps {
+  // No props needed specific to this form section anymore, unless others are added later
+}
 
 // --- Past Dental Treatment Options ---
 const pastTreatmentOptions = [
@@ -106,8 +134,8 @@ const pastTreatmentOptions = [
 ];
 
 
-export function PatientDentalHistoryForm() {
-  const form = useFormContext<DentalHistoryValues>();
+export function PatientDentalHistoryForm({}: PatientDentalHistoryFormProps) { // Removed dentalChartRef prop
+  const form = useFormContext<DentalHistoryValues>(); // Get form context
 
   return (
     <div className="space-y-8">
@@ -125,7 +153,7 @@ export function PatientDentalHistoryForm() {
         <FormField
           control={form.control}
           name="dh_reason_for_visit"
-          render={({ field }) => (
+          render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_reason_for_visit'> }) => ( // Add explicit type for field
             <FormItem>
               <FormLabel>Primary Reason for Visit</FormLabel>
               <Select onValueChange={field.onChange} value={field.value}>
@@ -147,7 +175,7 @@ export function PatientDentalHistoryForm() {
           <FormField
             control={form.control}
             name="dh_reason_for_visit_other"
-            render={({ field }) => (
+            render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_reason_for_visit_other'> }) => ( // Add explicit type for field
               <FormItem>
                 <FormLabel>If Other, please describe:</FormLabel>
                 <FormControl><Input placeholder="Explain reason" {...field} /></FormControl>
@@ -159,7 +187,7 @@ export function PatientDentalHistoryForm() {
          <FormField
            control={form.control}
            name="dh_chief_complaint"
-           render={({ field }) => (
+           render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_chief_complaint'> }) => ( // Add explicit type for field
              <FormItem>
                <FormLabel>Chief Complaint Description</FormLabel>
                <FormDescription>Please provide a detailed description of the issue that brought you here. Include when the problem began, how it has progressed, and any pain or discomfort experienced.</FormDescription>
@@ -176,7 +204,7 @@ export function PatientDentalHistoryForm() {
         <FormField
           control={form.control}
           name="dh_has_pain"
-          render={({ field }) => (
+          render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_has_pain'> }) => ( // Add explicit type for field
             <FormItem className="space-y-3">
               <FormLabel>Do you experience any dental pain or sensitivity?</FormLabel>
               <FormControl>
@@ -194,7 +222,7 @@ export function PatientDentalHistoryForm() {
             <FormField
               control={form.control}
               name="dh_pain_description"
-              render={({ field }) => (
+              render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_pain_description'> }) => ( // Add explicit type for field
                 <FormItem>
                   <FormLabel>Pain Description</FormLabel>
                   <FormDescription>Specify location(s), intensity, frequency, and triggers (temperature, chewing, stress).</FormDescription>
@@ -206,7 +234,7 @@ export function PatientDentalHistoryForm() {
             <FormField
               control={form.control}
               name="dh_pain_scale"
-              render={({ field }) => (
+              render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_pain_scale'> }) => ( // Add explicit type for field
                 <FormItem>
                   <FormLabel>Pain Scale (1=Mild, 10=Severe)</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
@@ -222,7 +250,7 @@ export function PatientDentalHistoryForm() {
              <FormField
                control={form.control}
                name="dh_pain_duration_onset"
-               render={({ field }) => (
+               render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_pain_duration_onset'> }) => ( // Add explicit type for field
                  <FormItem>
                    <FormLabel>Duration & Onset</FormLabel>
                    <FormDescription>When did you first notice the pain/sensitivity? Is it constant or intermittent?</FormDescription>
@@ -253,15 +281,15 @@ export function PatientDentalHistoryForm() {
                     <FormField
                       control={form.control}
                       name="dh_past_treatments"
-                      render={({ field }) => (
+                      render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_past_treatments'> }) => ( // Add explicit type for field
                         <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                           <FormControl>
                             <Checkbox
                               checked={field.value?.includes(item.id)}
-                              onCheckedChange={(checked) => {
-                                return checked
+                              onCheckedChange={(checked: boolean | 'indeterminate') => {
+                                return checked === true
                                   ? field.onChange([...(field.value || []), item.id])
-                                  : field.onChange((field.value || []).filter((value) => value !== item.id));
+                                  : field.onChange((field.value || []).filter((value: string) => value !== item.id)); // Add type for 'value'
                               }}
                             />
                           </FormControl>
@@ -277,18 +305,18 @@ export function PatientDentalHistoryForm() {
                              key={subItem.id}
                              control={form.control}
                              name="dh_past_treatments" // Still part of the same array
-                             render={({ field }) => (
+                             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_past_treatments'> }) => ( // Add explicit type for field
                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                                  <FormControl>
                                    <Checkbox
                                      checked={field.value?.includes(subItem.id)}
-                                     onCheckedChange={(checked) => {
+                                     onCheckedChange={(checked: boolean | 'indeterminate') => {
                                        // Also check/uncheck parent if needed (optional, depends on desired UX)
-                                       const newValue = checked
+                                       const newValue = checked === true
                                          ? [...(field.value || []), subItem.id]
-                                         : (field.value || []).filter((value) => value !== subItem.id);
+                                         : (field.value || []).filter((value: string) => value !== subItem.id); // Add type for 'value'
                                        // Optional: Add parent if a child is checked
-                                       // if (checked && !newValue.includes(item.id)) {
+                                       // if (checked === true && !newValue.includes(item.id)) {
                                        //   newValue.push(item.id);
                                        // }
                                        field.onChange(newValue);
@@ -314,7 +342,7 @@ export function PatientDentalHistoryForm() {
           <FormField
             control={form.control}
             name="dh_past_treatments_other"
-            render={({ field }) => (
+            render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_past_treatments_other'> }) => ( // Add explicit type for field
               <FormItem className="mt-4"> {/* Add margin top */}
                 <FormLabel>Specify Other Treatments:</FormLabel>
                 <FormControl>
@@ -322,13 +350,44 @@ export function PatientDentalHistoryForm() {
                     placeholder="Describe other treatments..."
                     {...field}
                     value={field.value || ''} // Handle null/undefined
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+                />
+              </FormControl>
+              {/* <FormMessage /> - Removed as ToothSelector displays selection */}
+            </FormItem>
+          )}
           />
         )}
+      </div>
+
+      {/* --- Affected Teeth Section (Using ToothSelector) --- */}
+      <div className="space-y-4 p-4 border rounded-md">
+        <h4 className="font-medium">Affected Teeth & Conditions</h4>
+        <FormDescription>
+          Click the button to select the teeth involved. The specific conditions for these teeth can be detailed in the treatment plan later.
+        </FormDescription>
+        <FormField
+          control={form.control}
+          name="dh_selected_teeth" // Use the new schema field
+          // Update field type to ToothConditionsMap
+          render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_selected_teeth'> }) => {
+            return (
+            <FormItem>
+              <FormLabel>Affected Teeth</FormLabel>
+              <FormControl>
+                {/* Render the ToothSelector component */}
+                  <ToothSelector
+                    // Ensure value passed is an object (ToothConditionsMap), default to empty object
+                    value={field.value || {}}
+                    onChange={field.onChange} // Pass the onChange handler (expects ToothConditionsMap)
+                    placeholder="Select Affected Teeth..."
+                    // disabled={field.disabled} // Pass disabled state if needed
+                  />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+            );
+          }}
+        />
       </div>
 
       {/* --- Oral Hygiene Routine & Home Care --- */}
@@ -337,7 +396,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_brushing_frequency"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_brushing_frequency'> }) => ( // Add explicit type for field
                <FormItem>
                  <FormLabel>Brushing Frequency</FormLabel>
                  <Select onValueChange={field.onChange} value={field.value}>
@@ -356,7 +415,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_flossing_habits"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_flossing_habits'> }) => ( // Add explicit type for field
                <FormItem>
                  <FormLabel>Flossing Habits</FormLabel>
                  <Select onValueChange={field.onChange} value={field.value}>
@@ -374,7 +433,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_additional_hygiene_products"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_additional_hygiene_products'> }) => ( // Add explicit type for field
                <FormItem>
                  <FormLabel>Additional Oral Hygiene Products</FormLabel>
                  <FormDescription>List products used besides brushing/flossing (mouthwash, water flosser, etc.).</FormDescription>
@@ -386,7 +445,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_technique_tools"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_technique_tools'> }) => ( // Add explicit type for field
                <FormItem>
                  <FormLabel>Technique & Tools</FormLabel>
                  <FormDescription>Describe your brushing technique and any special tools (e.g., electric toothbrush).</FormDescription>
@@ -403,7 +462,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_orthodontic_history"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_orthodontic_history'> }) => ( // Add explicit type for field
                <FormItem className="space-y-3">
                  <FormLabel>Have you had braces, clear aligners, or other orthodontic treatments?</FormLabel>
                  <FormControl>
@@ -420,7 +479,7 @@ export function PatientDentalHistoryForm() {
              <FormField
                control={form.control}
                name="dh_orthodontic_details"
-               render={({ field }) => (
+               render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_orthodontic_details'> }) => ( // Add explicit type for field
                  <FormItem>
                    <FormLabel>If yes, specify type, duration, outcomes, challenges:</FormLabel>
                    <FormControl><Textarea rows={3} placeholder="e.g., Traditional braces (2 years), results good, wore retainer." {...field} /></FormControl>
@@ -437,7 +496,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_has_records"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_has_records'> }) => ( // Add explicit type for field
                <FormItem className="space-y-3">
                  <FormLabel>Do you have copies of previous dental records or X-rays available?</FormLabel>
                  <FormControl>
@@ -453,7 +512,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_xray_frequency"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_xray_frequency'> }) => ( // Add explicit type for field
                <FormItem>
                  <FormLabel>X-Ray Frequency</FormLabel>
                  <FormDescription>How often have you had dental X-rays? (Approximate dates if known).</FormDescription>
@@ -470,7 +529,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_bite_issues"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_bite_issues'> }) => ( // Add explicit type for field
                <FormItem className="space-y-3">
                  <FormLabel>Do you have issues with your bite or TMJ pain?</FormLabel>
                  <FormControl>
@@ -487,7 +546,7 @@ export function PatientDentalHistoryForm() {
              <FormField
                control={form.control}
                name="dh_bite_symptoms"
-               render={({ field }) => (
+               render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_bite_symptoms'> }) => ( // Add explicit type for field
                  <FormItem>
                    <FormLabel>If yes, describe symptoms (jaw pain, clicking, difficulty chewing):</FormLabel>
                    <FormControl><Textarea rows={3} placeholder="e.g., Jaw clicks when opening wide, occasional pain on left side" {...field} /></FormControl>
@@ -504,7 +563,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_cosmetic_concerns"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_cosmetic_concerns'> }) => ( // Add explicit type for field
                <FormItem className="space-y-3">
                  <FormLabel>Are you concerned about the appearance of your teeth?</FormLabel>
                  <FormControl>
@@ -521,7 +580,7 @@ export function PatientDentalHistoryForm() {
              <FormField
                control={form.control}
                name="dh_cosmetic_issues_details"
-               render={({ field }) => (
+               render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_cosmetic_issues_details'> }) => ( // Add explicit type for field
                  <FormItem>
                    <FormLabel>Specify concerns (color, shape, alignment, spacing):</FormLabel>
                    <FormControl><Textarea rows={3} placeholder="e.g., Teeth are slightly yellow, gap between front teeth" {...field} /></FormControl>
@@ -533,7 +592,7 @@ export function PatientDentalHistoryForm() {
             <FormField
              control={form.control}
              name="dh_functional_concerns"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_functional_concerns'> }) => ( // Add explicit type for field
                <FormItem>
                  <FormLabel>Functional Concerns</FormLabel>
                  <FormDescription>Describe difficulties with eating, speaking, etc.</FormDescription>
@@ -550,7 +609,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_emergency_history"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_emergency_history'> }) => ( // Add explicit type for field
                <FormItem className="space-y-3">
                  <FormLabel>Have you experienced any dental emergencies?</FormLabel>
                  <FormControl>
@@ -567,7 +626,7 @@ export function PatientDentalHistoryForm() {
              <FormField
                control={form.control}
                name="dh_emergency_details"
-               render={({ field }) => (
+               render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_emergency_details'> }) => ( // Add explicit type for field
                  <FormItem>
                    <FormLabel>If yes, provide details (when, how managed):</FormLabel>
                    <FormControl><Textarea rows={3} placeholder="e.g., Broken tooth (2022), fixed with a crown" {...field} /></FormControl>
@@ -584,7 +643,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_additional_summary"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_additional_summary'> }) => ( // Add explicit type for field
                <FormItem>
                  <FormLabel>Overall Dental History Summary</FormLabel>
                  <FormDescription>Any additional information not covered above.</FormDescription>
@@ -596,7 +655,7 @@ export function PatientDentalHistoryForm() {
            <FormField
              control={form.control}
              name="dh_future_goals"
-             render={({ field }) => (
+             render={({ field }: { field: ControllerRenderProps<DentalHistoryValues, 'dh_future_goals'> }) => ( // Add explicit type for field
                <FormItem>
                  <FormLabel>Future Treatment Goals & Expectations</FormLabel>
                  <FormDescription>What outcomes are you hoping for?</FormDescription>

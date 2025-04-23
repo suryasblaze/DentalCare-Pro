@@ -8,17 +8,17 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogFooter, D
 // Remove Select imports
 // Add imports for Form components and MultiSelectCheckbox
 import { FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
-import { MultiSelectCheckbox } from '@/components/ui/multi-select-checkbox';
+// Remove MultiSelectCheckbox import
 import { useToast } from '@/components/ui/use-toast';
 import { ScrollArea } from "@/components/ui/scroll-area"; // Keep ScrollArea
 import type { Database } from '@/../supabase_types'; // Corrected import path to root supabase_types.ts
 import { supabase } from '@/lib/supabase'; // Import supabase client
+// Import ToothSelector instead of DentalChart
+import ToothSelector from '@/features/treatment-plans/components/ToothSelector';
+// Remove DentalChart import if no longer needed elsewhere in this file
+// import DentalChart, { type InitialToothState } from '@/features/treatment-plans/components/DentalChart';
 
-// Define Tooth type
-interface Tooth {
-  id: number;
-  description: string;
-}
+// Remove Tooth type definition
 
 // Define Suggestion type
 interface Suggestion {
@@ -65,8 +65,7 @@ export function AITreatmentGenerator({
   const [selectedSuggestionLabel, setSelectedSuggestionLabel] = useState<string | null>(null); // State for clicked suggestion
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedPlan, setGeneratedPlan] = useState<string | null>(null); // State to store the AI response
-  const [teeth, setTeeth] = useState<Tooth[]>([]); // State for teeth
-  const [fetchError, setFetchError] = useState<string | null>(null); // State for fetch error
+  // Remove teeth and fetchError state
   const [selectedToothIds, setSelectedToothIds] = useState<number[]>([]); // State for selected teeth
   const { toast } = useToast();
 
@@ -255,29 +254,10 @@ export function AITreatmentGenerator({
 
     fetchDetails();
 
-    // Fetch teeth data when the dialog opens
-    if (open) {
-      const fetchTeeth = async () => {
-        setFetchError(null);
-        const { data, error } = await supabase
-          .from('teeth')
-          .select('id, description')
-          .order('id', { ascending: true });
-
-        if (error) {
-          console.error('Error fetching teeth:', error);
-          setFetchError('Failed to load teeth data.');
-          setTeeth([]);
-        } else {
-          setTeeth(data || []);
-        }
-      };
-      fetchTeeth();
-    } else {
-      // Reset teeth state when dialog closes
-      setTeeth([]);
-      setFetchError(null);
-      setSelectedToothIds([]); // Reset selected teeth
+    // Remove fetchTeeth logic
+    // Reset selected teeth when dialog closes or patient changes
+    if (!open || !selectedPatientId) {
+        setSelectedToothIds([]);
     }
 
   }, [selectedPatientId, open]); // Run when selectedPatientId or open state changes
@@ -601,24 +581,23 @@ export function AITreatmentGenerator({
              {/* {errorPatients && <p className="text-sm text-destructive mt-1">{errorPatients}</p>} */}
           </div>
 
-          {/* Tooth Selection Field */}
+          {/* Tooth Selection Field - Using ToothSelector */}
           <div className="space-y-2">
             <Label>Teeth *</Label>
-            <MultiSelectCheckbox
-              options={teeth.map(t => ({ value: t.id, label: `${t.id} - ${t.description}` }))}
-              selectedValues={selectedToothIds}
-              // Convert values to numbers before setting state
-              onChange={(values) => setSelectedToothIds(values.map(Number))}
-              placeholder="Select teeth..."
-              className="w-full"
-              disabled={fetchError !== null || teeth.length === 0 || !selectedPatientId} // Disable if no patient or error/no teeth
-            />
-            {/* Replace FormDescription with p tag to avoid context error */}
-            {fetchError && <p className="text-destructive text-xs pt-1">{fetchError}</p>}
-            {!fetchError && teeth.length === 0 && selectedPatientId && <p className="text-muted-foreground text-xs pt-1">Loading teeth...</p>}
-            {!selectedPatientId && <p className="text-muted-foreground text-xs pt-1">Select a patient to enable teeth selection.</p>}
+            {selectedPatientId ? (
+              <ToothSelector
+                value={selectedToothIds} // Use the existing state for selected IDs
+                onChange={setSelectedToothIds} // Use the existing state setter
+                placeholder="Select Affected Teeth..."
+                disabled={!selectedPatientId} // Disable if no patient selected
+              />
+            ) : (
+              // Display placeholder text when no patient is selected
+              <div className="flex items-center justify-center h-10 px-3 border rounded-md bg-gray-50 text-sm text-muted-foreground">
+                Select a patient to enable teeth selection.
+              </div>
+            )}
           </div>
-
 
           {/* Current Condition Input */}
           {/* Condition Input */}

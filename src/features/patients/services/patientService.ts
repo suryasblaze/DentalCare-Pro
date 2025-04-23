@@ -73,5 +73,13 @@ export const patientService = {
    */
   async getPatientMedicalRecords(patientId: string) {
     return api.patients.getMedicalRecords(patientId);
+  },
+
+  /**
+   * Get patient's selected dental history teeth
+   */
+  async getPatientDentalHistoryTeeth(patientId: string) {
+    // This assumes api.patients.getPatientDentalHistoryTeeth exists or will be added
+    return api.patients.getPatientDentalHistoryTeeth(patientId);
   }
 };

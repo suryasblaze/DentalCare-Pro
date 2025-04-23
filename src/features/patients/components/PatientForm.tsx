@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react'; // Add useRef
 import { useNavigate } from 'react-router-dom';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -18,10 +18,10 @@ import {
 } from "@/components/ui/dialog"; // Use standard Dialog
 import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
 import { Label } from "@/components/ui/label"; // Import Label
-import { api } from '@/lib/api';
+import { api } from '@/lib/api'; // Assuming api.patients.saveToothConditions will be added here
 import { supabase } from '@/lib/supabase';
 import type { Session } from '@supabase/supabase-js';
-import { Patient, BloodGroup, Gender, MaritalStatus, Json } from '@/types';
+import { Patient, PatientInsert, BloodGroup, Gender, MaritalStatus, Json } from '@/types'; // <<< Import PatientInsert
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -53,7 +53,14 @@ import {
   documentsSchema
 } from './PatientDocumentsForm';
 import { z, ZodSchema } from 'zod';
-
+// Import the map type and condition type
+import { ToothConditionsMap } from '@/features/treatment-plans/components/ToothSelector';
+import { ToothCondition } from '@/features/treatment-plans/components/DentalChart'; // <<< Import ToothCondition
+// Import the insert type for the API call - Assuming it's exported from api.ts or types/index.ts
+// If not, we might need to define it here or import from the correct location.
+// Let's assume it's in types/index.ts for now.
+import { PatientToothConditionInsert } from '@/types';
+import { ControllerRenderProps } from 'react-hook-form'; // Import ControllerRenderProps
 // Keep individual schemas accessible
 const consentFieldsSchema = z.object({
   acknowledgment: z.boolean().refine(val => val === true, {
@@ -149,13 +156,17 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
+  // Remove dentalChartRef
+  // const dentalChartRef = useRef<DentalChartHandle>(null);
   // State for fields inside the dialog
   const [dialogAcknowledgment, setDialogAcknowledgment] = useState(false);
   const [dialogSignature, setDialogSignature] = useState('');
   const [dialogConsentDate, setDialogConsentDate] = useState<Date | null>(new Date());
   // ---
-  const [pendingSubmitData, setPendingSubmitData] = useState<FullPatientFormValues | null>(null); // Use Full type here
-  const [activeTab, setActiveTab] = useState(tabOrder[0]); // Start at the first tab
+  const [pendingSubmitData, setPendingSubmitData] = useState<FullPatientFormValues | null>(null);
+  const [activeTab, setActiveTab] = useState(tabOrder[0]);
+  // Removed formDefaultValues and isDefaultValuesLoading states
+  const [isLoadingDefaults, setIsLoadingDefaults] = useState(true); // New state to track initial loading for button disabling
    // isConsentSubmission state is no longer needed as dialog always shows consent
    // --- Moved isSimplifiedMode declaration before calculateDefaultValues ---
    const isSimplifiedMode = mode === 'simplified';
@@ -192,6 +203,8 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
     dh_xray_frequency: "", dh_bite_issues: "no", dh_bite_symptoms: "", dh_cosmetic_concerns: "no",
     dh_cosmetic_issues_details: "", dh_functional_concerns: "", dh_emergency_history: "no",
     dh_emergency_details: "", dh_additional_summary: "", dh_future_goals: "",
+    // Initialize selected teeth map
+    dh_selected_teeth: {},
     family_medical_conditions: [], family_medical_conditions_other: "", family_dental_issues: [], family_dental_issues_other: "",
     diet_description: "", exercise_frequency: undefined, stress_level: undefined,
     has_sleep_issues: "no", sleep_issues_details: "", pregnancy_status: "not_applicable",
@@ -204,13 +217,15 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
 
    // Calculate default values based on mode and patient prop
    // --- Ensure isSimplifiedMode is accessible here ---
-   const calculateDefaultValues = useCallback((currentPatient: Patient | null | undefined): Partial<PatientFormValues> => {
+   // Renamed function slightly as it's now used directly in useEffect
+   const getBaseDefaultValues = useCallback((currentPatient: Patient | null | undefined): Partial<PatientFormValues> => {
      const baseDefaults = isSimplifiedMode ? simplifiedDefaultValues : fullDefaultValues;
      const patientOverrides: Partial<PatientFormValues> = currentPatient ? {
         first_name: currentPatient.first_name || '',
         last_name: currentPatient.last_name || '',
         middle_name: currentPatient.middle_name || '',
-        gender: currentPatient.gender || 'male',
+        // Ensure gender matches the specific enum type or undefined (as per schema)
+        gender: (currentPatient.gender === 'male' || currentPatient.gender === 'female' || currentPatient.gender === 'other') ? currentPatient.gender : undefined,
         age: currentPatient.age ?? null,
         occupation: currentPatient.occupation || '',
         phone: currentPatient.phone || '',
@@ -244,9 +259,9 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
           previous_surgeries: Array.isArray(currentPatient.previous_surgeries) ? (currentPatient.previous_surgeries as { type: string; date?: string; notes?: string }[]) : [],
           notes: currentPatient.notes || '',
           consent_given: currentPatient.consent_given || false,
-          consent_notes: currentPatient.consent_notes || "",
-           // Map detailed history/etc. from JSONB fields if they exist
-           ...(currentPatient.dental_history && typeof currentPatient.dental_history === 'object' ? { ...(currentPatient.dental_history as object) } : {}),
+          // Removed consent_notes as it doesn't exist on the Patient type
+           // Map detailed history/etc. from JSONB fields if they exist, EXCLUDING dh_selected_teeth
+           ...(currentPatient.dental_history && typeof currentPatient.dental_history === 'object' ? { ...Object.fromEntries(Object.entries(currentPatient.dental_history as object).filter(([key]) => key !== 'dh_selected_teeth')) } : {}), // Ensure dh_selected_teeth is NEVER mapped here
            ...(currentPatient.family_medical_history && typeof currentPatient.family_medical_history === 'object' ? { ...(currentPatient.family_medical_history as object) } : {}),
              // Explicitly map lifestyle habits with safe defaults (use '' for strings, undefined for optional enums/radios)
              diet_description: (currentPatient.lifestyle_habits as any)?.diet ?? '', // Use '' for textarea
@@ -268,23 +283,77 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
           }) // Close the !isSimplifiedMode block here
       } : {}; // Close the currentPatient ternary
 
+     // --- Fetching selected teeth is handled in useEffect ---
+
      // --- Correctly return the merged object ---
+     // NOTE: dh_selected_teeth will be merged in the useEffect that calls form.reset
      return {
        ...baseDefaults,
        ...patientOverrides,
      };
-   }, [patient, isSimplifiedMode]); // Keep dependencies
+   }, [patient, isSimplifiedMode]);
 
-   // Use the full schema for the resolver, but validation logic will be manual for full mode save
+   // Removed updateChartDataInFormState function
+
+
+  // Use the full schema for the resolver
   const form = useForm<PatientFormValues>({
     resolver: zodResolver(isSimplifiedMode ? simplifiedPatientSchema : patientSchema),
-    defaultValues: calculateDefaultValues(patient),
-    mode: 'onChange', // Optional: Show errors as user types
+    // Default values are now set via form.reset in useEffect
+    defaultValues: isSimplifiedMode ? simplifiedDefaultValues : fullDefaultValues,
+    mode: 'onChange',
   });
 
+  // Combined useEffect for calculating defaults, fetching teeth, and resetting the form
   useEffect(() => {
-    form.reset(calculateDefaultValues(patient));
-  }, [patient, mode, form.reset, calculateDefaultValues]);
+    setIsLoadingDefaults(true); // Start loading indicator
+    console.log(`PatientForm: useEffect triggered. Patient ID: ${patient?.id}, Mode: ${mode}`);
+
+    const loadAndResetForm = async () => {
+      // 1. Calculate base default values
+      let defaults = getBaseDefaultValues(patient);
+      console.log("PatientForm: Base defaults calculated:", JSON.stringify(defaults));
+
+      // 2. If editing in full mode, fetch the dental history teeth map
+      if (patient?.id && !isSimplifiedMode) {
+        try {
+          console.log("PatientForm: Fetching dental history teeth map for patient:", patient.id);
+          const dentalHistoryTeethMap = await api.patients.getPatientDentalHistoryTeethMap(patient.id);
+          console.log("PatientForm: Fetched dental history teeth map for form:", JSON.stringify(dentalHistoryTeethMap));
+
+          // Merge the fetched map into the defaults object
+          (defaults as Partial<FullPatientFormValues>).dh_selected_teeth = dentalHistoryTeethMap || {}; // Ensure it's an object
+
+        } catch (error) {
+          console.error("Error fetching patient dental history teeth map:", error);
+          toast({
+            title: "Error Loading Affected Teeth",
+            description: "Could not load previously selected affected teeth.",
+            variant: "destructive",
+          });
+          // Ensure field is an empty object in defaults on error
+          (defaults as Partial<FullPatientFormValues>).dh_selected_teeth = {};
+        }
+      } else if (!isSimplifiedMode) {
+        // Ensure field is initialized as empty object for new full form
+        (defaults as Partial<FullPatientFormValues>).dh_selected_teeth = {};
+      } else if (isSimplifiedMode) {
+         // Ensure field is not present for simplified mode
+         delete (defaults as Partial<FullPatientFormValues>).dh_selected_teeth;
+      }
+
+      // 3. Reset the form with the final calculated defaults
+      console.log("PatientForm: Resetting form with final defaults:", JSON.stringify(defaults));
+      form.reset(defaults);
+      console.log("PatientForm: Form reset complete. Checking form state after reset:", JSON.stringify(form.getValues('dh_selected_teeth')));
+      setIsLoadingDefaults(false); // Finish loading indicator
+    };
+
+    loadAndResetForm();
+
+  // Depend on patient object itself (or patient.id) and mode
+  }, [patient, mode, isSimplifiedMode, getBaseDefaultValues, form, toast]); // Added form and toast as dependencies
+
 
   const uploadFile = async (file: File, patientId: string, fieldName: string): Promise<PatientDocument | null> => {
     if (!(file instanceof File)) { return null; }
@@ -335,20 +404,30 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
         throw new Error("Cannot upload files for a new patient. Save first.");
       }
 
-      const commonPatientData: Partial<Patient> = {
+      // Define the type for common data explicitly
+      const commonPatientData: {
+        first_name: string;
+        last_name: string;
+        middle_name: string | null;
+        gender: Gender | null; // Use Gender type here
+        age: number | null;
+        occupation: string | null;
+        phone: string;
+      } = {
         first_name: saveData.first_name || '',
         last_name: saveData.last_name || '',
         middle_name: saveData.middle_name || null,
-        gender: saveData.gender as Gender || null,
+        // Assign gender based on validation
+        gender: (saveData.gender === 'male' || saveData.gender === 'female' || saveData.gender === 'other') ? saveData.gender : null,
         age: saveData.age ?? null,
         occupation: saveData.occupation || null,
         phone: saveData.phone || '',
       };
 
-      let patientData: Partial<Patient>;
+      let patientData: Partial<Patient>; // Keep as Partial initially
 
       if (isSimplifiedMode) {
-        patientData = commonPatientData;
+        patientData = commonPatientData; // Assign common data
       } else {
         const fullData = saveData as FullPatientFormValues;
         patientData = {
@@ -424,7 +503,9 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
               emergency_details: fullData.dh_emergency_details || null,
               additional_summary: fullData.dh_additional_summary || null,
               future_goals: fullData.dh_future_goals || null,
-          } as unknown as Json,
+              // Explicitly remove the old tooth_conditions field if it exists
+              // dh_tooth_conditions: undefined, // This might not work directly on the constructed object
+          } as any, // Use 'any' temporarily to allow deletion
           family_medical_history: {
               conditions: fullData.family_medical_conditions || [],
               other: fullData.family_medical_conditions_other || null,
@@ -456,14 +537,27 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
         };
       }
 
+      let savedPatientId: string | undefined = currentPatientId;
+      let newPatient: Patient | null = null; // To store the result of creation
+
+      // Explicitly type patientData before API call
+      const finalPatientData: Partial<Patient> = patientData;
+
+      // Clean up the old tooth conditions field from dental_history before saving
+      if (finalPatientData.dental_history && typeof finalPatientData.dental_history === 'object') {
+        delete (finalPatientData.dental_history as any).dh_tooth_conditions;
+        // Ensure the final type is Json after deletion
+        finalPatientData.dental_history = finalPatientData.dental_history as Json;
+      }
+
+
       if (currentPatientId) {
         console.log(`Updating existing patient (${mode} mode):`, currentPatientId);
-        await api.patients.update(currentPatientId, patientData);
-        toast({ title: "Success", description: "Patient information updated successfully" });
-        onSuccess();
+        await api.patients.update(currentPatientId, finalPatientData); // Use finalPatientData
+        // savedPatientId remains currentPatientId
       } else {
         console.log(`Creating new patient (${mode} mode)...`);
-        const createPayload = { ...patientData };
+        const createPayload = { ...finalPatientData }; // Use finalPatientData
         delete createPayload.profile_photo_url;
         delete createPayload.signature_url;
         delete createPayload.documents;
@@ -492,14 +586,88 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
             createPayload.notes = null;
             createPayload.consent_given = null;
         }
-        const newPatient = await api.patients.create(createPayload as any);
-        console.log("New patient created:", newPatient.id);
-        const successMessage = isSimplifiedMode
-          ? "Basic patient info saved. Complete profile later."
-          : "Patient created successfully. Edit to add documents.";
-        toast({ title: "Success", description: successMessage });
-        onSuccess(newPatient.id);
+        // Ensure createPayload matches PatientInsert type before calling create
+        // Explicitly define the type for createPayload based on PatientInsert
+        const finalCreatePayload: PatientInsert = {
+            // Map common fields ensuring correct types
+            first_name: createPayload.first_name || '',
+            last_name: createPayload.last_name || '',
+            middle_name: createPayload.middle_name || null,
+            // Explicitly check gender value to match Gender type or null
+            gender: (createPayload.gender === 'male' || createPayload.gender === 'female' || createPayload.gender === 'other') ? createPayload.gender : null,
+            age: createPayload.age ?? null,
+            occupation: createPayload.occupation || null,
+            phone: createPayload.phone || '',
+            // Map other fields required/optional by PatientInsert, ensuring null defaults if not present
+            marital_status: (createPayload.marital_status as MaritalStatus) || null,
+            email: createPayload.email || null,
+            address: createPayload.address || null,
+            city: createPayload.city || null,
+            state: createPayload.state || null,
+            postal_code: createPayload.postal_code || null,
+            country: createPayload.country || null,
+            emergency_contact_name: createPayload.emergency_contact_name || null,
+            emergency_contact_phone: createPayload.emergency_contact_phone || null,
+            emergency_contact_relationship: createPayload.emergency_contact_relationship || null,
+            blood_group: (createPayload.blood_group as BloodGroup) || null,
+            height: createPayload.height ?? null,
+            weight: createPayload.weight ?? null,
+            medical_conditions: createPayload.medical_conditions || null,
+            current_medications: createPayload.current_medications || null,
+            previous_surgeries: createPayload.previous_surgeries || null,
+            detailed_medical_info: createPayload.detailed_medical_info || null,
+            dental_history: createPayload.dental_history || null,
+            family_medical_history: createPayload.family_medical_history || null,
+            lifestyle_habits: createPayload.lifestyle_habits || null,
+            notes: createPayload.notes || null,
+            consent_given: createPayload.consent_given || null,
+            // Ensure fields not in PatientInsert are excluded (like profile_photo_url, signature_url, documents)
+        };
+
+        newPatient = await api.patients.create(finalCreatePayload); // Use the correctly typed payload
+        if (!newPatient?.id) {
+          throw new Error("Failed to create patient or retrieve new patient ID.");
+        }
+        savedPatientId = newPatient.id; // Update savedPatientId only if newPatient and its id exist
+        console.log("New patient created:", savedPatientId);
       }
+
+      // --- Save Patient Dental History Teeth (Simple List - only in full mode) ---
+      if (!isSimplifiedMode && savedPatientId) {
+          const dentalHistoryTeethMap = (saveData as FullPatientFormValues).dh_selected_teeth; // Get the map from form data
+
+          // Extract just the tooth IDs from the map keys
+          const toothIdsToSave: number[] = dentalHistoryTeethMap
+            ? Object.keys(dentalHistoryTeethMap).map(Number)
+            : [];
+
+          console.log("Saving patient dental history teeth map (with conditions):", JSON.stringify(dentalHistoryTeethMap));
+          try {
+              // Call the correctly named API function with the map
+              await api.patients.savePatientDentalHistoryTeethWithConditions(savedPatientId, dentalHistoryTeethMap);
+              console.log("Patient dental history teeth (with conditions) saved successfully.");
+          } catch (toothError: any) {
+              console.error("Error saving patient dental history teeth:", toothError);
+                  toast({
+                      title: "Warning",
+                      description: `Patient info saved, but failed to save dental history teeth: ${toothError.message}`,
+                      variant: "destructive",
+                  });
+              }
+          // No 'else' needed, savePatientDentalHistoryTeeth handles empty array correctly
+      }
+      // --- End Save Patient Dental History Teeth ---
+
+      // Display success message based on mode and operation type
+      const successMessage = currentPatientId
+        ? "Patient information updated successfully."
+        : (isSimplifiedMode
+            ? "Basic patient info saved. Complete profile later."
+            : "Patient created successfully. Edit to add documents."); // Keep original creation message logic
+
+      toast({ title: "Success", description: successMessage });
+      onSuccess(savedPatientId); // Pass the ID back
+
     } catch (error: any) {
       console.error('Error saving patient:', error);
       let description = "Failed to save patient information.";
@@ -525,12 +693,14 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
 
   // New handler for the Save Changes button click in full mode
   const handleSaveChangesClick = async () => {
-    if (isSimplifiedMode) return; // Should not happen, button is different
+     if (isSimplifiedMode) return; // Should not happen, button is different
 
-    setLoading(true); // Show loading state early
+     setLoading(true); // Show loading state early
 
-    const fieldsToValidate = tabToFields[activeTab] || [];
-    console.log(`Validating fields for tab "${activeTab}":`, fieldsToValidate);
+     // Removed call to updateChartDataInFormState
+
+     const fieldsToValidate = tabToFields[activeTab] || [];
+     console.log(`Validating fields for tab "${activeTab}":`, fieldsToValidate);
 
     if (fieldsToValidate.length === 0 && activeTab !== 'documents') { // Documents might have no required fields initially
         console.warn(`No fields defined for validation on tab: ${activeTab}`);
@@ -617,21 +787,22 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
                   </p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  <FormField control={form.control} name="first_name" render={({ field }) => ( <FormItem><FormLabel>First Name</FormLabel><FormControl><Input placeholder="John" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                  <FormField control={form.control} name="middle_name" render={({ field }) => ( <FormItem><FormLabel>Middle Name</FormLabel><FormControl><Input placeholder="Michael" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                  <FormField control={form.control} name="last_name" render={({ field }) => ( <FormItem><FormLabel>Last Name</FormLabel><FormControl><Input placeholder="Doe" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                  <FormField control={form.control} name="gender" render={({ field }) => ( <FormItem><FormLabel>Gender</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger></FormControl><SelectContent><SelectItem value="male">Male</SelectItem><SelectItem value="female">Female</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select><FormMessage /></FormItem> )} />
-                  <FormField control={form.control} name="age" render={({ field }) => ( <FormItem><FormLabel>Age</FormLabel><FormControl><Input type="number" placeholder="25" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? null : e.target.valueAsNumber)} /></FormControl><FormMessage /></FormItem> )} />
-                  <FormField control={form.control} name="occupation" render={({ field }) => ( <FormItem><FormLabel>Occupation</FormLabel><FormControl><Input placeholder="Software Engineer" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                  <FormField control={form.control} name="phone" render={({ field }) => ( <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input placeholder="+1234567890" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="first_name" render={({ field }: { field: ControllerRenderProps<SimplifiedPatientFormValues, 'first_name'> }) => ( <FormItem><FormLabel>First Name</FormLabel><FormControl><Input placeholder="John" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="middle_name" render={({ field }: { field: ControllerRenderProps<SimplifiedPatientFormValues, 'middle_name'> }) => ( <FormItem><FormLabel>Middle Name</FormLabel><FormControl><Input placeholder="Michael" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="last_name" render={({ field }: { field: ControllerRenderProps<SimplifiedPatientFormValues, 'last_name'> }) => ( <FormItem><FormLabel>Last Name</FormLabel><FormControl><Input placeholder="Doe" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="gender" render={({ field }: { field: ControllerRenderProps<SimplifiedPatientFormValues, 'gender'> }) => ( <FormItem><FormLabel>Gender</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger></FormControl><SelectContent><SelectItem value="male">Male</SelectItem><SelectItem value="female">Female</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="age" render={({ field }: { field: ControllerRenderProps<SimplifiedPatientFormValues, 'age'> }) => ( <FormItem><FormLabel>Age</FormLabel><FormControl><Input type="number" placeholder="25" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? null : e.target.valueAsNumber)} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="occupation" render={({ field }: { field: ControllerRenderProps<SimplifiedPatientFormValues, 'occupation'> }) => ( <FormItem><FormLabel>Occupation</FormLabel><FormControl><Input placeholder="Software Engineer" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                  <FormField control={form.control} name="phone" render={({ field }: { field: ControllerRenderProps<SimplifiedPatientFormValues, 'phone'> }) => ( <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input placeholder="+1234567890" {...field} /></FormControl><FormMessage /></FormItem> )} />
                 </div>
             </div>
              {/* Buttons for simplified mode */}
              <div className="flex justify-end gap-2 pt-4">
                <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-               <Button type="submit" disabled={loading}>
-                 {loading ? (<><span className="mr-2">Saving...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : ('Save Changes')}
-               </Button>
+               {/* Disable submit if initial defaults are still loading */}
+               <Button type="submit" disabled={loading || isLoadingDefaults}>
+                 {loading ? (<><span className="mr-2">Saving...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : isLoadingDefaults ? (<><span className="mr-2">Loading...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : ('Save Changes')}
+                </Button>
              </div>
           </form>
         ) : (
@@ -659,6 +830,7 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
                 <PatientMedicalInfoForm />
               </TabsContent>
               <TabsContent value="dental" className="max-h-[calc(90vh-250px)] overflow-y-auto p-1 space-y-8">
+                {/* Remove dentalChartRef prop */}
                 <PatientDentalHistoryForm />
               </TabsContent>
               <TabsContent value="family_lifestyle" className="max-h-[calc(90vh-250px)] overflow-y-auto p-1 space-y-8">
@@ -693,9 +865,10 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
                 </div>
                 <div> {/* Group Cancel/Save buttons */}
                   <Button type="button" variant="outline" onClick={onCancel} className="mr-2">Cancel</Button>
-                  {/* Button now calls handleSaveChangesClick for manual validation */}
-                  <Button type="button" onClick={handleSaveChangesClick} disabled={loading}>
-                    {loading ? (<><span className="mr-2">Validating...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : ('Save Changes')}
+                  {/* Button now calls handleSaveChangesClick */}
+                  {/* Disable save if initial defaults are still loading */}
+                  <Button type="button" onClick={handleSaveChangesClick} disabled={loading || isLoadingDefaults}>
+                     {loading ? (<><span className="mr-2">Validating...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : isLoadingDefaults ? (<><span className="mr-2">Loading...</span><Loader2 className="h-4 w-4 animate-spin" /></>) : ('Save Changes')}
                   </Button>
                 </div>
              </div>
@@ -722,7 +895,7 @@ export function PatientForm({ patient, onSuccess, onCancel, mode = 'full' }: Pat
                 <Checkbox
                     id="dialog-acknowledgment"
                     checked={dialogAcknowledgment}
-                    onCheckedChange={(checked) => setDialogAcknowledgment(checked === true)}
+                    onCheckedChange={(checked: boolean | 'indeterminate') => setDialogAcknowledgment(checked === true)} // Add explicit type
                     className="mt-1" // Align checkbox better with text
                 />
                 <div className="grid gap-1.5 leading-none">

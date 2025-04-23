@@ -38,6 +38,7 @@ export interface DashboardChartsProps { // <-- EXPORT
   patientAgeData?: ChartDataPoint[];
   appointmentStatusData?: PieChartDataPoint[];
   treatmentPlanStatusData?: PieChartDataPoint[];
+  upcomingWeeklyAppointmentTrendData?: ChartDataPoint[]; // Renamed prop
 }
 
 
@@ -95,7 +96,8 @@ const DashboardCharts: React.FC<DashboardChartsProps> = ({
   // Default values for new props
   patientAgeData = [],
   appointmentStatusData = [],
-  treatmentPlanStatusData = []
+  treatmentPlanStatusData = [],
+  upcomingWeeklyAppointmentTrendData = [] // Renamed prop default
 }) => {
   // Calculate totals for pie chart percentage calculations
   const totalAppointmentTypes = appointmentTypeData.reduce((sum, entry) => sum + entry.value, 0);
@@ -202,26 +204,51 @@ const DashboardCharts: React.FC<DashboardChartsProps> = ({
         </CardContent>
       </Card>
 
-      {/* Daily Traffic Chart - Daily Appointments */}
+      {/* Appointments Trend Chart (Last 7 Days) - Replaces Daily Traffic */}
       <Card>
-            <CardHeader className="pb-2">
-               <div className="flex flex-row items-center justify-between space-y-0">
-                 <p className="text-xs text-muted-foreground">Overall Appointments</p>
-                  {/* Display calculated percentage change */}
-                 <span className={`text-xs flex items-center ${dailyAppointmentsChangePercentage >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    <TrendingUp className="h-3 w-3 mr-1" /> {dailyAppointmentsChangePercentage >= 0 ? '+' : ''}{dailyAppointmentsChangePercentage.toFixed(2)}%
-                 </span>
-               </div>
-               {/* Make title dynamic if needed, e.g., using dailyVisitors prop */}
-          <CardTitle className="text-3xl font-bold">{dailyVisitors ? dailyVisitors.toLocaleString() : '0'} <span className="text-lg font-normal text-muted-foreground">Overall Appointments</span></CardTitle>
+        <CardHeader className="pb-2">
+          <div className="flex flex-row items-center justify-between space-y-0">
+            {/* Updated Title */}
+            <CardTitle className="text-sm font-medium">Appointments Trend</CardTitle> 
+            {/* Optional: Add percentage change if calculated */}
+            {/* <span className={`text-xs flex items-center ${weeklyTrendChangePercentage >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+               <TrendingUp className="h-3 w-3 mr-1" /> {weeklyTrendChangePercentage >= 0 ? '+' : ''}{weeklyTrendChangePercentage.toFixed(2)}%
+            </span> */}
+          </div>
+          {/* Corrected Description */}
+          <p className="text-xs text-muted-foreground">Total scheduled appointments per day over the next 7 days</p> 
         </CardHeader>
         <CardContent className="pb-4 pl-2 pr-4">
           <ResponsiveContainer width="100%" height={150}>
-            <BarChart data={dailyAppointmentData} barGap={8}>
-              <XAxis dataKey="name" axisLine={false} tickLine={false} dy={10} style={{ fontSize: '12px' }} />
-              <YAxis hide={true} />
-              <Tooltip cursor={{fill: 'rgba(79, 70, 229, 0.1)'}} contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px' }} />
-              <Bar dataKey="value" name="Appointments" fill="#4F46E5" radius={[4, 4, 0, 0]} barSize={12} />
+            {/* Changed back to BarChart, using renamed prop */}
+            <BarChart data={upcomingWeeklyAppointmentTrendData}> 
+              <XAxis 
+                dataKey="name" // Should be 'Mon', 'Tue', etc.
+                axisLine={false} 
+                tickLine={false} 
+                dy={10} 
+                style={{ fontSize: '12px' }} 
+              />
+              <YAxis 
+                allowDecimals={false} // Ensure whole numbers for counts
+                axisLine={false} 
+                tickLine={false} 
+                width={30} // Adjust width as needed
+                style={{ fontSize: '12px' }} 
+              />
+              <Tooltip 
+                cursor={{fill: 'rgba(79, 70, 229, 0.1)'}} // Indigo tint on hover
+                contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px' }} 
+                formatter={(value: number) => [`${value} Appointments`, null]} // Tooltip format
+              />
+              {/* Changed back to Bar, added radius and green color */}
+              <Bar 
+                dataKey="value" 
+                name="Appointments" 
+                fill="#22C55E" // Green color
+                radius={[4, 4, 0, 0]} // Rounded top corners
+                barSize={12} 
+              /> 
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -415,6 +442,11 @@ const DashboardCharts: React.FC<DashboardChartsProps> = ({
            </div>
         </CardContent>
       </Card>
+
+      {/* Project Status Chart - Treatment Plan Status */}
+      {/* ... (rest of the component remains the same) ... */}
+
+      {/* REMOVED the separate Weekly Appointment Trend Chart */}
 
     </div>
   );

@@ -31,8 +31,8 @@ export const treatmentSchema = z.object({
     status: z.enum(["pending", "completed", "cancelled"]),
     // Keep cost as string, only validate it's numeric. NO transform.
     cost: z.string().min(1, "Cost is required")
-      .refine(val => !isNaN(parseFloat(val)), "Cost must be a valid number"), 
-    // Handle optional duration: transform empty string to null
+      .refine(val => !isNaN(parseFloat(val)), "Cost must be a valid number"),
+    // Revert to optional string, matching DB interval type. Empty string becomes null.
     estimated_duration: z.string().optional().transform(val => val === "" ? null : val), 
     priority: z.enum(["low", "medium", "high"]),
   plan_id: z.string().min(1)
@@ -62,7 +62,7 @@ export function TreatmentForm({
       description: '',
       status: 'pending',
       cost: '',
-      estimated_duration: '', // Default to empty string, will be transformed to null by schema
+      estimated_duration: '', // Default back to empty string
       priority: 'medium',
       plan_id: planId
     }
@@ -82,7 +82,7 @@ export function TreatmentForm({
       description: '',
       status: 'pending',
       cost: '',
-      estimated_duration: '',
+      estimated_duration: '', // Reset back to empty string
       priority: 'medium',
       plan_id: planId
     });
@@ -172,10 +172,14 @@ export function TreatmentForm({
                 name="estimated_duration"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Estimated Duration</FormLabel>
+                    <FormLabel>Estimated Duration</FormLabel> {/* Reverted Label */}
                     <FormControl>
-                      {/* Use nullish coalescing for value */}
-                      <Input placeholder="e.g., 1 hour, 30 minutes" {...field} value={field.value ?? ''} />
+                      <Input 
+                        type="text" // Revert input type to text
+                        placeholder="e.g., 30 minutes, 1 hour" // Reverted placeholder
+                        {...field} 
+                        value={field.value ?? ''} // Use nullish coalescing
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

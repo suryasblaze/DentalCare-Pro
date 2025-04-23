@@ -1,153 +1,127 @@
-export interface User {
-  id: string;
-  email: string;
-  role: 'admin' | 'dentist' | 'staff';
-  created_at: string;
-  // Add other user fields if needed, e.g., name, avatar_url
-}
+import type { Database } from '@/../supabase_types'; // Ensure path is correct
 
-// Define common reusable types
-export type Gender = "male" | "female" | "other";
-export type MaritalStatus = "single" | "married" | "divorced" | "widowed" | "separated" | "other";
-export type BloodGroup = "A+" | "A-" | "B+" | "B-" | "AB+" | "AB-" | "O+" | "O-" | "unknown";
-// Define a basic Json type (adjust if a more specific structure is known)
+// --- Core Table Row Types ---
+export type Patient = Database['public']['Tables']['patients']['Row'];
+export type Appointment = Database['public']['Tables']['appointments']['Row'] & {
+  // Add potential nested types if needed from joins
+  patients?: Pick<Patient, 'id' | 'first_name' | 'last_name' | 'email' | 'phone'> | null;
+  staff?: Pick<Staff, 'id' | 'first_name' | 'last_name' | 'role' | 'specialization'> | null;
+};
+export type MedicalRecord = Database['public']['Tables']['medical_records']['Row'] & {
+  staff?: Pick<Staff, 'first_name' | 'last_name'> | null;
+  // Add teeth if joined
+  teeth?: Tooth[] | null;
+};
+export type TreatmentPlan = Database['public']['Tables']['treatment_plans']['Row'] & {
+  treatments?: Treatment[] | null; // Assuming treatments are nested
+  // Add teeth if joined
+  teeth?: Tooth[] | null;
+};
+export type Treatment = Database['public']['Tables']['treatments']['Row'];
+export type Staff = Database['public']['Tables']['staff']['Row'];
+export type Tooth = Database['public']['Tables']['teeth']['Row'];
+export type PatientToothCondition = Database['public']['Tables']['patient_tooth_conditions']['Row'];
+export type Absence = Database['public']['Tables']['absences']['Row'] & {
+  staff?: Pick<Staff, 'id' | 'first_name' | 'last_name'> | null;
+};
+export type Notification = Database['public']['Tables']['notifications']['Row'];
+export type Profile = Database['public']['Tables']['profiles']['Row'];
+export type ClinicSetting = Database['public']['Tables']['clinic_settings']['Row'];
+export type AiTreatmentMatrix = Database['public']['Tables']['ai_treatment_planning_matrix']['Row'];
+export type PatientCommunication = Database['public']['Tables']['patient_communications']['Row'];
+
+// --- Insert Types (for creating new records) ---
+export type PatientInsert = Database['public']['Tables']['patients']['Insert'];
+export type AppointmentInsert = Database['public']['Tables']['appointments']['Insert'];
+export type MedicalRecordInsert = Database['public']['Tables']['medical_records']['Insert'];
+export type TreatmentPlanInsert = Database['public']['Tables']['treatment_plans']['Insert'];
+export type TreatmentInsert = Database['public']['Tables']['treatments']['Insert'];
+export type StaffInsert = Database['public']['Tables']['staff']['Insert'];
+export type PatientToothConditionInsert = Database['public']['Tables']['patient_tooth_conditions']['Insert'];
+export type AbsenceInsert = Database['public']['Tables']['absences']['Insert'];
+export type NotificationInsert = Database['public']['Tables']['notifications']['Insert'];
+export type ProfileInsert = Database['public']['Tables']['profiles']['Insert'];
+export type ClinicSettingInsert = Database['public']['Tables']['clinic_settings']['Insert'];
+export type AiTreatmentMatrixInsert = Database['public']['Tables']['ai_treatment_planning_matrix']['Insert'];
+export type PatientCommunicationInsert = Database['public']['Tables']['patient_communications']['Insert'];
+
+// --- Update Types (for updating existing records) ---
+export type PatientUpdate = Database['public']['Tables']['patients']['Update'];
+export type AppointmentUpdate = Database['public']['Tables']['appointments']['Update'];
+export type MedicalRecordUpdate = Database['public']['Tables']['medical_records']['Update'];
+export type TreatmentPlanUpdate = Database['public']['Tables']['treatment_plans']['Update'];
+export type TreatmentUpdate = Database['public']['Tables']['treatments']['Update'];
+export type StaffUpdate = Database['public']['Tables']['staff']['Update'];
+export type PatientToothConditionUpdate = Database['public']['Tables']['patient_tooth_conditions']['Update'];
+export type AbsenceUpdate = Database['public']['Tables']['absences']['Update'];
+export type NotificationUpdate = Database['public']['Tables']['notifications']['Update'];
+export type ProfileUpdate = Database['public']['Tables']['profiles']['Update'];
+export type ClinicSettingUpdate = Database['public']['Tables']['clinic_settings']['Update'];
+export type AiTreatmentMatrixUpdate = Database['public']['Tables']['ai_treatment_planning_matrix']['Update'];
+export type PatientCommunicationUpdate = Database['public']['Tables']['patient_communications']['Update'];
+
+
+// --- Enum Types (Extract enums if defined in your DB types) ---
+// Example: Assuming Gender is defined in PatientRow
+export type Gender = Database['public']['Tables']['patients']['Row']['gender'];
+export type MaritalStatus = Database['public']['Tables']['patients']['Row']['marital_status'];
+export type BloodGroup = Database['public']['Tables']['patients']['Row']['blood_group'];
+export type AppointmentStatus = Database['public']['Tables']['appointments']['Row']['status'];
+export type AppointmentType = Database['public']['Tables']['appointments']['Row']['type'];
+export type MedicalRecordType = Database['public']['Tables']['medical_records']['Row']['record_type'];
+export type TreatmentStatus = Database['public']['Tables']['treatment_plans']['Row']['status'];
+export type StaffRole = Database['public']['Tables']['staff']['Row']['role'];
+// Removed NotificationType and NotificationStatus as columns don't exist on the table
+export type CommunicationType = Database['public']['Tables']['patient_communications']['Row']['type'];
+export type CommunicationChannel = Database['public']['Tables']['patient_communications']['Row']['channel'];
+export type CommunicationStatus = Database['public']['Tables']['patient_communications']['Row']['status'];
+export type AbsenceReason = Database['public']['Tables']['absences']['Row']['reason'];
+
+
+// --- JSON Types ---
+// Define a generic Json type or specific structures if known
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
-
-export interface Patient {
-  id: string;
-  user_id?: string | null; // Link to the user who created/owns the record
-  first_name: string;
-  last_name: string;
-  middle_name?: string | null;
-  email?: string | null; // Optional based on usage
-  phone: string;
-  date_of_birth?: string | null; // Optional/nullable
-  gender?: Gender | null;
-  age?: number | null; // Often calculated, but might be stored
-  marital_status?: MaritalStatus | null;
-  occupation?: string | null;
-  address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  postal_code?: string | null;
-  country?: string | null;
-  emergency_contact_name?: string | null;
-  emergency_contact_phone?: string | null;
-  emergency_contact_relationship?: string | null;
-  blood_group?: BloodGroup | null;
-  height?: number | null; // Store as number if possible
-  weight?: number | null; // Store as number if possible
-  allergies?: string[] | null; // Store as array
-  medical_conditions?: string[] | null; // Store as array
-  medical_history?: string | null; // General medical history notes (if used) - Consider deprecating if detailed_medical_info covers everything
-  detailed_medical_info?: Json | null; // Added for structured medical details (implants, health changes etc.)
-  dental_history?: Json | null; // Added for structured dental history
-  family_medical_history?: Json | null; // Added for structured family history
-  lifestyle_habits?: Json | null; // Added for structured lifestyle habits
-  current_medications?: Json | null; // Changed to expect structured JSON array
-  previous_surgeries?: Json | null; // Changed to expect structured JSON array
-  notes?: string | null; // General notes
-  consent_given?: boolean | null;
-  consent_date?: string | null; // Date when consent was given
-  patient_signature_consent?: string | null; // Typed name for consent
-  consent_notes?: string | null; // Add missing consent_notes field
-  profile_photo_url?: string | null; // URL to stored photo
-  signature_url?: string | null; // URL to stored signature (e.g., from signature pad)
-  documents?: Json | null; // Changed back to Json | null to match API expectation
-  // audit_trail?: Json | null; // For tracking changes, if implemented
-  created_at: string;
-  updated_at?: string; // Track last update time
+// Specific structure for medication if known
+export interface Medication {
+  name: string;
+  dosage?: string;
+  frequency?: string;
 }
 
-// Define PatientDocument interface here as well for consistency
+// Specific structure for surgery if known
+export interface Surgery {
+  type: string;
+  date?: string; // Consider using string for flexibility or Date if parsed
+  notes?: string;
+}
+
+// Specific structure for documents array in Patient table
 export interface PatientDocument {
   path: string;
   url: string;
   name: string;
-  type: string;
+  type: string; // e.g., 'profile_photo', 'signature', 'id_document', 'xray', 'other'
   size?: number;
-  uploaded_at: string;
+  uploaded_at: string; // ISO date string
 }
 
-// Updated Appointment interface to match AppointmentRow from database.types.ts
-// and include related data often fetched by the API
-export interface Appointment {
-  id: string;
-  patient_id: string | null;
-  staff_id: string | null; // Renamed from dentist_id to match DB
-  start_time: string;
-  end_time: string;
-  title: string; // Reason for visit
-  notes?: string | null;
-  // Allow known statuses plus any string from DB
-  status: 'scheduled' | 'completed' | 'cancelled' | 'confirmed' | string;
-  type: string;
-  color?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  version?: string | null;
-
-  // Optional related data often included in API responses
-  patients?: {
-    id: string;
-    first_name: string | null;
-    last_name: string | null;
-    email?: string | null;
-    phone?: string | null;
-  } | null;
-  staff?: {
-    id: string;
-    first_name: string | null;
-    last_name: string | null;
-    role?: string | null;
-    specialization?: string | null;
-  } | null;
+// Specific structure for working hours
+export interface WorkingHour {
+    day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+    start: string; // HH:mm format
+    end: string;   // HH:mm format
+    is_open?: boolean; // Optional flag to mark day as closed
 }
 
+// --- Utility Types ---
+// Example: Make certain fields optional
+export type Optional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
-export interface TreatmentPlan {
-  title: string;
-  description: string;
-  suggestedTreatments: {
-    type: string;
-    description: string;
-    estimatedCost: number;
-    priority: 'high' | 'medium' | 'low';
-    risks: string[];
-    benefits: string[];
-  }[];
-  precautions: string[];
-  expectedOutcome: string;
-  alternativeTreatments: string[];
-  consentRequired: boolean;
-  estimatedDuration: string;
-}
-
-// Define Medical Record type based on usage and potential DB structure
-export interface MedicalRecord {
-  id: string;
-  patient_id: string | null;
-  record_date: string; // ISO string format recommended
-  record_type: string; // e.g., "consultation", "diagnosis", "treatment", "filling", "extraction", "root_canal", "crown" etc.
-  description: string; // Can be plain text or JSON string for structured notes
-  tooth_ids?: number[] | null; // Array of affected tooth FDI numbers
-  attachments?: Json | null; // For storing related files, component info, medicine details etc.
-  created_at?: string | null;
-  created_by?: string | null; // Staff ID (UUID)
-
-  // Optional related data often included in API responses
-  staff?: {
-    id: string;
-    first_name: string | null;
-    last_name: string | null;
-    role?: string | null;
-  } | null;
-  // Add other potential fields like cost, status, etc. if needed
-  cost?: number | null;
-  status?: string | null; // e.g., 'pending', 'completed', 'in_progress'
-  clinic_name?: string | null; // Added based on design
-  reservation_id?: string | null; // Added based on design
-  notes_before?: string | null; // Added for structured notes
-  notes_after?: string | null; // Added for structured notes
+// Example: A type for API responses that might include pagination
+export interface PaginatedResponse<T> {
+  data: T[];
+  count: number | null;
+  totalPages?: number;
+  currentPage?: number;
 }

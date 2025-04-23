@@ -2,6 +2,10 @@ import { api } from '@/lib/api';
 import { z } from 'zod';
 import { treatmentPlanSchema } from '../components/TreatmentPlanForm';
 import { treatmentSchema } from '../components/TreatmentForm';
+import type { Database } from 'supabase_types'; // Try importing directly
+
+// Define TreatmentRow based on Database types
+type TreatmentRow = Database['public']['Tables']['treatments']['Row'];
 
 /**
  * Service for treatment plan related operations
@@ -80,21 +84,56 @@ export const treatmentService = {
   },
 
   /**
-   * Update a treatment
+   * Update a treatment, including setting actual start/end times based on status change.
    */
   async updateTreatment(id: string, treatmentData: Partial<z.infer<typeof treatmentSchema>>) {
-    // Convert cost to number if it exists in the partial update
-    const treatmentUpdateWithNumericCost = { ...treatmentData };
-    if (treatmentUpdateWithNumericCost.cost !== undefined && treatmentUpdateWithNumericCost.cost !== null) {
-       const costAsNumber = parseFloat(treatmentUpdateWithNumericCost.cost);
-       // Assign the string representation of the number or keep undefined if conversion fails/original was nullish
-       treatmentUpdateWithNumericCost.cost = isNaN(costAsNumber) ? undefined : costAsNumber.toString();
-    } else {
-       // If cost is not present or null/undefined in the update, remove it
-       delete treatmentUpdateWithNumericCost.cost;
+    // Prepare the update object
+    const updatePayload: Partial<TreatmentRow> = { ...treatmentData }; // Use TreatmentRow type if available, else Partial<any>
+
+    // Convert cost if present
+    if (updatePayload.cost !== undefined && updatePayload.cost !== null) {
+      const costAsNumber = parseFloat(String(updatePayload.cost)); // Ensure it's string before parsing
+      // Update payload with numeric cost if valid, otherwise remove/handle error
+      if (!isNaN(costAsNumber)) {
+        updatePayload.cost = costAsNumber; 
+      } else {
+        // Decide how to handle invalid cost during update: remove or keep original? Removing for now.
+        delete updatePayload.cost; 
+        console.warn(`Invalid cost format during update for treatment ${id}: ${updatePayload.cost}`);
+      }
     }
-    // Cast to 'any' as a temporary workaround if complex type mismatches occur
-    return api.patients.updateTreatment(id, treatmentUpdateWithNumericCost as any); 
+
+    // --- Add logic for actual start/end times ---
+    const newStatus = treatmentData.status;
+    const now = new Date().toISOString(); // Get current time in ISO format
+
+    if (newStatus === 'completed' || newStatus === 'cancelled') {
+      // If marking as completed or cancelled, set the end time
+      updatePayload.actual_end_time = now;
+      // Optionally clear start time if reopening? Depends on desired logic.
+      // If status changes FROM in_progress TO completed/cancelled, set end time.
+      // We might need the *previous* status to be more precise, but this covers the main cases.
+    } else if (newStatus === 'pending') {
+       // If reopening (setting back to pending), clear both start and end times
+       updatePayload.actual_start_time = null;
+       updatePayload.actual_end_time = null;
+    } else if (newStatus === 'in_progress') {
+       // If starting the treatment, set start time and ensure end time is null
+       updatePayload.actual_start_time = now;
+       updatePayload.actual_end_time = null; 
+    }
+    // Note: If status is unchanged or changes between other states, times are not modified here.
+    // For now, we assume start time is tied to the plan's start or managed elsewhere.
+    // Let's add a placeholder: if status becomes 'in_progress' (if that's a valid status for individual items), set start time.
+    // Assuming 'pending' is the initial state and 'completed'/'cancelled' are end states.
+    // Let's refine: If the status is being set *to* 'completed' or 'cancelled', set end time.
+    // If status is set *to* 'pending' (reopened), clear times.
+
+    console.log(`Updating treatment ${id} with payload:`, updatePayload); // Log payload
+
+    // Pass the potentially modified payload (with timestamps and numeric cost) to the API layer
+    // Cast needed if updatePayload doesn't perfectly match the expected API type
+    return api.patients.updateTreatment(id, updatePayload as any); 
   },
 
   /**

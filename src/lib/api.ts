@@ -1,8 +1,11 @@
 import { supabase } from './supabase';
-import type { Database, Json } from '@/../supabase_types'; // Corrected import path to root supabase_types.ts
-// Removed unused TreatmentPlan import
+import type { Database } from 'supabase_types'; // Use non-relative path based on baseUrl
+// Removed unused ToothConditionsMap import
+// Removed unused TreatmentPlan import and Json import
 import { executeTransaction, TransactionResult } from './utils/db-transaction';
 import { globalCache } from './utils/cache-manager';
+// Import the type needed for the return value
+import { PatientDentalHistoryTooth } from '@/features/patients/components/PatientDetailsView'; 
 
 // Define specific types based on generated types from database.types.ts
 type PatientRow = Database['public']['Tables']['patients']['Row'];
@@ -20,17 +23,16 @@ type StaffRow = Database['public']['Tables']['staff']['Row'];
 // Add type for the new table
 type PatientToothConditionRow = Database['public']['Tables']['patient_tooth_conditions']['Row'];
 type PatientToothConditionInsert = Database['public']['Tables']['patient_tooth_conditions']['Insert'];
-type PatientToothConditionUpdate = Database['public']['Tables']['patient_tooth_conditions']['Update'];
-
+// Removed unused PatientToothConditionUpdate
 
 // Re-adding placeholder types as they are referenced in generateTreatmentPlan
 type PatientAssessmentRow = any;
 type DiagnosticImageRow = any;
-// Add missing placeholders based on errors
-type PatientAssessmentInsert = any;
-type DiagnosticImageInsert = any;
-type FinancialPlanRow = any;
-type FinancialPlanInsert = any;
+// Removed unused placeholders based on errors
+// type PatientAssessmentInsert = any;
+// type DiagnosticImageInsert = any;
+// type FinancialPlanRow = any;
+// type FinancialPlanInsert = any;
 
 
 /**
@@ -837,8 +839,141 @@ export const api = {
       globalCache.invalidate('medical_records:all');
     },
 
-    // --- NEW: Patient Tooth Conditions ---
+    // --- Patient Dental History Teeth (Simple list for PatientDetailsView) ---
+    async getPatientDentalHistoryTeeth(patientId: string): Promise<PatientDentalHistoryTooth[]> {
+      if (!patientId) {
+        console.warn("getPatientDentalHistoryTeeth called without patientId");
+        return []; // Return empty array
+      }
+      const cacheKey = `patient_dental_history_teeth:${patientId}`; // Use a specific cache key
+      const cachedData = globalCache.get<PatientDentalHistoryTooth[]>(cacheKey);
+      if (cachedData) {
+        return cachedData;
+      }
+
+      const { data, error } = await supabase
+        .from('patient_dental_history_teeth' as any) // <<< Use type assertion
+        .select('tooth_id, conditions') // Select both tooth_id and conditions
+        .eq('patient_id', patientId);
+
+      if (error) {
+        console.error(`Error fetching dental history teeth for patient ${patientId}:`, error);
+        throw error;
+      }
+
+      // Data should already be in the format [{ tooth_id: number }, ...]
+      const result = data || [];
+      globalCache.set(cacheKey, result, 60 * 1000); // Cache for 1 minute
+      console.log(`Fetched dental history teeth list for patient ${patientId}:`, JSON.stringify(result));
+      return result;
+    },
+
+    // --- Save Patient Dental History Teeth (Used by Dental History Form, keeps conditions) ---
+    // Note: This function is kept separate as it's used by the form which needs conditions.
+    // It now uses ToothConditionsMap type explicitly.
+    async savePatientDentalHistoryTeethWithConditions(patientId: string, teethMap: import('@/features/treatment-plans/components/ToothSelector').ToothConditionsMap) {
+       if (!patientId) {
+         throw new Error("Patient ID is required to save dental history teeth with conditions.");
+       }
+
+       console.log(`Saving dental history teeth map (with conditions) for patient ${patientId}:`, JSON.stringify(teethMap));
+
+       // 1. Get IDs of teeth currently in the map
+       const teethIdsInMap = Object.keys(teethMap).map(Number);
+
+       // 2. Delete entries for this patient that are NOT in the current map
+       const deleteQuery = supabase
+         .from('patient_dental_history_teeth' as any) // <<< Use type assertion
+         .delete()
+         .eq('patient_id', patientId);
+
+       if (teethIdsInMap.length > 0) {
+         deleteQuery.not('tooth_id', 'in', `(${teethIdsInMap.join(',')})`);
+       }
+       // Else (if teethIdsInMap is empty), delete all rows for the patient
+
+       const { error: deleteError } = await deleteQuery;
+       if (deleteError) {
+         console.error(`Error deleting old dental history teeth (with conditions) for patient ${patientId}:`, deleteError);
+         throw deleteError;
+       }
+       console.log(`Deleted stale dental history teeth (with conditions) for patient ${patientId}.`);
+
+       // 3. Prepare data for upsert (only if there are teeth in the map)
+       if (teethIdsInMap.length > 0) {
+         const upsertData = teethIdsInMap.map(id => ({
+           patient_id: patientId,
+           tooth_id: id,
+           // Ensure conditions is always an array, default to ['healthy']
+           conditions: (teethMap[id]?.conditions && Array.isArray(teethMap[id].conditions)) ? teethMap[id].conditions : ['healthy'],
+         }));
+
+         // 4. Upsert the data
+         const { error: upsertError } = await supabase
+           .from('patient_dental_history_teeth' as any) // <<< Use type assertion
+           .upsert(upsertData, { onConflict: 'patient_id, tooth_id' }); // Use constraint columns
+
+         if (upsertError) {
+           console.error(`Error upserting dental history teeth (with conditions) for patient ${patientId}:`, upsertError);
+           throw upsertError;
+         }
+         console.log(`Upserted dental history teeth (with conditions) for patient ${patientId}.`);
+       } else {
+          console.log(`No dental history teeth in map for patient ${patientId}, only performed delete (with conditions).`);
+       }
+
+       // Invalidate the simple list cache on save
+       globalCache.invalidate(`patient_dental_history_teeth:${patientId}`);
+       return { success: true };
+    },
+    // --- END Save Patient Dental History Teeth (With Conditions) ---
+
+    // --- Get Patient Dental History Teeth Map (For Form Editing) ---
+    async getPatientDentalHistoryTeethMap(patientId: string): Promise<import('@/features/treatment-plans/components/ToothSelector').ToothConditionsMap> {
+      if (!patientId) {
+        console.warn("getPatientDentalHistoryTeethMap called without patientId");
+        return {}; // Return empty map
+      }
+      // No caching for this specific map fetch for now, to ensure form gets latest
+      // const cacheKey = `patient_dental_history_teeth_map:${patientId}`;
+      // const cachedData = globalCache.get<import('@/features/treatment-plans/components/ToothSelector').ToothConditionsMap>(cacheKey);
+      // if (cachedData) {
+      //   return cachedData;
+      // }
+
+      const { data, error } = await supabase
+        .from('patient_dental_history_teeth' as any) // <<< Use type assertion
+        .select('tooth_id, conditions') // Select both fields
+        .eq('patient_id', patientId);
+
+      if (error) {
+        console.error(`Error fetching dental history teeth map for patient ${patientId}:`, error);
+        throw error;
+      }
+
+      // Convert the array of rows into the ToothConditionsMap format
+      const teethMap: import('@/features/treatment-plans/components/ToothSelector').ToothConditionsMap = {};
+      if (data) {
+        data.forEach(row => {
+          // Ensure conditions is an array, default to ['healthy'] if null/invalid
+          const conditions = Array.isArray(row.conditions) && row.conditions.length > 0 ? row.conditions : ['healthy'];
+          teethMap[row.tooth_id] = { conditions };
+        });
+      }
+      console.log(`Fetched and formatted dental history teeth map for patient ${patientId}:`, JSON.stringify(teethMap));
+      // globalCache.set(cacheKey, teethMap, 60 * 1000); // Cache if needed later
+      return teethMap;
+    },
+    // --- END Get Patient Dental History Teeth Map ---
+
+
+    // --- Patient Tooth Conditions (Detailed) ---
+    // Fetches detailed conditions (used by Treatment Plan etc.)
     async getPatientToothConditions(patientId: string): Promise<PatientToothConditionRow[]> {
+      if (!patientId) {
+        console.warn("getPatientToothConditions called without patientId");
+        return []; // Return empty if no patientId provided
+      }
       const cacheKey = `patient_tooth_conditions:${patientId}`;
       const cachedData = globalCache.get<PatientToothConditionRow[]>(cacheKey);
       if (cachedData) {
@@ -855,43 +990,88 @@ export const api = {
         throw error;
       }
 
-      globalCache.set(cacheKey, data || [], 60 * 1000); // Cache for 1 minute
-      return data || [];
+      // Explicitly cast data via unknown first to satisfy stricter type checking
+      const typedData = (data || []) as unknown as PatientToothConditionRow[];
+      globalCache.set(cacheKey, typedData, 60 * 1000); // Cache for 1 minute
+      return typedData;
     },
 
-    async savePatientToothConditions(patientId: string, teethData: Record<number, { id: number; conditions: string[] }>) {
-      // Prepare data for upsert
-      const upsertData: PatientToothConditionInsert[] = Object.values(teethData).map(tooth => ({
-        patient_id: patientId,
-        tooth_id: tooth.id,
-        conditions: tooth.conditions,
-        // last_updated_at is handled by the trigger
-      }));
+      // Saves detailed conditions (used by Treatment Plan etc.) using a delete-then-insert approach within a transaction.
+      async savePatientToothConditionsDetailed(patientId: string, conditionsToSave: PatientToothConditionInsert[]) {
+        if (!patientId) { // Removed Array.isArray check as empty array is valid input now
+          throw new Error("Patient ID is required for savePatientToothConditionsDetailed.");
+        }
+        if (!Array.isArray(conditionsToSave)) {
+           throw new Error("Invalid conditions input: must be an array.");
+        }
 
-      if (upsertData.length === 0) {
-        console.log("No tooth conditions to save.");
-        return { success: true, data: [] }; // Nothing to do
-      }
+        console.log(`Executing savePatientToothConditionsDetailed for patient ${patientId} with conditions:`, conditionsToSave);
 
-      // Perform upsert operation
-      // 'patient_id, tooth_id' is the unique constraint name from the migration
-      const { data, error } = await supabase
-        .from('patient_tooth_conditions')
-        .upsert(upsertData, { onConflict: 'patient_id, tooth_id' })
-        .select(); // Select the upserted rows
+        // Define the operations for the transaction
+        const operations = [
+          // Operation 1: Delete existing conditions for the patient
+          async () => {
+            console.log(`Transaction Step 1: Deleting existing conditions for patient ${patientId}`);
+            const { error: deleteError } = await supabase
+              .from('patient_tooth_conditions')
+              .delete()
+              .eq('patient_id', patientId);
 
-      if (error) {
-        console.error(`Error saving tooth conditions for patient ${patientId}:`, error);
-        throw error;
-      }
+            if (deleteError) {
+              console.error(`Transaction Step 1 FAILED: Error deleting conditions for patient ${patientId}:`, deleteError);
+              throw deleteError; // Abort transaction
+            }
+            console.log(`Transaction Step 1 SUCCESS: Deleted existing conditions for patient ${patientId}`);
+            // Delete doesn't typically return data, so we return void or true
+            return true;
+          },
 
-      // Invalidate cache
-      globalCache.invalidate(`patient_tooth_conditions:${patientId}`);
+          // Operation 2: Insert new conditions (only if there are any to insert)
+          async () => {
+            if (conditionsToSave.length === 0) {
+              console.log(`Transaction Step 2: No new conditions to insert for patient ${patientId}. Skipping insert.`);
+              return []; // Return empty array if nothing to insert
+            }
 
-      return { success: true, data: data };
-    },
-    // --- END NEW: Patient Tooth Conditions ---
+            // Ensure patient_id is correctly set for all items
+            const insertData = conditionsToSave.map(item => ({
+              ...item,
+              patient_id: patientId,
+            }));
 
+            console.log(`Transaction Step 2: Inserting ${insertData.length} new conditions for patient ${patientId}:`, insertData);
+            const { data: insertDataResult, error: insertError } = await supabase
+              .from('patient_tooth_conditions')
+              .insert(insertData)
+              .select(); // Select the inserted rows
+
+            if (insertError) {
+              console.error(`Transaction Step 2 FAILED: Error inserting conditions for patient ${patientId}:`, insertError);
+              throw insertError; // Abort transaction
+            }
+            console.log(`Transaction Step 2 SUCCESS: Inserted conditions for patient ${patientId}. Result:`, insertDataResult);
+            // Return the inserted data (or empty array if null)
+            return insertDataResult || [];
+          }
+        ];
+
+        // Execute the transaction
+        // The result type should reflect the return types of the operations: [boolean, PatientToothConditionRow[]]
+        const transactionResult = await executeTransaction<[boolean, PatientToothConditionRow[]]>(operations);
+
+        if (transactionResult.success) {
+          console.log(`Transaction successful for patient ${patientId}.`);
+          // Invalidate cache on success
+          globalCache.invalidate(`patient_tooth_conditions:${patientId}`);
+          // Return the inserted data from the second operation's result
+          return { success: true, data: transactionResult.data ? transactionResult.data[1] : [] };
+        } else {
+          console.error(`Transaction failed for patient ${patientId}:`, transactionResult.error);
+          // Throw the error from the transaction result
+          throw transactionResult.error || new Error("Unknown transaction error saving tooth conditions.");
+        }
+      },
+    // --- END Patient Tooth Conditions (Detailed) ---
 
     // Update createTreatmentPlan to handle toothIds
     async createTreatmentPlan(plan: TreatmentPlanInsert, toothIds: number[]) {
@@ -925,10 +1105,10 @@ export const api = {
 
         if (teethError) {
           console.error("Error linking teeth to treatment plan:", teethError);
-          // Decide on error handling: Maybe delete the plan? Or just log and continue?
-          // For now, let's throw the error, indicating partial failure.
-          // Consider implementing a transaction (e.g., via RPC) later for atomicity.
-          throw teethError; 
+          // Log the error and re-throw
+          throw teethError;
+        } else {
+          console.log('Successfully inserted into treatment_plan_teeth for plan ID:', newPlanId);
         }
       }
 
@@ -1295,23 +1475,11 @@ export const api = {
 
       const { data, error } = await supabase
         .from('appointments')
-        // Corrected select based on generated types and relationships
+        // Select appointment details AND related patient/staff info
         .select(`
           *,
-          patients (
-            id,
-            first_name,
-            last_name,
-            email,
-            phone
-          ),
-          staff (
-            id,
-            first_name,
-            last_name,
-            role,
-            specialization
-          )
+          patients (id, first_name, last_name, email, phone),
+          staff (id, first_name, last_name, role) 
         `)
         .order('start_time', { ascending: true });
 
@@ -1330,24 +1498,12 @@ export const api = {
 
       const { data, error } = await supabase
         .from('appointments')
-       // Corrected select based on generated types and relationships
+       // Fetch related patient and staff details along with appointment data
        .select(`
-          *,
-          patients (
-            id,
-            first_name,
-            last_name,
-            email,
-            phone
-          ),
-          staff (
-            id,
-            first_name,
-            last_name,
-            role,
-            specialization
-          )
-         `)
+         *,
+         patients (id, first_name, last_name, email, phone),
+         staff (id, first_name, last_name, role, specialization)
+       `)
        // Apply filters *after* select again - Fetch appointments STARTING within the range
        .gte('start_time', startDate)
        .lte('start_time', endDate) // Filter by start_time being within the range

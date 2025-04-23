@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 // Import subHours correctly and Database type
 import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, parseISO, parse, isValid, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, isToday, startOfDay, endOfDay, subHours, isBefore, formatISO } from 'date-fns'; // Added isBefore, formatISO
-import { Plus, ChevronLeft, ChevronRight, User, Phone, Clock, Tag, Armchair, Ban } from 'lucide-react'; // Added Clock, Tag, Armchair, Ban
+import { Plus, ChevronLeft, ChevronRight, User, Phone, Clock, Tag, Armchair, Ban, Briefcase } from 'lucide-react'; // Added Clock, Tag, Armchair, Ban, Briefcase
 import { api, subscribeToChanges } from '@/lib/api'; // Import subscribeToChanges
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -1204,6 +1204,19 @@ export function Appointments() {
                   </div>
                 </div>
               </div>
+              {/* Doctor Details Section */}
+              {selectedAppointment.staff && (
+                <div className="flex items-center space-x-4 p-4 bg-muted rounded-lg">
+                  <Briefcase className="h-5 w-5 text-muted-foreground" />
+                  <div>
+                    <p className="font-medium">Dr. {selectedAppointment.staff.first_name} {selectedAppointment.staff.last_name}</p>
+                    {selectedAppointment.staff.specialization && (
+                      <p className="text-sm text-muted-foreground">{selectedAppointment.staff.specialization}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* End Doctor Details Section */}
               <div className="space-y-2">
                 <Label>Status</Label>
                 {/* Treat 'confirmed' like 'scheduled' for display purposes */}

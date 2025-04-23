@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useMemo } from 'react'; // Added useMemo
 import { Button } from '@/components/ui/button';
 // No longer using Badge for tooltip content
 // import { Badge } from '@/components/ui/badge';
@@ -83,7 +83,7 @@ const conditionColors: Record<ToothCondition | 'selected', string> = {
 const generateInitialTeeth = (initialState?: InitialToothState): Record<number, ToothData> => {
     const teeth: Record<number, ToothData> = {};
     const defaultConditions: ToothCondition[] = ['healthy']; // Default to healthy
-    const defaultSelected = false;
+    const defaultSelected = false; // Default selection state
 
     // Helper to get initial conditions or default
     const getInitialConditions = (id: number): ToothCondition[] => {
@@ -92,44 +92,25 @@ const generateInitialTeeth = (initialState?: InitialToothState): Record<number, 
         return Array.isArray(conditions) && conditions.length > 0 ? conditions : defaultConditions;
     };
 
-    // Permanent teeth (11-48)
-    for (let i = 11; i <= 18; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: false, isSelected: initialState?.[i]?.isSelected ?? defaultSelected };
-    for (let i = 21; i <= 28; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: false, isSelected: initialState?.[i]?.isSelected ?? defaultSelected };
-    for (let i = 31; i <= 38; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: false, isSelected: initialState?.[i]?.isSelected ?? defaultSelected };
-    for (let i = 41; i <= 48; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: false, isSelected: initialState?.[i]?.isSelected ?? defaultSelected };
+    // Helper function to determine initial selection state from initialState prop
+    const getInitialSelected = (id: number): boolean => {
+        // Respect the isSelected flag from the prop if it's explicitly true
+        return initialState?.[id]?.isSelected === true;
+    };
 
-    // Primary teeth (51-85)
-    for (let i = 51; i <= 55; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: true, isSelected: initialState?.[i]?.isSelected ?? defaultSelected };
-    for (let i = 61; i <= 65; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: true, isSelected: initialState?.[i]?.isSelected ?? defaultSelected };
-    for (let i = 71; i <= 75; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: true, isSelected: initialState?.[i]?.isSelected ?? defaultSelected };
-    for (let i = 81; i <= 85; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: true, isSelected: initialState?.[i]?.isSelected ?? defaultSelected };
+    // Permanent teeth (11-48) - Initialize respecting initialState.isSelected
+    for (let i = 11; i <= 18; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: false, isSelected: getInitialSelected(i) };
+    for (let i = 21; i <= 28; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: false, isSelected: getInitialSelected(i) };
+    for (let i = 31; i <= 38; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: false, isSelected: getInitialSelected(i) };
+    for (let i = 41; i <= 48; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: false, isSelected: getInitialSelected(i) };
 
-    // Apply specific conditions/selection from initialState
-    if (initialState) {
-        for (const toothIdStr in initialState) {
-            const toothId = parseInt(toothIdStr, 10);
-            const state = initialState[toothId];
-            if (!isNaN(toothId) && state) {
-                // Ensure tooth exists before updating
-                if (!teeth[toothId]) {
-                    const isPrimary = (toothId >= 51 && toothId <= 55) || (toothId >= 61 && toothId <= 65) || (toothId >= 71 && toothId <= 75) || (toothId >= 81 && toothId <= 85);
-                    teeth[toothId] = { id: toothId, conditions: defaultConditions, isPrimary: isPrimary, isSelected: defaultSelected };
-                }
-                // Update conditions if provided and valid
-                if (Array.isArray(state.conditions) && state.conditions.length > 0) {
-                    teeth[toothId].conditions = state.conditions;
-                } else if (state.conditions !== undefined) {
-                    // Handle case where initialState might provide empty array or non-array
-                    console.warn(`DentalChart: Invalid 'conditions' in initialState for tooth ${toothId}. Using default.`);
-                    teeth[toothId].conditions = defaultConditions;
-                }
-                // Update selection if provided
-                if (state.isSelected !== undefined) {
-                    teeth[toothId].isSelected = state.isSelected;
-                }
-            }
-        }
-    }
+    // Primary teeth (51-85) - Initialize respecting initialState.isSelected
+    for (let i = 51; i <= 55; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: true, isSelected: getInitialSelected(i) };
+    for (let i = 61; i <= 65; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: true, isSelected: getInitialSelected(i) };
+    for (let i = 71; i <= 75; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: true, isSelected: getInitialSelected(i) };
+    for (let i = 81; i <= 85; i++) teeth[i] = { id: i, conditions: getInitialConditions(i), isPrimary: true, isSelected: getInitialSelected(i) };
+
+    // This ensures all teeth are initialized, respecting the isSelected flag from the prop.
     return teeth;
 };
 
@@ -149,8 +130,15 @@ const availableConditions: { label: string; value: ToothCondition }[] = [
 
 // Define the component using forwardRef, accepting props and ref
 const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialState, onToothSelect, readOnly = false }, ref) => {
-  const [teethData, setTeethData] = useState<Record<number, ToothData>>(() => generateInitialTeeth(initialState));
-  const [selectedConditions, setSelectedConditions] = useState<ToothCondition[]>([]);
+  console.log("DentalChart: Render triggered. Initial prop value:", JSON.stringify(initialState)); // <<< Log prop on render
+
+  // Initialize with empty state, rely on useEffect to populate based on prop
+  const [teethData, setTeethData] = useState<Record<number, ToothData>>({});
+  console.log("DentalChart: Initializing state with {}. Current teethData:", JSON.stringify(teethData)); // <<< Log initial empty state
+
+  // REMOVED selectedConditions state - conditions applied immediately
+  // const [selectedConditions, setSelectedConditions] = useState<ToothCondition[]>([]);
+  const [activeCondition, setActiveCondition] = useState<ToothCondition | null>(null); // State to track the selected condition button
   const [hoveredToothId, setHoveredToothId] = useState<number | null>(null); // State for hover
   const [processedSelectedTeeth, setProcessedSelectedTeeth] = useState<Set<number>>(new Set()); // Track teeth selected after condition applied
   // State for CLICK-based tooltip (persists on click)
@@ -165,12 +153,13 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
   const [tooltipTriggerPosition, setTooltipTriggerPosition] = useState<{ top: number; left: number; } | null>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null); // Ref for the SVG container
 
-  // Update internal state if initialState prop changes (run only once on mount for now)
+  // Update internal state if initialState prop changes
   useEffect(() => {
-     console.log("DentalChart: useEffect for initialState triggered. Prop value:", initialState); // Add log here
+     console.log("DentalChart: useEffect for initialState triggered. Prop value:", JSON.stringify(initialState)); // <<< Log effect trigger
      const initialTeeth = generateInitialTeeth(initialState);
-     console.log("DentalChart: Regenerated initialTeeth based on prop:", initialTeeth); // Add log here
+     console.log("DentalChart: Regenerated initialTeeth based on prop:", JSON.stringify(initialTeeth)); // <<< Log regenerated state
      setTeethData(initialTeeth);
+     console.log("DentalChart: setTeethData called with regenerated state."); // <<< Log state update call
      // Extract selected IDs from the potentially updated initialState
      const currentSelectedIds = Object.entries(initialTeeth)
         .filter(([, data]) => data.isSelected)
@@ -297,13 +286,18 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
 
   }, [readOnly, onToothSelect, teethData, hoveredToothId]); // Added hoveredToothId dependency
 
-  // Applies the currently selected conditions to all selected teeth
-  const applySelectedConditions = useCallback(() => {
-    if (readOnly || selectedConditions.length === 0) return;
+  // REMOVED applySelectedConditions function - logic moved to handleConditionButtonClick
+
+  // Handles applying a specific condition immediately when its button is clicked AND sets the active condition state
+  const handleConditionButtonClick = useCallback((conditionToApply: ToothCondition) => {
+    if (readOnly) return;
+
+    // Set the clicked condition as the active one for styling
+    setActiveCondition(conditionToApply);
 
     const newlyProcessedIds = new Set<number>();
-    let conditionsChangedForActiveTooltip = false; // Flag to track change for active tooltip
-    let finalConditionsForActiveTooltip: ToothCondition[] | undefined; // Store the final conditions
+    let conditionsChangedForActiveTooltip = false;
+    let finalConditionsForActiveTooltip: ToothCondition[] | undefined;
 
     setTeethData(prevData => {
       const newData = { ...prevData };
@@ -313,81 +307,103 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
         const id = parseInt(idStr, 10);
         const tooth = newData[id];
 
+        // Apply condition ONLY to currently selected teeth
         if (tooth.isSelected) {
           let currentConditions = [...tooth.conditions];
           let conditionsUpdated = false;
 
-          // Add new conditions, avoiding duplicates and 'healthy' if others exist
-          selectedConditions.forEach(condToAdd => {
-            if (!currentConditions.includes(condToAdd)) {
-              currentConditions.push(condToAdd);
+          // Logic for applying the single clicked condition:
+          if (conditionToApply === 'healthy') {
+            // If 'healthy' is clicked, set it as the only condition
+            if (!(currentConditions.length === 1 && currentConditions[0] === 'healthy')) {
+              currentConditions = ['healthy'];
               conditionsUpdated = true;
             }
-          });
+          } else if (conditionToApply === 'missing') {
+             // If 'missing' is clicked, set it as the only condition AND deselect
+             if (!(currentConditions.length === 1 && currentConditions[0] === 'missing')) {
+               currentConditions = ['missing'];
+               conditionsUpdated = true;
+               // DESELECT the tooth when marked as missing
+               newData[id] = { ...tooth, conditions: currentConditions, isSelected: false };
+               newlyProcessedIds.add(id); // Mark as processed even though deselected
+                changed = true;
+                // Skip the rest of the 'else' block for this tooth
+                return; // Use return instead of continue in forEach
+              }
+            } else {
+              // For other conditions: Check if the condition already exists
+             const conditionIndex = currentConditions.indexOf(conditionToApply);
+             if (conditionIndex > -1) {
+               // Condition exists - REMOVE it
+               currentConditions.splice(conditionIndex, 1);
+               // If removing the last condition, add 'healthy' back
+               if (currentConditions.length === 0) {
+                 currentConditions.push('healthy');
+               }
+               conditionsUpdated = true;
+             } else {
+               // Condition doesn't exist - ADD it
+               // Remove 'healthy' first if it exists
+               const healthyIndex = currentConditions.indexOf('healthy');
+               if (healthyIndex > -1) {
+                 currentConditions.splice(healthyIndex, 1);
+               }
+               currentConditions.push(conditionToApply);
+               conditionsUpdated = true;
+            }
+           }
 
-          // Remove 'healthy' if other conditions were added
-          if (conditionsUpdated && currentConditions.length > 1) {
-            currentConditions = currentConditions.filter(c => c !== 'healthy');
-          }
-
-          // If only 'healthy' was selected to be added, ensure it's the only one
-          if (selectedConditions.length === 1 && selectedConditions[0] === 'healthy') {
-             currentConditions = ['healthy'];
-             conditionsUpdated = true; // Mark as updated even if it was already healthy
-          }
-
-          // If 'missing' is added, it should be the only condition
-          if (selectedConditions.includes('missing')) {
-              currentConditions = ['missing'];
-              conditionsUpdated = true;
-          }
-
-
-          if (conditionsUpdated) {
-            // Keep tooth selected after applying conditions
-            newData[id] = { ...tooth, conditions: currentConditions, isSelected: true };
-            newlyProcessedIds.add(id); // Mark this tooth as processed in this run
-            changed = true;
+           // This block now only runs if the condition wasn't 'missing' or if 'missing' was already applied
+           if (conditionsUpdated) {
+             // Ensure isSelected remains true for non-missing updates
+             newData[id] = { ...tooth, conditions: currentConditions, isSelected: true };
+             newlyProcessedIds.add(id);
+             changed = true;
 
             // Check if this is the active tooltip tooth and if its conditions changed
             if (activeTooltipData && id === activeTooltipData.id) {
-               // Compare *new* currentConditions with the conditions stored in activeTooltipData
                if (JSON.stringify(currentConditions) !== JSON.stringify(activeTooltipData.conditions)) {
                    conditionsChangedForActiveTooltip = true;
-                   finalConditionsForActiveTooltip = currentConditions; // Store the new conditions
+                   finalConditionsForActiveTooltip = currentConditions;
                }
             }
           } else if (tooth.isSelected) {
-            // If conditions didn't change but tooth was selected, mark it as processed too
-            newlyProcessedIds.add(id);
+             // If conditions didn't change but tooth was selected, mark it as processed too
+             newlyProcessedIds.add(id);
           }
         }
       });
 
-      if (changed) {
-        // Notify parent
-        const selectedIds = Object.values(newData)
-            .filter(t => t.isSelected)
-            .map(t => t.id);
-        onToothSelect?.(selectedIds);
-      }
+       // Update tooltip state *before* returning newData if the active tooltip tooth's conditions changed
+       if (conditionsChangedForActiveTooltip && activeTooltipData) {
+           const newConditions = finalConditionsForActiveTooltip ?? activeTooltipData.conditions;
+           // Update tooltip state directly here, as setTeethData might be async
+           setActiveTooltipData(prev => prev ? { ...prev, conditions: newConditions } : null);
+       }
 
-      return newData; // Return the updated state
+
+       // Notify parent about the potentially changed selection state *after* the loop
+       const finalSelectedIds = Object.values(newData)
+           .filter(t => t.isSelected)
+           .map(t => t.id);
+       onToothSelect?.(finalSelectedIds);
+
+
+       return newData; // Return the modified state
     });
 
     // Update tooltip state *after* the main state update, if necessary
-    if (conditionsChangedForActiveTooltip && finalConditionsForActiveTooltip) {
-        const newConditions = finalConditionsForActiveTooltip; // Use the stored final conditions
+    if (conditionsChangedForActiveTooltip && activeTooltipData) { // Check if activeTooltipData exists
+        // Use finalConditionsForActiveTooltip if available, otherwise keep existing conditions from prev state
+        const newConditions = finalConditionsForActiveTooltip ?? activeTooltipData.conditions;
         setActiveTooltipData(prev => prev ? { ...prev, conditions: newConditions } : null);
     }
 
     // Add the newly processed teeth to the state set
     setProcessedSelectedTeeth(prevSet => new Set([...prevSet, ...newlyProcessedIds]));
 
-    // Clear selected conditions after applying
-    setSelectedConditions([]);
-
-  }, [readOnly, selectedConditions, onToothSelect, teethData, activeTooltipData]); // Dependencies remain the same
+  }, [readOnly, onToothSelect, teethData, activeTooltipData]); // Dependencies updated
 
 
   // Combined click handler for the SVG container
@@ -481,6 +497,13 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
       // Clear previous state classes first
       groupElement.classList.remove('tooth-selected', 'tooth-missing', 'tooth-hovered', 'tooth-selection-processed');
 
+      // Ensure default fill is white initially before applying condition/selection styles
+      const pathElement = groupElement.querySelector('path:first-of-type'); // Target the main tooth shape path
+      if (pathElement) {
+        pathElement.setAttribute('fill', 'var(--tooth-default-fill, #fff)'); // Explicitly set default fill
+      }
+
+
       let primaryConditionForFill: ToothCondition | null = null;
       const conditions = toothData.conditions;
 
@@ -529,31 +552,37 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
       }
 
       // --- 2. Apply Fill Color based on Highest Priority Condition & Store Original ---
-      const pathElement = groupElement.querySelector('path');
-      if (pathElement) {
-          let fillColor = 'white'; // Default to white for healthy/no specific condition
-          let originalFillForVar = 'white'; // Default for CSS variable
+      // Re-select pathElement in case it wasn't found above (though unlikely)
+      const pathElementForColor = groupElement.querySelector('path:first-of-type');
+      if (pathElementForColor) {
+          let fillColor = 'var(--tooth-default-fill, #fff)'; // Default to white using CSS variable
+          // let originalFillForVar = 'white'; // This variable seems unused, removing for now
 
           // Determine the fill color based on the highest priority condition
           if (primaryConditionForFill && primaryConditionForFill !== 'missing' && primaryConditionForFill !== 'healthy') {
-              fillColor = conditionColors[primaryConditionForFill] || 'white'; // Use determined color or fallback to white
-              originalFillForVar = fillColor; // Store the actual color for the variable
+              fillColor = conditionColors[primaryConditionForFill] || 'var(--tooth-default-fill, #fff)'; // Use condition color or fallback to default CSS variable
+              // originalFillForVar = fillColor; // Removed assignment to non-existent variable
           } else if (primaryConditionForFill === 'healthy' || !primaryConditionForFill) {
               // Explicitly handle healthy or default case
-              fillColor = 'white'; // Healthy teeth are white
-              originalFillForVar = 'white';
+              fillColor = 'var(--tooth-default-fill, #fff)'; // Use default CSS variable
+              // originalFillForVar = 'white'; // Removed assignment to non-existent variable
           }
           // Note: 'missing' condition doesn't set a fill color here, it's handled by CSS class
 
-          // Apply the base fill color directly. Selection fill is handled by CSS.
-          if (primaryConditionForFill !== 'missing') {
-             pathElement.setAttribute('fill', fillColor);
-          } else {
+          // Apply the base fill color directly based on condition. Selection fill is handled by CSS classes.
+          if (primaryConditionForFill && primaryConditionForFill !== 'missing') {
+             fillColor = conditionColors[primaryConditionForFill] || 'var(--tooth-default-fill, #fff)'; // Use condition color or fallback to default
+             pathElementForColor.setAttribute('fill', fillColor);
+          } else if (primaryConditionForFill === 'missing') {
              // Ensure fill attribute is suitable for missing state (CSS handles transparency)
-             pathElement.setAttribute('fill', 'transparent');
+             pathElementForColor.setAttribute('fill', 'transparent');
+          } else {
+             // Explicitly ensure healthy/default is white
+             pathElementForColor.setAttribute('fill', 'var(--tooth-default-fill, #fff)');
           }
-          // Clear any inline style fill from previous attempts
-          pathElement.style.fill = '';
+
+          // Clear any inline style fill from previous attempts if needed (though setAttribute should override)
+          // pathElementForColor.style.fill = '';
        }
 
        // --- REMOVED Condition Indicator Dots Rendering ---
@@ -592,24 +621,20 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
                 // .filter(cond => cond.value !== 'healthy')
                 .map(cond => {
                   const noTeethSelected = !Object.values(teethData).some(t => t.isSelected);
+                  const isActive = activeCondition === cond.value;
                   return (
                <Button
                  key={cond.value}
                  variant="outline"
                  size="sm"
                  disabled={noTeethSelected} // Disable if no teeth are selected
-                 onClick={() => {
-                   setSelectedConditions(prev =>
-                     prev.includes(cond.value)
-                       ? prev.filter(c => c !== cond.value) // Remove if exists
-                       : [...prev, cond.value] // Add if not exists
-                   );
-                 }}
+                 onClick={() => handleConditionButtonClick(cond.value)} // Call new handler
                  className={cn(
                    "text-xs h-8 px-2.5 border rounded-md flex items-center gap-1.5 transition-colors",
-                   selectedConditions.includes(cond.value)
-                     ? 'bg-blue-100 border-blue-300 ring-1 ring-blue-400 text-blue-800 hover:bg-blue-200' // Style for selected condition button
-                     : 'text-gray-700 bg-white hover:bg-gray-50',
+                   // Apply active styling if this condition is the active one
+                   isActive
+                     ? 'bg-blue-600 text-white hover:bg-blue-700 border-blue-600' // Simplified Active style (darker blue bg, white text)
+                     : 'text-gray-700 bg-white hover:bg-gray-100', // Default style
                    noTeethSelected ? 'opacity-50 cursor-not-allowed' : '' // Style for disabled state
                  )}
                >
@@ -622,16 +647,227 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
                   );
                 })}
            </div>
-           {/* Button to apply selected conditions to selected teeth */}
-           {/* Button to apply selected conditions to selected teeth - Reduced top margin */}
-           <Button
-              onClick={applySelectedConditions}
-              disabled={selectedConditions.length === 0 || !Object.values(teethData).some(t => t.isSelected)}
-              size="sm"
-              className="mt-2" // Reduced mt-3 to mt-2
-           >
-              Apply to Selected Teeth
-           </Button>
+           {/* REMOVED "Apply to Selected Teeth" button */}
+         </div>
+       )}
+
+         {/* SVG Chart Area (Right Side - Restored original height/scroll) */}
+         <div
+           className={cn(
+             "relative w-full flex-grow pt-2 pb-2 overflow-y-auto max-h-[350px]", // Restored overflow-y-auto, max-h-[350px]
+             readOnly ? 'cursor-default' : 'cursor-pointer'
+           )}
+           ref={svgContainerRef}
+           onClick={handleSvgClick}
+           onPointerMove={handlePointerMove} // Add pointer move
+           onPointerLeave={handlePointerLeave} // Add pointer leave
+         >
+           <TeethDiagram
+             width="100%"
+             height="100%"
+            viewBox="0 0 698.9 980.66" // Keep original viewBox
+            // Event handlers are on the container div
+           />
+           {/* Condition indicators and numbers are added dynamically in useEffect */}
+        </div>
+
+        {/* Combined Hover/Click Tooltip Implementation */}
+        <Tooltip open={tooltipTriggerPosition !== null}>
+          {/* Dummy Trigger positioned absolutely based on hover/click position state */}
+          <TooltipTrigger asChild>
+              <span style={{
+                  position: 'absolute',
+                  top: tooltipTriggerPosition?.top ?? 0,
+                  left: tooltipTriggerPosition?.left ?? 0,
+                  // Remove the transform style
+                  pointerEvents: 'none',
+                  width: 1, height: 1
+              }} />
+          </TooltipTrigger>
+          <TooltipContent
+            // Position top for upper teeth, bottom for lower teeth
+             side={
+               (() => {
+                 const id = activeTooltipData?.id ?? hoveredToothId; // Use 'id' directly
+                 if (id === null) return "top"; // Check for null
+                 // 'id' is guaranteed to be a number here
+                 const quadrantGroup = Math.floor(id / 10);
+                 const isUpper = [1, 2, 5, 6].includes(quadrantGroup);
+                 return isUpper ? "top" : "bottom";
+              })()
+            }
+            align="center" // Always align center
+            sideOffset={0} // Position directly adjacent to trigger
+            collisionPadding={2} // Keep small collision padding
+            className={cn(
+                "z-50 rounded-lg shadow-lg p-3 max-w-xs",
+                "custom-tooltip-bg" // Apply custom background class
+            )}
+          >
+             {/* Tooltip Content Rendering */}
+             {(() => {
+               // 1. Determine the ID to use
+               const idToShow = activeTooltipData?.id ?? hoveredToothId;
+
+               // 2. Early exit if no ID is active
+               if (idToShow === null) {
+                 return null;
+               }
+               // idToShow is now guaranteed to be a number
+
+               // 3. Determine the data to show based on the non-null ID
+               let dataToShow: { id: number; name: string; conditions: ToothCondition[] } | null = null;
+               if (activeTooltipData && activeTooltipData.id === idToShow) {
+                 // Use active click data (already has name and id)
+                 dataToShow = activeTooltipData;
+               } else {
+                 // Must be hover data (idToShow is hoveredToothId and a number)
+                 const toothData = teethData[idToShow]; // Safe index access
+                 if (toothData) {
+                   dataToShow = {
+                     id: idToShow,
+                     name: getToothName(idToShow), // Safe call
+                     conditions: toothData.conditions ?? [],
+                   };
+                 }
+               }
+
+               // 4. Early exit if data couldn't be determined
+               if (!dataToShow) {
+                 return null;
+               }
+
+               // 5. Now dataToShow is guaranteed non-null
+               const { id: tooltipId, name: tooltipName, conditions: tooltipConditions } = dataToShow;
+
+               // Ensure conditions is always an array
+               const conditionsToDisplay = Array.isArray(tooltipConditions) ? tooltipConditions : [];
+              const filteredConditions = conditionsToDisplay.length > 1
+                ? conditionsToDisplay.filter((c: ToothCondition) => c !== 'healthy')
+                : conditionsToDisplay;
+
+               return (
+                 <div className="flex flex-col items-start gap-1.5 text-left"> {/* Align left */}
+                   <div className="font-semibold text-sm">
+                     Tooth {tooltipId} - {tooltipName} {/* Use destructured variables */}
+                   </div>
+                   {/* Display conditions with colored dots */}
+                   <div className="flex flex-col gap-1">
+                    {filteredConditions.length === 0 ? (
+                      // Display Healthy if no other conditions (or only healthy)
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: conditionColors['healthy'] }}></span>
+                        <span className="text-xs text-gray-300">Healthy</span>
+                      </div>
+                    ) : (
+                      // Map through the filtered conditions
+                      filteredConditions.map((cond: ToothCondition) => {
+                        const conditionInfo = availableConditions.find(c => c.value === cond);
+                        return (
+                          <div key={cond} className="flex items-center gap-1.5">
+                            <span
+                              className="w-2 h-2 rounded-full inline-block border border-gray-500" // Added border for contrast
+                              style={{ backgroundColor: conditionColors[cond] ?? '#ccc' }} // Use condition color, fallback gray
+                            ></span>
+                            <span className="text-xs text-gray-300">{conditionInfo?.label || cond}</span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </TooltipContent>
+        </Tooltip>
+        {/* --- End Combined Tooltip --- */}
+
+         </div> {/* End Flex container for Controls + Chart */}
+       </div>
+     </TooltipProvider>
+   );
+
+  // REMOVED useEffect for adding/removing event listeners
+
+
+  // --- Calculate common conditions for selected teeth ---
+  const commonConditionsForAllSelected = useMemo(() => {
+    const selectedTeethIds = Object.entries(teethData)
+      .filter(([, data]) => data.isSelected)
+      .map(([id]) => parseInt(id, 10));
+
+    if (selectedTeethIds.length === 0) {
+      return new Set<ToothCondition>(); // No teeth selected, no common conditions
+    }
+
+    // Start with the conditions of the first selected tooth
+    let commonConditions = new Set(teethData[selectedTeethIds[0]].conditions);
+
+    // Intersect with conditions of other selected teeth
+    for (let i = 1; i < selectedTeethIds.length; i++) {
+      const currentToothConditions = new Set(teethData[selectedTeethIds[i]].conditions);
+      commonConditions = new Set([...commonConditions].filter(condition => currentToothConditions.has(condition)));
+    }
+
+    // Don't include 'healthy' as a visually distinct common condition unless it's the only one
+    if (commonConditions.size > 1) {
+        commonConditions.delete('healthy');
+    }
+
+
+    return commonConditions;
+  }, [teethData]); // Recalculate when teethData changes
+
+
+   return (
+     <TooltipProvider delayDuration={100}>
+       <div className="dental-chart-dialog-content relative"> {/* Added relative positioning */}
+         {/* Top Legend Removed */}
+
+       {/* Main Content Area: Controls + Chart - Always Row, No Gap */}
+       <div className="flex flex-row"> {/* Removed gap-4 */}
+
+         {/* Condition Selection Controls (Left Side - Stretches to match chart height) */}
+         {!readOnly && (
+           <div className="w-[200px] flex-shrink-0 pr-2 self-stretch"> {/* Removed overflow/max-h, Added self-stretch */}
+             <label className="block text-sm font-medium text-gray-700 mb-2 sticky top-0 bg-background z-10">Select Conditions to Apply:</label> {/* Added sticky positioning */}
+             <div className="flex flex-wrap gap-2">
+               {availableConditions
+                // Exclude 'healthy' from selectable conditions to apply? Maybe keep it for resetting.
+                // .filter(cond => cond.value !== 'healthy')
+                .map(cond => {
+                  const noTeethSelected = !Object.values(teethData).some(t => t.isSelected);
+                  const isActive = activeCondition === cond.value;
+                  // const isPresentOnAllSelected = !isActive && commonConditionsForAllSelected.has(cond.value); // Removed this check
+
+                  return (
+               <Button
+                 key={cond.value}
+                 variant="outline"
+                 size="sm"
+                 disabled={noTeethSelected} // Disable if no teeth are selected
+                 onClick={() => handleConditionButtonClick(cond.value)} // Call new handler
+                 className={cn(
+                   "text-xs h-8 px-2.5 border rounded-md flex items-center gap-1.5 transition-colors",
+                   // Apply active styling if this condition is the active one
+                   isActive
+                     ? 'bg-blue-100 border-blue-400 ring-1 ring-blue-500 text-blue-800 hover:bg-blue-200' // Active style (last clicked)
+                     // : isPresentOnAllSelected // Removed this style condition
+                     // ? 'bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200' // Present on selected style
+                     : 'text-gray-700 bg-white hover:bg-gray-100', // Default style
+                   noTeethSelected ? 'opacity-50 cursor-not-allowed' : '' // Style for disabled state
+                 )}
+               >
+                 <span
+                   className="w-2.5 h-2.5 inline-block rounded-sm border border-gray-400"
+                   style={{ backgroundColor: conditionColors[cond.value] }}
+                 ></span>
+                 {cond.label}
+               </Button>
+                  );
+                })}
+           </div>
+           {/* REMOVED "Apply to Selected Teeth" button */}
          </div>
        )}
 
@@ -673,7 +909,8 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
             side={
               (() => {
                 const id = activeTooltipData?.id ?? hoveredToothId;
-                if (!id) return "top"; // Default
+                if (id === null) return "top"; // Check for null explicitly
+                // id is guaranteed to be a number here
                 const quadrantGroup = Math.floor(id / 10);
                 const isUpper = [1, 2, 5, 6].includes(quadrantGroup);
                 return isUpper ? "top" : "bottom";
@@ -689,51 +926,76 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
           >
             {/* Determine content based on active click OR hover */}
             {(() => {
-                // Prioritize active click data, fallback to hover data
-                const dataToShow = activeTooltipData ?? (hoveredToothId !== null ? {
-                    id: hoveredToothId,
-                    name: getToothName(hoveredToothId),
-                    conditions: teethData[hoveredToothId]?.conditions ?? [],
-                    // Position data not needed here, just content
-                } : null);
+              // 1. Determine the ID to use
+              const idToShow = activeTooltipData?.id ?? hoveredToothId;
 
-                if (!dataToShow) return null; // Should not happen if open=true, but safety check
+              // 2. Early exit if no ID is active
+              if (idToShow === null) {
+                return null;
+              }
 
-                return (
-                  <div className="flex flex-col items-start gap-1.5 text-left"> {/* Align left */}
-                    <div className="font-semibold text-sm">
-                      Tooth {dataToShow.id} - {dataToShow.name}
-                    </div>
-                    {/* Display conditions with colored dots */}
-                    <div className="flex flex-col gap-1">
-                      {(dataToShow.conditions.length > 1
-                        ? dataToShow.conditions.filter((c: ToothCondition) => c !== 'healthy')
-                        : dataToShow.conditions
-                      ).length === 0 ? (
-                        <div className="flex items-center gap-1.5">
-                           <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: conditionColors['healthy'] }}></span>
-                           <span className="text-xs text-gray-300">Healthy</span>
-                        </div>
-                      ) : (
-                        (dataToShow.conditions.length > 1
-                          ? dataToShow.conditions.filter((c: ToothCondition) => c !== 'healthy')
-                          : dataToShow.conditions
-                        ).map((cond: ToothCondition) => {
-                          const conditionInfo = availableConditions.find(c => c.value === cond);
-                          return (
-                            <div key={cond} className="flex items-center gap-1.5">
-                               <span
-                                 className="w-2 h-2 rounded-full inline-block border border-gray-500" // Added border for contrast on some colors
-                                 style={{ backgroundColor: conditionColors[cond] ?? '#ccc' }} // Use condition color, fallback gray
-                               ></span>
-                               <span className="text-xs text-gray-300">{conditionInfo?.label || cond}</span>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
+              // 3. Determine the data to show based on the non-null ID
+              let dataToShow: { id: number; name: string; conditions: ToothCondition[] } | null = null;
+              if (activeTooltipData && activeTooltipData.id === idToShow) {
+                // Use active click data
+                dataToShow = activeTooltipData;
+              } else {
+                // Must be hover data (idToShow is hoveredToothId and not null)
+                const toothData = teethData[idToShow]; // Safe index access now
+                if (toothData) {
+                  dataToShow = {
+                    id: idToShow, // idToShow is guaranteed number here
+                    name: getToothName(idToShow), // Safe call now
+                    conditions: toothData.conditions ?? [],
+                  };
+                }
+              }
+
+              // 4. Early exit if data couldn't be determined (e.g., hover ID had no data)
+              if (!dataToShow) {
+                return null;
+              }
+
+              // 5. Now dataToShow is guaranteed non-null
+              const { id: tooltipId, name: tooltipName, conditions: tooltipConditions } = dataToShow;
+
+              // Ensure conditions is always an array
+              const conditionsToDisplay = Array.isArray(tooltipConditions) ? tooltipConditions : [];
+              const filteredConditions = conditionsToDisplay.length > 1
+                ? conditionsToDisplay.filter((c: ToothCondition) => c !== 'healthy')
+                : conditionsToDisplay;
+
+              return (
+                <div className="flex flex-col items-start gap-1.5 text-left"> {/* Align left */}
+                  <div className="font-semibold text-sm">
+                    Tooth {tooltipId} - {tooltipName} {/* Use destructured variables */}
                   </div>
-                );
+                  {/* Display conditions with colored dots */}
+                  <div className="flex flex-col gap-1">
+                    {filteredConditions.length === 0 ? (
+                      // Display Healthy if no other conditions (or only healthy)
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: conditionColors['healthy'] }}></span>
+                        <span className="text-xs text-gray-300">Healthy</span>
+                      </div>
+                    ) : (
+                      // Map through the filtered conditions
+                      filteredConditions.map((cond: ToothCondition) => {
+                        const conditionInfo = availableConditions.find(c => c.value === cond);
+                        return (
+                          <div key={cond} className="flex items-center gap-1.5">
+                            <span
+                              className="w-2 h-2 rounded-full inline-block border border-gray-500" // Added border for contrast
+                              style={{ backgroundColor: conditionColors[cond] ?? '#ccc' }} // Use condition color, fallback gray
+                            ></span>
+                            <span className="text-xs text-gray-300">{conditionInfo?.label || cond}</span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
             })()}
           </TooltipContent>
         </Tooltip>
@@ -743,8 +1005,6 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>(({ initialSt
        </div>
      </TooltipProvider>
    );
-
-  // REMOVED useEffect for adding/removing event listeners
 
 }); // End of component function
 

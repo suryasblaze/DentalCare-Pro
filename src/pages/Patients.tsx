@@ -9,10 +9,11 @@ import { useToast } from '@/components/ui/use-toast';
 import { PatientForm } from '@/features/patients/components/PatientForm';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
-import { globalCache } from '@/lib/utils/cache-manager'; // Import cache
-import { PatientDetailsView } from '@/features/patients/components/PatientDetailsView';
-import { AddMedicalRecordForm } from '@/features/patients/components/AddMedicalRecordForm'; // Import the new form
-import { Appointment } from '@/types'; // Assuming Appointment type is defined here or adjust path
+import { globalCache } from '@/lib/utils/cache-manager';
+// Import PatientDetailsView and its required prop types (PatientDentalHistoryTooth)
+import { PatientDetailsView, PatientDentalHistoryTooth } from '@/features/patients/components/PatientDetailsView';
+import { AddMedicalRecordForm } from '@/features/patients/components/AddMedicalRecordForm';
+import { Appointment } from '@/types';
 
 interface PatientFormDialogProps {
   open: boolean;
@@ -223,13 +224,17 @@ export function PatientDetails() {
   const { id } = useParams<{ id: string }>(); // Ensure id is typed
   const { state } = useLocation();
   const [patient, setPatient] = useState<any>(null);
-  const [appointments, setAppointments] = useState<Appointment[]>([]); // State for appointments
-  const [medicalRecords, setMedicalRecords] = useState<any[]>([]); // State for medical records (use specific type if available)
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [medicalRecords, setMedicalRecords] = useState<any[]>([]);
+  const [dentalHistoryTeeth, setDentalHistoryTeeth] = useState<PatientDentalHistoryTooth[]>([]); // <<< State for dental history teeth
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(state?.action === 'edit');
   const [showAddRecordDialog, setShowAddRecordDialog] = useState(false); // State for Add Record dialog
   const [addRecordLoading, setAddRecordLoading] = useState(false); // Loading state for Add Record form
   const { toast } = useToast(); // Get toast function
+
+  // <<< Log component render and isEditing state >>>
+  console.log(`Patients.tsx: PatientDetails rendering. isEditing: ${isEditing}, Patient ID: ${id}`);
 
   useEffect(() => {
     if (id) {
@@ -243,21 +248,24 @@ export function PatientDetails() {
       // Invalidate cache for this specific patient before fetching
       globalCache.invalidate(`patients:${patientId}`);
       globalCache.invalidate(`appointments:patient:${patientId}`);
-      globalCache.invalidate(`medical_records:${patientId}`); // Invalidate medical records cache
+      globalCache.invalidate(`medical_records:${patientId}`);
+      globalCache.invalidate(`patient_dental_history_teeth:${patientId}`); // <<< Invalidate dental history teeth cache
 
-      // Fetch patient, appointments, and medical records concurrently
-      const [patientData, appointmentsData, medicalRecordsData] = await Promise.all([
+      // Fetch patient, appointments, medical records, and dental history teeth concurrently
+      const [patientData, appointmentsData, medicalRecordsData, dentalHistoryTeethData] = await Promise.all([
         api.patients.getById(patientId),
         api.appointments.getByPatientId(patientId),
-        api.patients.getMedicalRecords(patientId) // Fetch medical records
+        api.patients.getMedicalRecords(patientId),
+        api.patients.getPatientDentalHistoryTeeth(patientId) // <<< Fetch dental history teeth
       ]);
 
       setPatient(patientData);
-      setAppointments(appointmentsData || []); // Ensure appointments is an array
-      setMedicalRecords(medicalRecordsData || []); // Ensure medical records is an array
+      setAppointments(appointmentsData || []);
+      setMedicalRecords(medicalRecordsData || []);
+      setDentalHistoryTeeth(dentalHistoryTeethData || []); // <<< Set dental history teeth state
 
     } catch (error) {
-      console.error('Error fetching patient details, appointments, or medical records:', error);
+      console.error('Error fetching patient details:', error);
       // Optionally set an error state here
     } finally {
       setLoading(false);
@@ -339,7 +347,7 @@ export function PatientDetails() {
         record_type: formValues.record_type, // Use the type from the form
         description: JSON.stringify(recordDetails), // Store structured details as JSON string
         // created_by: 'current_user_id' // TODO: Get current user ID if needed
-      });
+      }, []); // <<< Pass empty array for toothIds as the AddMedicalRecordForm doesn't handle teeth
       toast({
         title: "Success",
         description: "Medical record added successfully.",
@@ -392,28 +400,40 @@ export function PatientDetails() {
           <Button variant="outline" onClick={() => navigate('/patients')}>
             Back to List
           </Button>
-          <Button onClick={() => setIsEditing(!isEditing)}>
+          <Button onClick={() => {
+              console.log(`Patients.tsx: Edit/View button clicked. Current isEditing: ${isEditing}`); // <<< Log before state change
+              setIsEditing(!isEditing);
+              // Note: State updates might be asynchronous, this log might show the old value immediately after the call.
+              // The re-render log below is more reliable for the updated state.
+              console.log(`Patients.tsx: setIsEditing called.`); 
+            }}>
             {isEditing ? 'View Details' : 'Edit Profile'}
           </Button>
         </div>
       </div>
       
       {isEditing ? (
-        <PatientForm
-          patient={patient}
-          onSuccess={() => {
-            fetchPatientAndAppointments(id!); // Refetch both on success
+        <>
+          {/* <<< Add logging here >>> */}
+          {console.log(`Patients.tsx: Rendering PatientForm for editing. Key: ${patient?.id || 'new-patient-form'}, Patient ID: ${patient?.id}`)}
+          <PatientForm
+            key={patient?.id || 'new-patient-form'} // <<< Add key prop here
+            patient={patient}
+            onSuccess={() => {
+              fetchPatientAndAppointments(id!); // Refetch both on success
             setIsEditing(false);
           }}
-          onCancel={() => setIsEditing(false)}
-        />
+            onCancel={() => setIsEditing(false)}
+          />
+        </>
       ) : (
         <PatientDetailsView
           patient={patient}
-          appointments={appointments} // Pass appointments
-          medicalRecords={medicalRecords} // Pass medical records
+          appointments={appointments}
+          medicalRecords={medicalRecords}
+          dentalHistoryTeeth={dentalHistoryTeeth} // <<< Pass dental history teeth
           onEdit={() => setIsEditing(true)}
-          onBookAppointment={handleBookAppointment} // Pass booking handler
+          onBookAppointment={handleBookAppointment}
           onAddMedicalRecord={handleAddMedicalRecord} // Pass Add Record handler
         />
       )}

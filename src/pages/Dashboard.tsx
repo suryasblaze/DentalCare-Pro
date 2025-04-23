@@ -69,6 +69,8 @@ export function Dashboard() {
     patientAgeData: [],
     appointmentStatusData: [],
     treatmentPlanStatusData: [],
+    // Rename state for clarity: Upcoming 7-day trend
+    upcomingWeeklyAppointmentTrendData: [], 
   });
 
   useEffect(() => {
@@ -103,8 +105,12 @@ export function Dashboard() {
       const endOfThisMonth = endOfMonth(today);
       // const startOfLastMonth = startOfMonth(subMonths(today, 1)); // Not used currently
       // const endOfLastMonth = endOfMonth(subMonths(today, 1)); // Not used currently
-      const sevenDaysAgo = startOfDay(addDays(today, -6)); // Start of 7 days ago (inclusive)
-      
+      const sevenDaysAgo = startOfDay(addDays(today, -6)); // Start of PAST 7 days (inclusive) - Keep for other charts if needed
+      const todayEndForPast7Day = endOfDay(today); // End date for PAST 7-day interval
+
+      // --- Define date range for UPCOMING 7 days ---
+      const nextSixDaysEnd = endOfDay(addDays(today, 6)); // End of the 6th day from today
+
       // --- Fetch all data needed for dashboard ---
       const [
         patients,
@@ -310,7 +316,7 @@ export function Dashboard() {
 
 
       // 4. Treatment Status Data (Last 7 Days Completion Rate %) - Date ranges defined above
-      const daysInterval = eachDayOfInterval({ start: sevenDaysAgo, end: today });
+      const daysInterval = eachDayOfInterval({ start: sevenDaysAgo, end: todayEndForPast7Day }); // Use correct end date variable
       const dailyTreatmentStatus: { [key: string]: { completed: number, total: number } } = {};
       const dayFormatter = new Intl.DateTimeFormat('en', { weekday: 'short' });
 
@@ -325,7 +331,8 @@ export function Dashboard() {
               // Check if treatment was updated within the last 7 days
               if (treatment.updated_at) {
                   const treatmentDate = parseISO(treatment.updated_at);
-                  if (isWithinInterval(treatmentDate, { start: sevenDaysAgo, end: todayEnd })) {
+                  // Use correct end date variable for interval check
+                  if (isWithinInterval(treatmentDate, { start: sevenDaysAgo, end: todayEndForPast7Day })) { 
                       const dayKey = format(treatmentDate, 'yyyy-MM-dd');
                       if (dailyTreatmentStatus[dayKey]) {
                           dailyTreatmentStatus[dayKey].total += 1;
@@ -407,7 +414,74 @@ export function Dashboard() {
       const processedAppointmentStatusData: PieChartDataPoint[] = Object.entries(appointmentStatusCount)
         .map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value })); // Capitalize status
 
-      // 8. Treatment Plan Status Distribution
+      // 8. Daily Appointment Trend (Last 7 Days)
+      const last7DaysInterval = eachDayOfInterval({ start: sevenDaysAgo, end: todayEndForPast7Day }); // Corrected variable
+      const dailyAppointments7DayCount: { [key: string]: number } = {};
+      const dayFormatterShort = new Intl.DateTimeFormat('en', { weekday: 'short' }); // For chart labels like 'Mon'
+
+      last7DaysInterval.forEach(day => {
+          dailyAppointments7DayCount[format(day, 'yyyy-MM-dd')] = 0; // Initialize count for each day
+      });
+
+      (allAppointments as AppointmentWithDetails[]).forEach(apt => {
+          if (apt.start_time) {
+              const aptDate = parseISO(apt.start_time);
+              // Check if the appointment falls within the last 7 days
+              if (isWithinInterval(aptDate, { start: sevenDaysAgo, end: todayEndForPast7Day })) { // Corrected variable
+                  const dayKey = format(aptDate, 'yyyy-MM-dd');
+                  if (dailyAppointments7DayCount.hasOwnProperty(dayKey)) { // Check if key exists before incrementing
+                      dailyAppointments7DayCount[dayKey]++;
+                  }
+              }
+          }
+      });
+
+      const processedWeeklyAppointmentTrendData: ChartDataPoint[] = Object.keys(dailyAppointments7DayCount)
+          .map(dayKey => ({
+              name: dayFormatterShort.format(parseISO(dayKey)), // 'Mon', 'Tue', etc.
+              value: dailyAppointments7DayCount[dayKey],
+              dayKey: dayKey // Keep for sorting
+          }))
+          .sort((a, b) => a.dayKey.localeCompare(b.dayKey)); // Sort chronologically
+
+      const finalWeeklyAppointmentTrendData = processedWeeklyAppointmentTrendData.map(({ name, value }) => ({ name, value })); // Remove dayKey after sorting
+
+
+      // 8b. Upcoming Daily Appointment Trend (Next 7 Days)
+      const upcoming7DaysInterval = eachDayOfInterval({ start: todayStart, end: nextSixDaysEnd });
+      const upcomingDailyAppointmentsCount: { [key: string]: number } = {};
+      // Use the same short day formatter
+
+      upcoming7DaysInterval.forEach(day => {
+          upcomingDailyAppointmentsCount[format(day, 'yyyy-MM-dd')] = 0; // Initialize count for each upcoming day
+      });
+
+      (allAppointments as AppointmentWithDetails[]).forEach(apt => {
+          // Filter for SCHEDULED appointments within the NEXT 7 days
+          if (apt.start_time && apt.status === 'scheduled') { 
+              const aptDate = parseISO(apt.start_time);
+              // Check if the appointment falls within the upcoming 7 days
+              if (isWithinInterval(aptDate, { start: todayStart, end: nextSixDaysEnd })) {
+                  const dayKey = format(aptDate, 'yyyy-MM-dd');
+                  if (upcomingDailyAppointmentsCount.hasOwnProperty(dayKey)) { 
+                      upcomingDailyAppointmentsCount[dayKey]++;
+                  }
+              }
+          }
+      });
+
+      const processedUpcomingWeeklyTrendData: ChartDataPoint[] = Object.keys(upcomingDailyAppointmentsCount)
+          .map(dayKey => ({
+              name: dayFormatterShort.format(parseISO(dayKey)), // 'Mon', 'Tue', etc.
+              value: upcomingDailyAppointmentsCount[dayKey],
+              dayKey: dayKey // Keep for sorting
+          }))
+          .sort((a, b) => a.dayKey.localeCompare(b.dayKey)); // Sort chronologically
+
+      const finalUpcomingWeeklyTrendData = processedUpcomingWeeklyTrendData.map(({ name, value }) => ({ name, value })); // Remove dayKey
+
+
+      // 9. Treatment Plan Status Distribution
       const treatmentPlanStatusCount: { [key: string]: number } = {};
       (treatmentPlans as TreatmentPlanWithTreatments[]).forEach(plan => {
         const status = plan.status || 'Unknown';
@@ -434,6 +508,8 @@ export function Dashboard() {
           patientAgeData: processedPatientAgeData,
           appointmentStatusData: processedAppointmentStatusData,
           treatmentPlanStatusData: processedTreatmentPlanStatusData,
+          // Pass the UPCOMING trend data instead of the past trend
+          upcomingWeeklyAppointmentTrendData: finalUpcomingWeeklyTrendData, 
       });
 
 
@@ -679,6 +755,8 @@ export function Dashboard() {
             patientAgeData={chartData.patientAgeData || []}
             appointmentStatusData={chartData.appointmentStatusData || []}
             treatmentPlanStatusData={chartData.treatmentPlanStatusData || []}
+            // Pass the upcoming trend data prop (Corrected syntax)
+            upcomingWeeklyAppointmentTrendData={chartData.upcomingWeeklyAppointmentTrendData || []} 
         />
       </div>
       {/* End Dashboard Charts Section */}

@@ -293,7 +293,7 @@ export function ProfilePage() {
                     accept="image/png, image/jpeg, image/gif" // Accept common image types
                     onChange={handleFileChange}
                     disabled={isSaving}
-                    className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                    className="text-sm file:mr-4 file:pt-0 file:pb-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
                   />
                    <p className="text-xs text-muted-foreground mt-1 text-center">Upload a square picture (e.g., 100x100px). Max 2MB (JPG, PNG, GIF).</p> {/* Updated text */}
                 </div>
