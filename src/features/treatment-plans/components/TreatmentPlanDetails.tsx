@@ -473,30 +473,6 @@ export function TreatmentPlanDetails({
 
             {/* Right side: Action Buttons & Close */}
             <div className="flex gap-2 items-center"> {/* Wrap actions in a div */}
-              {/* Cancel Confirmation Dialog (Triggered by Cancel Plan button below) */}
-              <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
-                <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Confirm Cancellation</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Are you sure you want to cancel the treatment plan "{plan.title}"? This action can be reopened later.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={loading}>Back</AlertDialogCancel>
-                  <AlertDialogAction 
-                    onClick={() => onStatusChange(plan.id, 'cancelled')} 
-                    disabled={loading}
-                    // Optional: Add specific styling for cancel confirmation
-                  >
-                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Yes, cancel plan
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-              {/* Note: AlertDialogTrigger is placed below where the button is rendered */}
-              </AlertDialog>
-
               {/* --- Refined Button Logic --- */}
 
               {/* Start Treatment: Only show if status is 'planned' */}
@@ -535,20 +511,41 @@ export function TreatmentPlanDetails({
 
               {/* Cancel Plan: Show if 'planned' or 'in_progress', triggers confirmation */}
               {(plan.status === 'planned' || plan.status === 'in_progress') && (
-                 <AlertDialogTrigger asChild>
-                   <Button
-                     variant="outline"
-                     disabled={loading}
-                     title="Cancel this treatment plan"
-                   >
-                     {loading && showCancelConfirm ? ( // Show loader only if this action is loading
-                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                     ) : (
-                       <X className="h-4 w-4 mr-1" /> // Use X icon for Cancel
-                     )}
-                     Cancel Plan
-                   </Button>
-                 </AlertDialogTrigger>
+                <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      disabled={loading}
+                      title="Cancel this treatment plan"
+                    >
+                      {loading && showCancelConfirm ? ( // Show loader only if this action is loading
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <X className="h-4 w-4 mr-1" /> // Use X icon for Cancel
+                      )}
+                      Cancel Plan
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Confirm Cancellation</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to cancel the treatment plan "{plan.title}"? This action can be reopened later.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={loading}>Back</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => onStatusChange(plan.id, 'cancelled')}
+                        disabled={loading}
+                        // Optional: Add specific styling for cancel confirmation
+                      >
+                        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Yes, cancel plan
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
 
               {/* Reopen Plan: Show if 'completed' or 'cancelled' */}
