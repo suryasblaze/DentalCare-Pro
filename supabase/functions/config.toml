@@ -1,0 +1,6 @@
+[functions]
+  [functions.ai-insights]
+    path = "functions/ai-insights.js"
+    timeout = 10
+    [functions.ai-insights.policy]
+      public = true

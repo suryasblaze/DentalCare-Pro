@@ -22,6 +22,13 @@ const LoginPage: React.FC = () => {
     setIsLoading(true);
     try {
       await signIn(email, password);
+      if ('Notification' in window && Notification.permission !== 'granted') {
+        Notification.requestPermission().then((permission) => {
+          if (permission === 'granted') {
+            console.log('Notification permission granted.');
+          }
+        });
+      }
     } catch (err: any) {
       console.error('Login failed:', err);
       setError(err.message || 'Failed to log in. Please check your credentials.');

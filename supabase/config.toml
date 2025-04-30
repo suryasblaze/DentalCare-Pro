@@ -6,6 +6,7 @@ project_id = "project"
 
 [api]
 enabled = true
+extra_headers = { "Access-Control-Allow-Origin" = ["http://localhost:3000", "https://your-frontend-domain.com"] }
 # Port to use for the API URL.
 port = 54321
 # Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
@@ -277,13 +278,12 @@ enabled = false
 
 [edge_runtime]
 enabled = true
-# Configure one of the supported request policies: `oneshot`, `per_worker`.
-# Use `oneshot` for hot reload, or `per_worker` for load testing.
-policy = "oneshot"
-# Port to attach the Chrome inspector for debugging edge functions.
-inspector_port = 8083
-# The Deno major version to use.
-deno_version = 1
+
+[functions]
+ai-insights = { path = "supabase/functions/ai-insights" }
+policy = { type = "per_worker" }
+inspector_port = { port = 8083 }
+deno_version = { major_version = 2 }
 
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"

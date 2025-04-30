@@ -77,6 +77,14 @@ export type CommunicationChannel = Database['public']['Tables']['patient_communi
 export type CommunicationStatus = Database['public']['Tables']['patient_communications']['Row']['status'];
 export type AbsenceReason = Database['public']['Tables']['absences']['Row']['reason'];
 
+import type { Database } from '@/lib/database.types';
+
+// Add inventory_notifications type
+export type InventoryNotification = Database['public']['Tables']['inventory_notifications']['Row'];
+export type InventoryNotificationInsert = Database['public']['Tables']['inventory_notifications']['Insert'];
+export type InventoryNotificationUpdate = Database['public']['Tables']['inventory_notifications']['Update'];
+
+
 
 // --- JSON Types ---
 // Define a generic Json type or specific structures if known

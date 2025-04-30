@@ -7,7 +7,10 @@ import {
   Calendar,
   Users,
   Stethoscope,
-  ClipboardList, // Added icon for medical records
+  ClipboardList,
+  Package,
+  Archive,
+  BarChart, // Added icon for Reports
   Settings as SettingsIcon,
 } from "lucide-react";
 
@@ -36,6 +39,21 @@ const navigation = [
     name: "Patient Medical Record", // New navigation item
     href: "/patient-medical-records", // New route
     icon: ClipboardList, // Use the imported icon
+  },
+  {
+    name: "Inventory",
+    href: "/inventory",
+    icon: Package,
+  },
+  {
+    name: "Assets",
+    href: "/assets",
+    icon: Archive,
+  },
+   {
+    name: "Reports",
+    href: "/reports",
+    icon: BarChart, // Use the imported icon
   },
   {
     name: "Settings",

@@ -9,7 +9,10 @@ import { Settings } from './pages/Settings';
 import { ProfilePage } from './pages/ProfilePage';
 import { PaymentsSubscriptionPage } from './pages/PaymentsSubscriptionPage';
 import { PatientMedicalRecordsPage } from './pages/PatientMedicalRecordsPage'; // Re-import the new page
-import SearchResultsPage from './pages/SearchResultsPage'; // Import SearchResultsPage
+import InventoryPage from './features/inventory/pages/InventoryPage';
+import AssetsPage from './features/assets/pages/AssetsPage';
+import ReportsPage from './pages/ReportsPage'; // Import Reports Page
+import SearchResultsPage from './pages/SearchResultsPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Toaster } from './components/ui/toaster';
 import { Loader2 } from 'lucide-react'; // Import loader
@@ -51,8 +54,11 @@ function AppContent() {
           <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<Settings />} />
           <Route path="payments-subscription" element={<PaymentsSubscriptionPage />} />
-          <Route path="patient-medical-records" element={<PatientMedicalRecordsPage />} /> {/* Re-add route for medical records */}
-          <Route path="search" element={<SearchResultsPage />} /> {/* Add Search route */}
+          <Route path="patient-medical-records" element={<PatientMedicalRecordsPage />} />
+          <Route path="inventory" element={<InventoryPage />} />
+          <Route path="assets" element={<AssetsPage />} />
+          <Route path="reports" element={<ReportsPage />} /> {/* Add Reports route */}
+          <Route path="search" element={<SearchResultsPage />} />
           {/* Redirect any unknown protected path to dashboard */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

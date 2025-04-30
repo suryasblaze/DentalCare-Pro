@@ -20,10 +20,15 @@ type TreatmentPlanInsert = Database['public']['Tables']['treatment_plans']['Inse
 type TreatmentRow = Database['public']['Tables']['treatments']['Row'];
 type TreatmentInsert = Database['public']['Tables']['treatments']['Insert'];
 type StaffRow = Database['public']['Tables']['staff']['Row'];
+type InventoryItemRow = Database['public']['Tables']['inventory_items']['Row'];
+type InventoryItemInsert = Database['public']['Tables']['inventory_items']['Insert'];
+type InventoryItemUpdate = Database['public']['Tables']['inventory_items']['Update'];
+type AssetRow = Database['public']['Tables']['assets']['Row'];
+type AssetInsert = Database['public']['Tables']['assets']['Insert'];
+type AssetUpdate = Database['public']['Tables']['assets']['Update'];
 // Add type for the new table
 type PatientToothConditionRow = Database['public']['Tables']['patient_tooth_conditions']['Row'];
 type PatientToothConditionInsert = Database['public']['Tables']['patient_tooth_conditions']['Insert'];
-// Removed unused PatientToothConditionUpdate
 
 // Re-adding placeholder types as they are referenced in generateTreatmentPlan
 type PatientAssessmentRow = any;
@@ -95,18 +100,62 @@ export const api = {
       }
     },
 
-    // Delete file from Supabase Storage
-    async deleteFile(filePath: string) {
+    // Delete file from Supabase Storage (Generic, specify bucket)
+    async deleteFile(filePath: string, bucket: string) {
       try {
         const { error } = await supabase.storage
-          .from('medical-records')
+          .from(bucket)
           .remove([filePath]);
 
         if (error) throw error;
 
         return true;
       } catch (error) {
-        console.error('Error deleting file:', error);
+        console.error(`Error deleting file from bucket ${bucket}:`, error);
+        throw error;
+      }
+    },
+
+    // Upload file specifically for Inventory Photos
+    async uploadInventoryPhoto(file: File, itemId: string) {
+      const bucket = 'inventory-photos';
+      try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${itemId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+
+        const { data, error } = await supabase.storage
+          .from(bucket)
+          .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+        if (error) throw error;
+
+        const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(data.path);
+
+        return { path: data.path, url: publicUrl, name: file.name, size: file.size, type: file.type };
+      } catch (error) {
+        console.error(`Error uploading to ${bucket}:`, error);
+        throw error;
+      }
+    },
+
+    // Upload file specifically for Asset Photos
+    async uploadAssetPhoto(file: File, assetId: string) {
+      const bucket = 'asset-photos';
+      try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${assetId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+
+        const { data, error } = await supabase.storage
+          .from(bucket)
+          .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+        if (error) throw error;
+
+        const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(data.path);
+
+        return { path: data.path, url: publicUrl, name: file.name, size: file.size, type: file.type };
+      } catch (error) {
+        console.error(`Error uploading to ${bucket}:`, error);
         throw error;
       }
     }
@@ -1367,7 +1416,7 @@ export const api = {
         await api.patients.update(patientId, { documents: documents } as any);
 
         // Delete the file from storage
-        await api.storage.deleteFile(documentPath);
+        await api.storage.deleteFile(documentPath, 'medical-records'); // Specify bucket
 
         return true;
       } catch (error) {
@@ -1376,6 +1425,189 @@ export const api = {
       }
     }
   },
+
+  // --- Inventory API ---
+  inventory: {
+    async getAll(): Promise<InventoryItemRow[]> {
+      const cacheKey = 'inventory:all';
+      const cachedData = globalCache.get<InventoryItemRow[]>(cacheKey);
+      if (cachedData) return cachedData;
+
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      globalCache.set(cacheKey, data || []);
+      return data || [];
+    },
+
+    async getById(id: string): Promise<InventoryItemRow | null> {
+      const cacheKey = `inventory:${id}`;
+      const cachedData = globalCache.get<InventoryItemRow>(cacheKey);
+      if (cachedData) return cachedData;
+
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      if (data) globalCache.set(cacheKey, data);
+      return data;
+    },
+
+    async create(item: InventoryItemInsert): Promise<InventoryItemRow> {
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .insert(item)
+        .select()
+        .single();
+
+      if (error) throw error;
+      globalCache.invalidatePattern(/^inventory/);
+      return data;
+    },
+
+    async update(id: string, item: InventoryItemUpdate): Promise<InventoryItemRow> {
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .update(item)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      globalCache.invalidate(`inventory:${id}`);
+      globalCache.invalidate('inventory:all');
+      return data;
+    },
+
+    async delete(id: string): Promise<void> {
+      // Optionally delete associated photo first
+      const item = await api.inventory.getById(id);
+      if (item?.photo_url) {
+        // Extract path from URL (assuming standard Supabase public URL structure)
+        try {
+          const urlParts = new URL(item.photo_url);
+          const path = urlParts.pathname.split('/inventory-photos/')[1];
+          if (path) {
+            await api.storage.deleteFile(path, 'inventory-photos');
+          }
+        } catch (e) { console.error("Error parsing/deleting inventory photo URL:", e); }
+      }
+
+      const { error } = await supabase
+        .from('inventory_items')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      globalCache.invalidate(`inventory:${id}`);
+      globalCache.invalidate('inventory:all');
+    },
+
+    async uploadPhoto(file: File, itemId: string): Promise<{ path: string; url: string }> {
+      const fileData = await api.storage.uploadInventoryPhoto(file, itemId);
+      // Update item record with the URL
+      await api.inventory.update(itemId, { photo_url: fileData.url });
+      return fileData;
+    }
+  },
+  // --- End Inventory API ---
+
+  // --- Assets API ---
+  assets: {
+    async getAll(): Promise<AssetRow[]> {
+      const cacheKey = 'assets:all';
+      const cachedData = globalCache.get<AssetRow[]>(cacheKey);
+      if (cachedData) return cachedData;
+
+      const { data, error } = await supabase
+        .from('assets')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      globalCache.set(cacheKey, data || []);
+      return data || [];
+    },
+
+    async getById(id: string): Promise<AssetRow | null> {
+      const cacheKey = `assets:${id}`;
+      const cachedData = globalCache.get<AssetRow>(cacheKey);
+      if (cachedData) return cachedData;
+
+      const { data, error } = await supabase
+        .from('assets')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      if (data) globalCache.set(cacheKey, data);
+      return data;
+    },
+
+    async create(asset: AssetInsert): Promise<AssetRow> {
+      const { data, error } = await supabase
+        .from('assets')
+        .insert(asset)
+        .select()
+        .single();
+
+      if (error) throw error;
+      globalCache.invalidatePattern(/^assets/);
+      return data;
+    },
+
+    async update(id: string, asset: AssetUpdate): Promise<AssetRow> {
+      const { data, error } = await supabase
+        .from('assets')
+        .update(asset)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      globalCache.invalidate(`assets:${id}`);
+      globalCache.invalidate('assets:all');
+      return data;
+    },
+
+    async delete(id: string): Promise<void> {
+      // Optionally delete associated photo first
+      const asset = await api.assets.getById(id);
+      if (asset?.photo_url) {
+        try {
+          const urlParts = new URL(asset.photo_url);
+          const path = urlParts.pathname.split('/asset-photos/')[1];
+          if (path) {
+            await api.storage.deleteFile(path, 'asset-photos');
+          }
+        } catch (e) { console.error("Error parsing/deleting asset photo URL:", e); }
+      }
+
+      const { error } = await supabase
+        .from('assets')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      globalCache.invalidate(`assets:${id}`);
+      globalCache.invalidate('assets:all');
+    },
+
+    async uploadPhoto(file: File, assetId: string): Promise<{ path: string; url: string }> {
+      const fileData = await api.storage.uploadAssetPhoto(file, assetId);
+      // Update asset record with the URL
+      await api.assets.update(assetId, { photo_url: fileData.url });
+      return fileData;
+    }
+  },
+  // --- End Assets API ---
 
   // Add a new section for communication functions
   communications: {
