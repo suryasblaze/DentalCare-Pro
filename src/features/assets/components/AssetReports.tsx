@@ -12,11 +12,11 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { getAssets } from '../services/assetService'; // Use asset service
 import { AssetRow, AssetCategory, AssetStatus } from '../types'; // Use asset types
-// Placeholder for chart component
-// import AssetCharts from './AssetCharts'; // If you create a dedicated chart component
+// Import the chart component
+import AssetCharts from './AssetCharts'; // Uncommented
 
 // Define categories and statuses for filters
-const assetCategories: AssetCategory[] = ['Equipment', 'Furniture', 'IT', 'Other'];
+const assetCategories: AssetCategory[] = ['Equipment & Tools', 'Furniture', 'IT', 'Other'];
 const assetStatuses: AssetStatus[] = ['Active', 'Under Maintenance', 'Retired', 'Disposed'];
 
 const AssetReports: React.FC = () => {
@@ -250,13 +250,15 @@ const AssetReports: React.FC = () => {
             ) : (
                 <div className="h-60 border rounded-md flex items-center justify-center text-muted-foreground">
                     No assets match the selected criteria.
-                </div>
-            )}
-             {/* Placeholder for Charts */}
-             {/* <AssetCharts data={filteredAssetData} /> */}
-         </CardContent>
-      </Card>
-    </div>
+                 </div>
+             )}
+              {/* Integrate Charts */}
+              <div className="mt-6"> {/* Add some margin */}
+                 <AssetCharts assetData={filteredAssetData} /> {/* Pass filtered data */}
+              </div>
+          </CardContent>
+       </Card>
+     </div>
   );
 };
 

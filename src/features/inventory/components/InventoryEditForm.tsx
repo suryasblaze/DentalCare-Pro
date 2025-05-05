@@ -3,6 +3,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/supabase';
 import { InventoryItemRow } from '../types';
 import InvoiceUpload from './InvoiceUpload';
+import { useRealTimeSubscription } from '@/lib/hooks/useRealTimeSubscription';
 
 interface InventoryEditFormProps {
   item: InventoryItemRow;
@@ -20,6 +21,14 @@ const InventoryEditForm: React.FC<InventoryEditFormProps> = ({ item, onClose }) 
     setExpiryDate(item.expiry_date ?? '');
     setPurchasePrice(item.purchase_price ?? 0);
   }, [item]);
+
+  useRealTimeSubscription('inventory_items', (payload) => {
+    if (payload.eventType === 'UPDATE' && payload.new.id === item.id) {
+      setQuantity(payload.new.quantity);
+      setExpiryDate(payload.new.expiry_date);
+      setPurchasePrice(payload.new.purchase_price);
+    }
+  });
 
   const handleSaveChanges = async () => {
     try {

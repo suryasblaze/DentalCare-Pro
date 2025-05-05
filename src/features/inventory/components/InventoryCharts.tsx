@@ -1,9 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react'; // Import useEffect
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line } from 'recharts'; // Added LineChart
+// Import AreaChart, Area, CartesianGrid
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, AreaChart, Area, CartesianGrid } from 'recharts';
 import { InventoryItem, InventoryItemCategory, StockStatus } from '../types';
 import { InventoryLogEntry } from '../services/inventoryService'; // Import the log entry type
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; // Import Select component
+// Select component removed
+import { cn } from '@/lib/utils'; // Import cn for conditional classes
+// Combobox import removed
+
 
 interface InventoryChartsProps {
   inventoryData: InventoryItem[];
@@ -11,15 +15,18 @@ interface InventoryChartsProps {
 }
 
 // Define colors (can be customized or sourced from a theme)
-const CATEGORY_COLORS = ['#4F46E5', '#60A5FA', '#34D399']; // Indigo, Blue, Emerald
-const STATUS_COLORS = {
+// Use colors consistent with DashboardCharts
+const CATEGORY_COLORS = ['#4F46E5', '#60A5FA', '#34D399', '#FBBF24', '#F87171']; // Indigo, Blue, Emerald, Amber, Red (more options if needed)
+const STATUS_COLORS: Record<StockStatus, string> = { // Explicitly type the keys
     'In Stock': '#22C55E', // Green
     'Low Stock': '#FBBF24', // Amber
     'Expired': '#F87171', // Red
 };
+const BAR_CHART_COLORS = ['#4F46E5', '#A5B4FC']; // Indigo for quantity, Lighter Indigo for threshold
 
 const InventoryCharts: React.FC<InventoryChartsProps> = ({ inventoryData = [], logData = [] }) => {
-  const [selectedItemId, setSelectedItemId] = useState<string | undefined>(inventoryData[0]?.id); // State for selected item
+
+  // selectedItemId state and effect removed
 
   // Memoize processed data to avoid recalculation on every render
   const categoryData = useMemo(() => {
@@ -29,9 +36,9 @@ const InventoryCharts: React.FC<InventoryChartsProps> = ({ inventoryData = [], l
       'Consumables': 0,
     };
     inventoryData.forEach(item => {
-      // Assert item.category as InventoryItemCategory before indexing
-      const category = item.category as InventoryItemCategory;
-      if (counts[category] !== undefined) {
+      // Cast to any to bypass TS error, assuming 'category' exists
+      const category = (item as any).category as InventoryItemCategory;
+      if (category && counts[category] !== undefined) {
         counts[category]++;
       }
     });
@@ -59,52 +66,76 @@ const InventoryCharts: React.FC<InventoryChartsProps> = ({ inventoryData = [], l
   const totalCategories = categoryData.reduce((sum, entry) => sum + entry.value, 0);
   const totalStatuses = statusData.reduce((sum, entry) => sum + entry.value, 0);
 
-    // Function to process log data for line chart
-    const processLogData = (itemId: string | undefined) => {
-        if (!itemId) return []; // Return empty array if no item is selected
+    // Function to process ALL log data for the overall inventory trend
+    const processOverallTrendData = (): { timestamp: number; name: string; value: number }[] => {
+        // Calculate current total quantity from inventoryData
+        const currentTotalQuantity = inventoryData.reduce((sum, item: any) => sum + (item.quantity || 0), 0);
 
-        // Filter log data for the specific item
-        const itemLogs = logData.filter(log => log.inventory_item_id === itemId);
+        // Sort all logs chronologically
+        const allLogsSorted = [...logData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-        // Group log entries by date
-        const groupedLogs = itemLogs.reduce((acc: Record<string, any[]>, log) => {
-            const date = new Date(log.created_at).toLocaleDateString(); // Format date
-            if (!acc[date]) {
-                acc[date] = [];
+        // Use a Map to store points keyed by timestamp to ensure uniqueness and chronological order
+        const points = new Map<number, { timestamp: number; name: string; value: number }>();
+
+        if (allLogsSorted.length === 0) {
+            // No logs at all: Show only current total state
+            const now = Date.now();
+            points.set(now, { timestamp: now, name: new Date(now).toLocaleDateString(), value: currentTotalQuantity });
+        } else {
+            // Logs exist: Calculate initial total state and process logs
+            const overallTotalChange = allLogsSorted.reduce((sum, log) => sum + log.quantity_change, 0);
+            const initialTotalQuantity = currentTotalQuantity - overallTotalChange;
+            const firstLogTimestamp = new Date(allLogsSorted[0].created_at).getTime();
+
+            // Add initial point (total state *before* first log)
+            const initialTimestamp = firstLogTimestamp - 1;
+            points.set(initialTimestamp, {
+                timestamp: initialTimestamp,
+                name: new Date(initialTimestamp).toLocaleDateString(),
+                value: initialTotalQuantity
+            });
+
+            // Add points for each log entry (total state *after* the change)
+            let cumulativeTotalQuantity = initialTotalQuantity;
+            allLogsSorted.forEach(log => {
+                cumulativeTotalQuantity += log.quantity_change;
+                const logTimestamp = new Date(log.created_at).getTime();
+                points.set(logTimestamp, { // Map automatically handles overwrites for the same timestamp
+                    timestamp: logTimestamp,
+                    name: new Date(logTimestamp).toLocaleDateString(),
+                    value: cumulativeTotalQuantity
+                });
+            });
+
+            // Ensure the current total state is represented
+            const lastPointTimestamp = Array.from(points.keys()).pop() ?? initialTimestamp;
+            const nowTimestamp = Date.now();
+            const oneDay = 24 * 60 * 60 * 1000;
+            const lastPointValue = points.get(lastPointTimestamp)?.value;
+
+            if (lastPointValue !== currentTotalQuantity || (nowTimestamp - lastPointTimestamp > oneDay)) {
+                 points.set(nowTimestamp, { timestamp: nowTimestamp, name: new Date(nowTimestamp).toLocaleDateString(), value: currentTotalQuantity });
             }
-            acc[date].push(log);
-            return acc;
-        }, {});
+        }
 
-        // Calculate cumulative quantity for each date
-        let cumulativeQuantity = 0;
-        const chartData = Object.entries(groupedLogs).sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime()).map(([date, logs]) => { // Sort by date
-            const dailyChange = logs.reduce((sum, log: any) => sum + log.quantity_change, 0);
-            cumulativeQuantity += dailyChange;
-            return {
-                name: date,
-                value: cumulativeQuantity,
-            };
-        });
-
+        // Convert map values to an array. Map preserves insertion order (chronological).
+        const chartData = Array.from(points.values());
         return chartData;
     };
 
-    // Legend for Category Chart
-    const renderCategoryLegend = (props: any) => {
+    // Generic Legend Renderer matching Dashboard style
+    const renderCustomLegend = (props: any, totalValue: number) => {
         const { payload } = props;
         return (
-            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 w-full mt-4 text-xs text-muted-foreground">
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 w-full mt-4 text-xs">
                 {payload.map((entry: any, index: number) => {
-                    // Use totalCategories for percentage calculation
-                    const percentage = totalCategories > 0 ? ((entry.payload.value / totalCategories) * 100).toFixed(1) : 0;
+                    const percentage = totalValue > 0 ? ((entry.payload.value / totalValue) * 100).toFixed(1) : 0;
                     return (
-                        <div key={`legend-cat-${index}`} className="flex items-center">
+                        <div key={`legend-${entry.payload.name}-${index}`} className="flex items-center">
                             <span
                                 className="w-2 h-2 rounded-full mr-1.5"
                                 style={{ backgroundColor: entry.color }}
                             ></span>
-                            {/* Display Name (entry.payload.name) and Percentage */}
                             {entry.payload.name} ({percentage}%)
                         </div>
                     );
@@ -113,28 +144,8 @@ const InventoryCharts: React.FC<InventoryChartsProps> = ({ inventoryData = [], l
         );
     };
 
-    // Legend for Status Chart
-    const renderStatusLegend = (props: any) => {
-        const { payload } = props;
-        return (
-            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 w-full mt-4 text-xs text-muted-foreground">
-                {payload.map((entry: any, index: number) => {
-                     // Use totalStatuses for percentage calculation
-                    const percentage = totalStatuses > 0 ? ((entry.payload.value / totalStatuses) * 100).toFixed(1) : 0;
-                    return (
-                        <div key={`legend-stat-${index}`} className="flex items-center">
-                            <span
-                                className="w-2 h-2 rounded-full mr-1.5"
-                                style={{ backgroundColor: entry.color }}
-                            ></span>
-                             {/* Display Name (entry.payload.name) and Percentage */}
-                            {entry.payload.name} ({percentage}%)
-                        </div>
-                    );
-                })}
-            </div>
-        );
-    };
+    // comboboxOptions removed
+
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3"> {/* Adjust grid as needed */}
@@ -144,30 +155,31 @@ const InventoryCharts: React.FC<InventoryChartsProps> = ({ inventoryData = [], l
           <CardTitle className="text-sm font-medium">Items by Category</CardTitle>
           {/* Optional: Add filters or actions */}
         </CardHeader>
-        <CardContent className="flex flex-col items-center">
-          <ResponsiveContainer width="100%" height={180}>
+        <CardContent className="flex flex-col items-center pt-4"> {/* Added pt-4 */}
+          <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie
                 data={categoryData}
                 cx="50%"
                 cy="50%"
-                innerRadius={50} // Add innerRadius for donut chart
-                outerRadius={75} // Adjust outer radius slightly
-                paddingAngle={2} // Slightly increase padding angle
+                innerRadius={50}
+                outerRadius={80} // Match Dashboard Pie
+                paddingAngle={1} // Match Dashboard Pie
                 dataKey="value"
                 startAngle={90}
-                endAngle={450}
+                endAngle={450} // 360 + 90
               >
                 {categoryData.map((entry, index) => (
                   <Cell key={`cell-cat-${index}`} fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]} stroke={CATEGORY_COLORS[index % CATEGORY_COLORS.length]}/>
                 ))}
               </Pie>
-              <Tooltip formatter={(value: number, name: string) => [`${value} (${totalCategories > 0 ? ((value / totalCategories) * 100).toFixed(1) : 0}%)`, name]} />
-               {/* Use the specific legend renderer for categories */}
-               <Legend content={renderCategoryLegend} />
+              <Tooltip
+                formatter={(value: number, name: string) => [`${value} (${totalCategories > 0 ? ((value / totalCategories) * 100).toFixed(1) : 0}%)`, name]}
+                contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px' }} // Match Dashboard Tooltip
+              />
+              <Legend content={(props) => renderCustomLegend(props, totalCategories)} />
             </PieChart>
           </ResponsiveContainer>
-          {/* Manual Legend - Replaced by Recharts Legend with custom content */}
         </CardContent>
       </Card>
 
@@ -176,94 +188,145 @@ const InventoryCharts: React.FC<InventoryChartsProps> = ({ inventoryData = [], l
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Items by Status</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col items-center">
-          <ResponsiveContainer width="100%" height={180}>
+        <CardContent className="flex flex-col items-center pt-4"> {/* Added pt-4 */}
+          <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie
                 data={statusData}
                 cx="50%"
                 cy="50%"
-                innerRadius={50} // Add innerRadius for donut chart
-                outerRadius={75} // Adjust outer radius slightly
-                paddingAngle={2} // Slightly increase padding angle
+                innerRadius={50}
+                outerRadius={80} // Match Dashboard Pie
+                paddingAngle={1} // Match Dashboard Pie
                 dataKey="value"
                 startAngle={90}
-                endAngle={450}
+                endAngle={450} // 360 + 90
               >
                 {statusData.map((entry, index) => (
+                  // Use STATUS_COLORS[entry.name as StockStatus] for type safety if needed, but entry.name should be correct here
                   <Cell key={`cell-stat-${index}`} fill={STATUS_COLORS[entry.name]} stroke={STATUS_COLORS[entry.name]}/>
                 ))}
               </Pie>
-              <Tooltip formatter={(value: number, name: string) => [`${value} (${totalStatuses > 0 ? ((value / totalStatuses) * 100).toFixed(1) : 0}%)`, name]} />
-               {/* Use the specific legend renderer for statuses */}
-               <Legend content={renderStatusLegend} />
+              <Tooltip
+                formatter={(value: number, name: string) => [`${value} (${totalStatuses > 0 ? ((value / totalStatuses) * 100).toFixed(1) : 0}%)`, name]}
+                contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px' }} // Match Dashboard Tooltip
+              />
+              <Legend content={(props) => renderCustomLegend(props, totalStatuses)} />
             </PieChart>
           </ResponsiveContainer>
-           {/* Manual Legend - Replaced by Recharts Legend with custom content */}
         </CardContent>
       </Card>
 
-      {/* Item Quantity Bar Chart */}
+      {/* Item Quantity Bar Chart - Styled like Dashboard */}
       <Card className="md:col-span-2 lg:col-span-3"> {/* Span across more columns */}
-        <CardHeader>
+        <CardHeader className="pb-2"> {/* Reduced padding */}
           <CardTitle className="text-sm font-medium">Item Quantities</CardTitle>
+           <p className="text-xs text-muted-foreground">Current stock vs. low stock threshold</p> {/* Added description */}
         </CardHeader>
-        <CardContent>
+        <CardContent className="pb-4 pl-2 pr-4"> {/* Adjusted padding */}
           <ResponsiveContainer width="100%" height={300}>
             <BarChart
-              data={inventoryData} // Use the raw filtered data
-              margin={{
-                top: 5,
-                right: 30,
-                left: 20,
-                bottom: 5,
-              }}
+              data={inventoryData}
+              margin={{ top: 5, right: 5, left: -10, bottom: 5 }} // Adjusted margins
+              barGap={4} // Add gap between bars of the same category
+              barCategoryGap="20%" // Add gap between categories
             >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="item_name" angle={-45} textAnchor="end" height={70} interval={0} tick={{ fontSize: 10 }} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="quantity" fill="#8884d8" name="Quantity" />
-              <Bar dataKey="low_stock_threshold" fill="#FBBF24" name="Low Stock Threshold" />
+              {/* Removed CartesianGrid */}
+              <XAxis
+                dataKey="item_name"
+                axisLine={false}
+                tickLine={false}
+                dy={10} // Offset like dashboard
+                style={{ fontSize: '10px' }} // Smaller font for potentially many items
+                interval={0} // Show all labels
+                angle={-45} // Keep angle if needed for long names
+                textAnchor="end"
+                height={60} // Adjust height for angled labels
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                width={30} // Match dashboard
+                style={{ fontSize: '12px' }}
+                allowDecimals={false} // Whole numbers for quantity
+              />
+              <Tooltip
+                cursor={{fill: 'rgba(79, 70, 229, 0.1)'}} // Indigo tint on hover
+                contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px' }}
+                formatter={(value: number, name: string) => [`${value}`, name === 'quantity' ? 'Quantity' : 'Low Stock Threshold']} // Simple value display
+              />
+              {/* Removed Legend - Tooltip provides info */}
+              <Bar dataKey="quantity" fill={BAR_CHART_COLORS[0]} name="Quantity" radius={[4, 4, 0, 0]} barSize={10} />
+              <Bar dataKey="low_stock_threshold" fill={BAR_CHART_COLORS[1]} name="Low Stock Threshold" radius={[4, 4, 0, 0]} barSize={10} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
 
-      {/* Inventory Trend Line Chart */}
+      {/* Overall Inventory Trend Chart */}
       <Card className="md:col-span-2 lg:col-span-3">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-medium">Inventory Trend</CardTitle>
-           <Select value={selectedItemId} onValueChange={setSelectedItemId}>
-              <SelectTrigger className="w-[180px] h-8 text-xs">
-                <SelectValue placeholder="Select Item" />
-              </SelectTrigger>
-              <SelectContent>
-                {inventoryData.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>{item.item_name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <CardHeader className="flex flex-row items-center justify-between pb-2"> {/* Reduced padding */}
+          <div>
+            <CardTitle className="text-sm font-medium">Overall Inventory Trend</CardTitle>
+            <p className="text-xs text-muted-foreground">Total quantity changes over time</p> {/* Updated description */}
+          </div>
+           {/* Item selector removed */}
         </CardHeader>
-        <CardContent>
+        <CardContent className="pb-4 pl-2 pr-4"> {/* Adjusted padding */}
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart
-              data={processLogData(selectedItemId)} // Use selected item's data
-              margin={{
-                top: 5,
-                right: 30,
-                left: 20,
-                bottom: 5,
-              }}
+            <AreaChart
+              data={processOverallTrendData()} // Use the new function
+              margin={{ top: 5, right: 10, left: -10, bottom: 5 }} // Adjusted margins
+              // allowDataOverflow={true} // Invalid prop removed
             >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="value" stroke="#82ca9d" name="Quantity" />
-            </LineChart>
+              {/* Define gradient for area fill */}
+              <defs>
+                <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="#4F46E5" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              {/* Add CartesianGrid */}
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted))" />
+              {/* Use timestamp for dataKey and format ticks */}
+              <XAxis
+                dataKey="timestamp"
+                type="number" // Treat dataKey as numeric timestamp
+                domain={['dataMin', 'dataMax']} // Ensure axis covers all data
+                axisLine={false}
+                tickLine={false}
+                // Format timestamp tick value into a readable date string
+                tickFormatter={(timestamp) => new Date(timestamp).toLocaleDateString()}
+                dy={10}
+                style={{ fontSize: '12px' }}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                width={30}
+                style={{ fontSize: '12px' }}
+                allowDecimals={false}
+                domain={[0, 'dataMax + 10']} // Start at 0, add buffer to max
+              />
+              <Tooltip
+                contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '4px' }}
+                // Ensure tooltip shows correct date (name) and quantity (value)
+                formatter={(value: number, name: string, props) => [`Total Quantity: ${value}`, props.payload.name]}
+              />
+              {/* Change Line to Area */}
+              <Area
+                type="monotone"
+                dataKey="value"
+                connectNulls={true} // Draw line across null/missing points
+                stroke="#4F46E5" // Line color
+                fillOpacity={1}
+                fill="url(#colorValue)" // Use gradient fill
+                strokeWidth={2}
+                dot={{ r: 4, fill: '#4F46E5', stroke: '#fff', strokeWidth: 2 }} // Keep dots
+                activeDot={{ r: 6 }} // Keep active dot
+                name="Total Quantity" // Update name for tooltip
+              />
+            </AreaChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>

@@ -17,7 +17,7 @@ import { useToast } from "@/components/ui/use-toast";
 import useNotifications from '@/lib/hooks/useNotifications'; // Import the hook
 import { NotificationPanel } from '@/components/ui/NotificationPanel'; // Import the panel
 import { Badge } from "@/components/ui/badge"; // Import Badge for count
-import { User } from '@supabase/supabase-js'; // Import User type if needed for metadata
+// Removed unused import: import { User } from '@supabase/supabase-js';
 
 // Import the notification type, assuming it's defined in useNotifications or a central types file
 // If DbNotification is not exported from useNotifications, we might need to define it here or import from types/index.ts
@@ -27,9 +27,9 @@ interface DbNotification {
   id: string;
   user_id: string;
   message: string;
-  is_read: boolean;
+  is_read: boolean | null; // Allow null
   link_url?: string | null;
-  created_at: string;
+  created_at: string | null; // Allow null
 }
 
 
@@ -57,7 +57,7 @@ export function Header() {
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false); // State for panel visibility
 
   // Use the notifications hook
-  const { notifications, markAsRead } = useNotifications();
+  const { notifications, markAsRead, clearNotification } = useNotifications(); // Get clearNotification
 
   // *** Add Logging ***
   console.log("Notifications in Header:", notifications);
@@ -65,8 +65,8 @@ export function Header() {
 
   // Calculate unread count
   const unreadCount = useMemo(() => {
-    // Add explicit type DbNotification for 'n'
-    return notifications.filter((n: DbNotification) => !n.is_read).length;
+    // Filter where is_read is not explicitly true (includes false and null)
+    return notifications.filter((n) => n.is_read !== true).length;
   }, [notifications]);
 
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -129,11 +129,10 @@ export function Header() {
     };
   }, [isNotificationPanelOpen]);
 
-  // Extract user metadata safely using type assertion
-  const userMetadata = (user as any)?.user_metadata;
-  const userFullName = userMetadata?.full_name;
-  const userAvatarUrl = userMetadata?.avatar_url;
-  const userEmail = user?.email; // Email is usually directly on the user object
+  // Extract user details directly from the user object provided by AuthContext
+  const userFullName = user?.full_name; // Assuming full_name is directly on user
+  const userAvatarUrl = user?.avatar_url; // Access avatar_url directly
+  const userEmail = user?.email;
 
   return (
     <> {/* Use Fragment to render panel potentially outside header flow but positioned correctly */}
@@ -236,6 +235,7 @@ export function Header() {
             notifications={notifications}
             onClose={closeNotificationPanel}
             onMarkAsRead={markAsRead}
+            onClearNotification={clearNotification} // Pass the clear function
           />
         </div>
       )}

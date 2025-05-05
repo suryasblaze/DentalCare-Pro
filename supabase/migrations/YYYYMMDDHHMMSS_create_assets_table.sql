@@ -5,7 +5,7 @@ CREATE TABLE assets (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     asset_name text NOT NULL,
-    category text NOT NULL CHECK (category IN ('Equipment', 'Furniture', 'IT', 'Other')), -- Define asset categories
+    category text NOT NULL CHECK (category IN ('Equipment & Tools', 'Furniture', 'IT', 'Other')), -- Define asset categories
     serial_number text UNIQUE, -- Serial numbers should ideally be unique if they exist
     location text, -- e.g., Room/Branch
     purchase_date date,
@@ -44,7 +44,7 @@ CREATE INDEX idx_asset_barcode_value ON assets(barcode_value);
 
 -- Add comments to columns for clarity in Supabase UI
 COMMENT ON COLUMN assets.asset_name IS 'Name or description of the asset';
-COMMENT ON COLUMN assets.category IS 'Type of asset (e.g., Equipment, Furniture, IT)';
+COMMENT ON COLUMN assets.category IS 'Type of asset (e.g., Equipment & Tools, Furniture, IT)';
 COMMENT ON COLUMN assets.serial_number IS 'Unique manufacturer serial number';
 COMMENT ON COLUMN assets.location IS 'Physical location of the asset (e.g., Room 101, Main Branch)';
 COMMENT ON COLUMN assets.purchase_date IS 'Date the asset was acquired';

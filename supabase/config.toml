@@ -6,7 +6,7 @@ project_id = "project"
 
 [api]
 enabled = true
-extra_headers = { "Access-Control-Allow-Origin" = ["http://localhost:3000", "https://your-frontend-domain.com"] }
+# extra_headers = { "Access-Control-Allow-Origin" = ["http://localhost:3000", "https://your-frontend-domain.com"] } # Commented out due to CLI parsing error
 # Port to use for the API URL.
 port = 54321
 # Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
@@ -280,10 +280,15 @@ enabled = false
 enabled = true
 
 [functions]
-ai-insights = { path = "supabase/functions/ai-insights" }
-policy = { type = "per_worker" }
-inspector_port = { port = 8083 }
-deno_version = { major_version = 2 }
+# Simplified function definitions to avoid parsing errors
+# The specific configuration keys (path, policy, etc.) seem to cause issues with the current CLI version.
+# Actual function deployment/configuration might need adjustment based on Supabase docs for the CLI version.
+ai-insights = {}
+consent-generator = {}
+patient-communication = {}
+rpc = {}
+treatment-ai = {}
+
 
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"

@@ -11,6 +11,10 @@ import { TreatmentPlanForm } from '../components/TreatmentPlanForm';
 import { TreatmentForm } from '../components/TreatmentForm';
 import { TreatmentPlanDetails } from '../components/TreatmentPlanDetails';
 import { AITreatmentGenerator } from '@/components/AITreatmentGenerator'; // Added AI Generator import
+// Assuming status enums are defined in database types
+import type { Database } from '@/lib/database.types';
+type TreatmentPlanStatus = Database['public']['Enums']['treatment_plan_status'];
+type TreatmentStatus = Database['public']['Enums']['treatment_status'];
 import { Loader2 } from 'lucide-react';
 import { Plus } from 'lucide-react';
 import { Search } from 'lucide-react';
@@ -115,6 +119,17 @@ export function TreatmentPlansPage() {
   const navigateToPatient = (patientId: string) => {
     navigate(`/patients/${patientId}`);
   };
+
+  // Wrapper functions to satisfy TreatmentPlanDetails prop types
+  const handlePlanStatusChangeWrapper = (planId: string, status: string): Promise<void> => {
+    // Cast the string status to the expected enum type
+    return handleUpdatePlanStatus(planId, status as TreatmentPlanStatus);
+  };
+
+  const handleTreatmentStatusChangeWrapper = (treatmentId: string, status: string): Promise<void> => {
+    // Cast the string status to the expected enum type
+    return handleUpdateTreatmentStatus(treatmentId, status as TreatmentStatus);
+  };
   
   return (
     <div className="space-y-6">
@@ -166,7 +181,7 @@ export function TreatmentPlansPage() {
             </SelectContent>
           </Select>
           
-          <Button variant="outline" onClick={() => setShowAIGeneratorDialog(true)}>
+          <Button className="ai-insights-button" onClick={() => setShowAIGeneratorDialog(true)}>
             <Wand2 className="h-4 w-4 mr-2" />
             AI Generate Plan
           </Button>
@@ -235,9 +250,9 @@ export function TreatmentPlansPage() {
           plan={selectedPlan}
           onRefresh={refreshSelectedPlan}
           onAddTreatment={handleOpenAddTreatmentDialog}
-          onStatusChange={handleUpdatePlanStatus}
+          onStatusChange={handlePlanStatusChangeWrapper} // Use wrapper
           onDeletePlan={deletePlan}
-          onTreatmentStatusChange={handleUpdateTreatmentStatus}
+          onTreatmentStatusChange={handleTreatmentStatusChangeWrapper} // Use wrapper
           onDeleteTreatment={deleteTreatment}
           loading={loading || updatingTreatmentStatus || updatingPlanStatus}
           navigateToPatient={navigateToPatient}

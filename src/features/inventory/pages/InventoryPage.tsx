@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -17,8 +18,9 @@ import { InventoryItem, InventoryItemRow, InventoryItemCategory } from '../types
 import { PlusCircle, Search, FileDown, Bot as IconAI } from 'lucide-react'; 
 import { Input } from '@/components/ui/input'; 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; 
-import { exportToExcel, exportToPdf } from '../utils/exportUtils'; 
+import { exportToExcel, exportToPdf } from '../utils/exportUtils';
 import InventoryReports from '../components/InventoryReports';
+import InvoiceUpload from '../components/InvoiceUpload'; // Import the bulk upload component
 
 const InventoryPage: React.FC = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -80,7 +82,8 @@ const InventoryPage: React.FC = () => {
                  {/* DialogFooter might not be needed if form has Cancel/Save */}
             </DialogContent>
         </Dialog>
-        <Button variant="outline" onClick={() => setShowAIInsights(!showAIInsights)}>
+        {/* Add the custom class for styling */}
+        <Button variant="outline" onClick={() => setShowAIInsights(!showAIInsights)} className="ai-insights-button">
           <IconAI className="mr-2 h-4 w-4" /> {showAIInsights ? 'Hide AI Insights' : 'Show AI Insights'}
         </Button>
       </PageHeader>
@@ -129,6 +132,13 @@ const InventoryPage: React.FC = () => {
             <FileDown className="mr-2 h-4 w-4" /> Export PDF
         </Button>
       </div>
+
+      {/* --- Add Bulk Invoice Upload Section --- */}
+      <div className="mt-4 mb-6"> {/* Add some margin */}
+          <InvoiceUpload onUploadComplete={() => setRefreshTrigger(prev => prev + 1)} />
+      </div>
+      {/* --- End Bulk Invoice Upload Section --- */}
+
 
       {/* AI Insights will be conditionally rendered here */}
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from '@/components/ui/use-toast'; // Import toast for error feedback
-import type { InventoryNotification } from '@/types';
+import type { InventoryNotification, InventoryNotificationInsert } from '@/types'; // Added InventoryNotificationInsert
 import {
   RealtimeChannel,
   RealtimePostgresChangesPayload,
@@ -137,22 +137,55 @@ const useNotifications = () => {
 
   const createNotification = async (userId: string, message: string, linkUrl?: string) => {
     try {
+      // 1. Calculate the timestamp for 2 hours ago
+      const twoHoursAgo = new Date();
+      twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+      const twoHoursAgoISO = twoHoursAgo.toISOString();
+
+      // 2. Check for recent identical notifications
+      // Use { count: 'exact', head: true } which returns { count: number | null, data: null, error: ... }
+      const { count: existingNotificationCount, error: checkError } = await supabase
+        .from('inventory_notifications')
+        .select('*', { count: 'exact', head: true }) // Select '*' but only get count due to head:true
+        .eq('user_id', userId)
+        .eq('message', message) // Match the exact message
+        .gte('created_at', twoHoursAgoISO); // Check if created within the last 2 hours
+
+      if (checkError) {
+        console.error('Error checking for existing notifications:', checkError);
+        // Proceed with creation despite the check error? Or handle differently?
+        // For now, let's log the error and proceed cautiously.
+      }
+
+      // 3. If a recent identical notification exists (count > 0), skip creation
+      if (existingNotificationCount && existingNotificationCount > 0) {
+        console.log(`Skipping notification creation: Identical notification found within the last 2 hours for message: "${message}"`);
+        return; // Exit the function
+      }
+
+      // 4. If no recent identical notification, proceed with creation
+      const notificationData: InventoryNotificationInsert = {
+        user_id: userId,
+        message,
+        link_url: linkUrl,
+        is_read: false,
+      };
+
       const { data, error } = await supabase
         .from('inventory_notifications')
-        .insert([
-          {
-            user_id: userId,
-            message,
-            link_url: linkUrl,
-            is_read: false,
-          },
-        ])
+        .insert([notificationData])
         .select();
 
       if (error) {
         console.error('Error creating notification:', error);
+        toast({ // Added toast for creation error
+          title: "Error",
+          description: `Could not create notification: ${error.message}`,
+          variant: "destructive",
+        });
       } else {
         console.log('Notification created:', data);
+        // Trigger browser notification if permission granted
         if ('Notification' in window && Notification.permission === 'granted') {
           new Notification('New Notification', {
             body: message,
@@ -174,7 +207,37 @@ const useNotifications = () => {
     }
   };
 
-  return { notifications, markAsRead, createNotification };
+  // Function to clear/delete a notification
+  const clearNotification = async (notificationId: string) => {
+    // Optimistically update UI first for better perceived performance
+    setNotifications((prevNotifications) =>
+      prevNotifications.filter((notification) => notification.id !== notificationId)
+    );
+
+    // Then, attempt to delete from the database
+    const { error } = await supabase
+      .from('inventory_notifications')
+      .delete()
+      .eq('id', notificationId);
+
+    if (error) {
+      console.error('Error deleting notification:', error);
+      toast({
+        title: "Error",
+        description: "Could not clear notification. Please try again.",
+        variant: "destructive",
+      });
+      // Optional: Revert UI change if deletion fails (fetch notifications again or add back)
+      // For simplicity, we'll leave the UI optimistic for now.
+    } else {
+      console.log('Notification cleared successfully:', notificationId);
+      // Optionally show a success toast
+      // toast({ title: "Notification Cleared" });
+    }
+  };
+
+
+  return { notifications, markAsRead, createNotification, clearNotification }; // Return the new function
 };
 
 export default useNotifications;

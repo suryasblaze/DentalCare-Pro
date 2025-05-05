@@ -1,7 +1,7 @@
 import { Database } from '@/lib/database.types';
 
 // Define specific types for asset properties based on the schema
-export type AssetCategory = 'Equipment' | 'Furniture' | 'IT' | 'Other';
+export type AssetCategory = 'Equipment & Tools' | 'Furniture' | 'IT' | 'Other';
 export type AssetStatus = 'Active' | 'Under Maintenance' | 'Retired' | 'Disposed';
 
 // Base type derived from Supabase generated types for the 'assets' table

@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label'; // Keep Label for direct use if needed
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Checkbox } from '@/components/ui/checkbox'; // Import Checkbox
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'; // Import FormDescription
 import { useToast } from '@/components/ui/use-toast';
 import { Textarea } from '@/components/ui/textarea'; // Use Textarea for potentially longer fields like supplier_info
 
@@ -18,7 +19,7 @@ import { addAsset, updateAsset } from '../services/assetService';
 // Validation Schema using Zod for Assets
 const assetSchema = z.object({
   asset_name: z.string().min(1, { message: 'Asset name is required' }),
-  category: z.enum(['Equipment', 'Furniture', 'IT', 'Other'], { required_error: 'Category is required' }),
+  category: z.enum(['Equipment & Tools', 'Furniture', 'IT', 'Other'], { required_error: 'Category is required' }),
   serial_number: z.string().optional().nullable(),
   location: z.string().optional().nullable(),
   purchase_date: z.string().optional().nullable(), // Date string (YYYY-MM-DD)
@@ -30,6 +31,7 @@ const assetSchema = z.object({
   supplier_info: z.string().optional().nullable(),
   service_document_url: z.string().url({ message: "Please enter a valid URL" }).optional().nullable(),
   barcode_value: z.string().optional().nullable(),
+  requires_maintenance: z.boolean().optional().default(false), // Add requires_maintenance field
 });
 
 // Infer the type from the schema
@@ -44,7 +46,7 @@ interface AssetFormProps {
 const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) => {
   const { toast } = useToast();
   const isEditMode = !!assetToEdit;
-  const categories: AssetCategory[] = ['Equipment', 'Furniture', 'IT', 'Other'];
+  const categories: AssetCategory[] = ['Equipment & Tools', 'Furniture', 'IT', 'Other'];
   const statuses: AssetStatus[] = ['Active', 'Under Maintenance', 'Retired', 'Disposed'];
 
   // Helper to safely cast category string to enum type
@@ -89,6 +91,7 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
       supplier_info: assetToEdit?.supplier_info ?? '',
       service_document_url: assetToEdit?.service_document_url ?? '',
       barcode_value: assetToEdit?.barcode_value ?? '',
+      requires_maintenance: assetToEdit?.requires_maintenance ?? false, // Add default value
     },
   });
 
@@ -111,6 +114,7 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
         supplier_info: assetToEdit.supplier_info ?? '',
         service_document_url: assetToEdit.service_document_url ?? '',
         barcode_value: assetToEdit.barcode_value ?? '',
+        requires_maintenance: assetToEdit.requires_maintenance ?? false, // Reset requires_maintenance
        });
      } else {
        // Reset to default empty/initial values when adding new
@@ -128,6 +132,7 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
         supplier_info: '',
         service_document_url: '',
         barcode_value: '',
+        requires_maintenance: false, // Reset requires_maintenance for new asset
        });
      }
    }, [assetToEdit, reset]);
@@ -160,7 +165,8 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
 
   return (
     <Form {...form}>
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {/* Use grid for horizontal layout, 2 columns on medium screens */}
+      <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
         {/* Asset Name */}
         <FormField
           control={control}
@@ -237,7 +243,7 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
           control={control}
           name="status"
           render={({ field }) => (
-            <FormItem>
+             <FormItem>
               <FormLabel>Status *</FormLabel>
               <Select onValueChange={field.onChange} value={field.value ?? ''} defaultValue={field.value ?? ''}>
                 <FormControl>
@@ -258,87 +264,122 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
           )}
         />
 
-        {/* Purchase Details */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField
-                control={control}
-                name="purchase_date"
-                render={({ field }) => (
-                <FormItem>
-                    <FormLabel>Purchase Date</FormLabel>
-                    <FormControl>
-                    <Input type="date" {...field} value={field.value ?? ''} />
-                    </FormControl>
-                    <FormMessage />
-                </FormItem>
-                )}
-            />
-            <FormField
-                control={control}
-                name="purchase_price"
-                render={({ field }) => (
-                <FormItem>
-                    <FormLabel>Purchase Price</FormLabel>
-                    <FormControl>
-                    <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} value={String(field.value ?? '')} />
-                    </FormControl>
-                    <FormMessage />
-                </FormItem>
-                )}
-            />
-        </div>
-
-         {/* Warranty */}
+        {/* Warranty Expiry - Moved up to balance columns */}
          <FormField
             control={control}
             name="warranty_expiry_date"
             render={({ field }) => (
-            <FormItem>
-                <FormLabel>Warranty Expiry Date</FormLabel>
+             <FormItem>
+                <FormLabel>Warranty Expiry</FormLabel>
                 <FormControl>
-                <Input type="date" {...field} value={field.value ?? ''} />
+                  <Input type="date" {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
             </FormItem>
             )}
         />
 
-        {/* Maintenance Dates */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField
-                control={control}
-                name="last_serviced_date"
-                render={({ field }) => (
-                <FormItem>
-                    <FormLabel>Last Serviced Date</FormLabel>
-                    <FormControl>
-                    <Input type="date" {...field} value={field.value ?? ''} />
-                    </FormControl>
-                    <FormMessage />
-                </FormItem>
-                )}
-            />
-            <FormField
-                control={control}
-                name="next_maintenance_due_date"
-                render={({ field }) => (
-                <FormItem>
-                    <FormLabel>Next Maintenance Due</FormLabel>
-                    <FormControl>
-                    <Input type="date" {...field} value={field.value ?? ''} />
-                    </FormControl>
-                    <FormMessage />
-                </FormItem>
-                )}
-            />
+        {/* Requires Maintenance Checkbox - Spans full width */}
+        <FormField
+          control={control}
+          name="requires_maintenance"
+          render={({ field }) => (
+            <FormItem className="md:col-span-2"> {/* Span both columns */}
+                {/* Keep the bordered box for visual grouping */}
+                <div className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel>
+                      Requires Maintenance
+                    </FormLabel>
+                    <FormDescription>
+                      Check this box if the asset currently requires maintenance.
+                    </FormDescription>
+                  </div>
+                </div>
+                {/* No FormMessage needed for checkbox typically */}
+            </FormItem>
+          )}
+        />
+
+        {/* Purchase Details - Spans full width */}
+        <div className="md:col-span-2 space-y-2"> {/* Span both columns */}
+            <Label>Purchase Details</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-md border p-4"> {/* Nested grid */}
+                <FormField
+                    control={control}
+                    name="purchase_date"
+                    render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Date</FormLabel>
+                        <FormControl>
+                        <Input type="date" {...field} value={field.value ?? ''} />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )}
+                />
+                <FormField
+                    control={control}
+                    name="purchase_price"
+                    render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Price</FormLabel>
+                        <FormControl>
+                        <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} value={String(field.value ?? '')} />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )}
+                />
+            </div>
         </div>
 
-        {/* Supplier Info */}
+
+        {/* Maintenance Dates - Spans full width */}
+        <div className="md:col-span-2 space-y-2"> {/* Span both columns */}
+            <Label>Maintenance Details</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-md border p-4"> {/* Nested grid */}
+                <FormField
+                    control={control}
+                    name="last_serviced_date"
+                    render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Last Serviced</FormLabel>
+                        <FormControl>
+                        <Input type="date" {...field} value={field.value ?? ''} />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )}
+                />
+                <FormField
+                    control={control}
+                    name="next_maintenance_due_date"
+                    render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Next Due</FormLabel>
+                        <FormControl>
+                        <Input type="date" {...field} value={field.value ?? ''} />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )}
+                />
+            </div>
+        </div>
+
+        {/* Supplier Info - Spans full width */}
         <FormField
           control={control}
           name="supplier_info"
           render={({ field }) => (
-            <FormItem>
+            <FormItem className="md:col-span-2"> {/* Span both columns */}
               <FormLabel>Supplier Info</FormLabel>
               <FormControl>
                 <Textarea placeholder="Supplier name, contact, notes..." {...field} value={field.value ?? ''} />
@@ -353,10 +394,10 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
             control={control}
             name="service_document_url"
             render={({ field }) => (
-            <FormItem>
-                <FormLabel>Service Document URL</FormLabel>
+             <FormItem>
+                <FormLabel>Service Doc URL</FormLabel>
                 <FormControl>
-                <Input type="url" placeholder="https://example.com/invoice.pdf" {...field} value={field.value ?? ''} />
+                  <Input type="url" placeholder="https://example.com/invoice.pdf" {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
             </FormItem>
@@ -368,18 +409,18 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
             control={control}
             name="barcode_value"
             render={({ field }) => (
-            <FormItem>
-                <FormLabel>Barcode/QR Code Value</FormLabel>
+             <FormItem>
+                <FormLabel>Barcode/QR</FormLabel>
                 <FormControl>
-                <Input placeholder="Scan or enter code" {...field} value={field.value ?? ''} />
+                  <Input placeholder="Scan or enter code" {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
             </FormItem>
             )}
         />
 
-        {/* Action Buttons */}
-        <div className="flex justify-end space-x-2 pt-4">
+        {/* Action Buttons - Spans full width */}
+        <div className="md:col-span-2 flex justify-end space-x-2 pt-4"> {/* Span both columns */}
           <Button type="button" variant="outline" onClick={onCancel}>
             Cancel
           </Button>

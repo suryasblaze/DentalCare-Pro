@@ -1,17 +1,20 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react'; // Import useState
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { FieldValues, SubmitHandler } from 'react-hook-form'; // Import SubmitHandler
+import { SubmitHandler } from 'react-hook-form'; // Remove FieldValues again
+import { ScrollArea } from '@/components/ui/scroll-area'; // Import ScrollArea
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { useToast } from '@/components/ui/use-toast'; // For showing feedback
+import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/context/AuthContext'; // Import useAuth
+import { uploadInvoice } from '../services/invoiceService'; // Import uploadInvoice service
 
-import { InventoryItem, NewInventoryItem, UpdateInventoryItem, InventoryItemCategory, InventoryItemRow, StockStatus } from '../types'; // Import InventoryItemRow, StockStatus
+import { InventoryItem, NewInventoryItem, UpdateInventoryItem, InventoryItemCategory, InventoryItemRow, StockStatus } from '../types';
 import { addInventoryItem, updateInventoryItem } from '../services/inventoryService';
 
 // Helper function to calculate stock status
@@ -37,7 +40,7 @@ const calculateStockStatus = (item: InventoryItemRow): StockStatus => {
 // Validation Schema using Zod
 const inventoryItemSchema = z.object({
   item_name: z.string().min(1, { message: 'Item name is required' }),
-  category: z.enum(['Medicines', 'Tools', 'Consumables'], { required_error: 'Category is required' }),
+  category: z.enum(['Medicines', 'Tools', 'Consumables'], { required_error: 'Category is required' }), // Add 'Tools'
   quantity: z.coerce.number().int().min(0, { message: 'Quantity must be 0 or greater' }),
   expiry_date: z.string().optional().nullable(), // Optional date string (YYYY-MM-DD)
   supplier_info: z.string().optional().nullable(),
@@ -51,13 +54,15 @@ type InventoryItemFormData = z.infer<typeof inventoryItemSchema>;
 interface InventoryItemFormProps {
   itemToEdit?: InventoryItemRow | null; // Use InventoryItemRow from DB
   onSave: (savedItem: InventoryItem) => void; // Callback expects calculated status
-  onCancel: () => void; // Callback to close the form/modal
+  onCancel: () => void;
 }
 
 const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSave, onCancel }) => {
   const { toast } = useToast();
-  // Use itemToEdit (InventoryItemRow) directly
+  const { user } = useAuth(); // Get user context
+  const [selectedInvoiceFile, setSelectedInvoiceFile] = useState<File | null>(null); // State for the invoice file
   const isEditMode = !!itemToEdit;
+  // Use the full category list from the type definition
   const categories: InventoryItemCategory[] = ['Medicines', 'Tools', 'Consumables'];
 
   // Helper to safely cast category string to enum type
@@ -120,11 +125,24 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
      }
    }, [itemToEdit, reset]);
 
+   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+       if (event.target.files && event.target.files[0]) {
+           setSelectedInvoiceFile(event.target.files[0]);
+       } else {
+           setSelectedInvoiceFile(null);
+       }
+   };
 
-  // Explicitly type the onSubmit handler parameter
+
   const onSubmit: SubmitHandler<InventoryItemFormData> = async (formData) => {
+    if (!user) {
+        toast({ title: 'Error', description: 'You must be logged in to save items.', variant: 'destructive' });
+        return;
+    }
+
+    let savedItemRow: InventoryItemRow | null = null; // Initialize as null
+
     try {
-      let savedItemRow: InventoryItemRow; // Item returned from DB
       const dataToSave = {
         ...formData,
         // Ensure null for empty optional fields if needed by DB/type
@@ -139,6 +157,31 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
       } else {
         savedItemRow = await addInventoryItem(dataToSave as NewInventoryItem);
         toast({ title: 'Success', description: 'New inventory item added.' });
+
+        // --- Upload Invoice if selected ---
+        if (selectedInvoiceFile && savedItemRow) {
+            try {
+                console.log(`Uploading invoice for new item ID: ${savedItemRow.id}`);
+                await uploadInvoice(selectedInvoiceFile, user.id, savedItemRow.id);
+                toast({ title: 'Invoice Uploaded', description: `Invoice "${selectedInvoiceFile.name}" uploaded successfully.` });
+            } catch (uploadError) {
+                console.error('Invoice upload failed after item creation:', uploadError);
+                // Show a warning toast, but don't fail the whole operation as the item was created
+                toast({
+                    title: 'Warning',
+                    description: `Item was added, but invoice upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
+                    variant: 'default', // Use default or warning variant
+                    duration: 7000, // Longer duration for warning
+                });
+            }
+        }
+        // --- End Invoice Upload ---
+
+      }
+
+      // Ensure savedItemRow is not null before proceeding
+      if (!savedItemRow) {
+          throw new Error("Failed to get saved item data.");
       }
 
       // Calculate status and create the full InventoryItem object
@@ -148,6 +191,7 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
       };
 
       onSave(finalItem); // Pass back the item with calculated status
+      setSelectedInvoiceFile(null); // Clear file input state on success
 
     } catch (error) {
       console.error('Failed to save inventory item:', error);
@@ -163,10 +207,14 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
     // Pass the correctly typed form instance
     <Form {...form}>
       {/* Pass the correctly typed onSubmit handler */}
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <FormField
-          control={control} // Pass the correctly typed control
-          name="item_name"
+      {/* Make the form flex column to contain scroll area and buttons */}
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-full">
+        {/* Wrap form fields in ScrollArea */}
+        <ScrollArea className="flex-grow pr-6"> {/* Add padding-right for scrollbar */}
+          <div className="space-y-4"> {/* Add inner div for spacing */}
+            <FormField
+              control={control as any} // Cast control to any as workaround
+              name="item_name"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Item Name</FormLabel>
@@ -179,7 +227,7 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
         />
 
         <FormField
-          control={control} // Pass the correctly typed control
+          control={control as any} // Cast control to any as workaround
           name="category"
           render={({ field }) => (
             <FormItem>
@@ -205,7 +253,7 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
            <FormField
-            control={control} // Pass the correctly typed control
+            control={control as any} // Cast control to any as workaround
             name="quantity"
             render={({ field }) => (
               <FormItem>
@@ -220,7 +268,7 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
           />
 
           <FormField
-            control={control} // Pass the correctly typed control
+            control={control as any} // Cast control to any as workaround
             name="low_stock_threshold"
             render={({ field }) => (
               <FormItem>
@@ -235,10 +283,11 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
           />
         </div>
 
-
-        <FormField
-          control={control} // Pass the correctly typed control
-          name="expiry_date"
+        {/* Row for Expiry Date and Purchase Price */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FormField
+            control={control as any} // Cast control to any as workaround
+            name="expiry_date"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Expiry Date (Optional)</FormLabel>
@@ -249,11 +298,11 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
               <FormMessage />
             </FormItem>
           )}
-        />
+          />
 
-         <FormField
-          control={control} // Pass the correctly typed control
-          name="purchase_price"
+          <FormField
+            control={control as any} // Cast control to any as workaround
+            name="purchase_price"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Purchase Price (Optional)</FormLabel>
@@ -264,11 +313,14 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
               <FormMessage />
             </FormItem>
           )}
-        />
+          />
+        </div> {/* Close Expiry/Price row */}
 
-        <FormField
-          control={control} // Pass the correctly typed control
-          name="supplier_info"
+        {/* Row for Supplier Info and Attach Invoice */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start"> {/* Use items-start for alignment */}
+          <FormField
+            control={control as any} // Cast control to any as workaround
+            name="supplier_info"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Supplier Info (Optional)</FormLabel>
@@ -278,10 +330,33 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
               <FormMessage />
             </FormItem>
           )}
-        />
+          />
 
-        <div className="flex justify-end space-x-2 pt-4">
-          <Button type="button" variant="outline" onClick={onCancel}>
+          {/* Add Invoice Upload Field - Only show when ADDING new item */}
+          {!isEditMode && (
+            <FormItem className="md:pt-[28px]"> {/* Add padding-top on medium screens to align with label */}
+                {/* <FormLabel>Attach Invoice (Optional)</FormLabel> */} {/* Label removed for better alignment */}
+                <FormControl>
+                    <Input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png" // Define acceptable file types
+                        onChange={handleFileChange}
+                        className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                </FormControl>
+                {selectedInvoiceFile && (
+                    <p className="text-xs text-muted-foreground mt-1">Selected: {selectedInvoiceFile.name}</p>
+                )}
+                {/* No FormMessage needed unless you add specific validation */}
+            </FormItem>
+          )}
+        </div> {/* Close Supplier/Invoice row */}
+          </div> {/* Close inner spacing div */}
+        </ScrollArea> {/* Close ScrollArea */}
+
+        {/* Buttons container - keep outside ScrollArea, prevent shrinking */}
+        <div className="flex justify-end space-x-2 pt-4 flex-shrink-0">
+          <Button type="button" variant="outline" onClick={() => { setSelectedInvoiceFile(null); onCancel(); }}> {/* Clear file on cancel */}
             Cancel
           </Button>
           <Button type="submit" disabled={form.formState.isSubmitting}>

@@ -1,7 +1,8 @@
-import React from 'react'; // Added React import for JSX
+import React from 'react';
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useAuth } from '@/context/AuthContext'; // Import useAuth
 import {
   LayoutDashboard,
   Calendar,
@@ -10,8 +11,10 @@ import {
   ClipboardList,
   Package,
   Archive,
-  BarChart, // Added icon for Reports
+  BarChart,
   Settings as SettingsIcon,
+  FileText, // Import icon for Invoices
+  Bell, // Import icon for Reminders
 } from "lucide-react";
 
 const navigation = [
@@ -46,6 +49,11 @@ const navigation = [
     icon: Package,
   },
   {
+    name: "Invoices", // Add Invoices link
+    href: "/inventory/invoices",
+    icon: FileText,
+  },
+  {
     name: "Assets",
     href: "/assets",
     icon: Archive,
@@ -56,14 +64,49 @@ const navigation = [
     icon: BarChart, // Use the imported icon
   },
   {
+    name: "Reminders",
+    href: "/reminders",
+    icon: Bell,
+  },
+  {
     name: "Settings",
     href: "/settings",
     icon: SettingsIcon,
   },
+  // TODO: Add Staff Leaves link if needed for admin role
 ];
+
+// Define which items are admin-only
+const adminOnlyItems = ["Inventory", "Invoices", "Assets", "Reports", "Reminders"]; // Add Reminders to adminOnlyItems
 
 export function Sidebar() {
   const location = useLocation();
+  const { user } = useAuth(); // Get user from auth context
+
+  // Filter navigation based on user role
+  const filteredNavigation = navigation.filter(item => {
+    if (!user) return false; // Don't show if no user
+
+    // Admins see everything
+    if (user.role === 'admin') {
+      return true;
+    }
+
+    // Doctors see items that are NOT admin-only
+    if (user.role === 'doctor') {
+      return !adminOnlyItems.includes(item.name);
+    }
+
+    // Hide for any other case or if role is missing
+    return false;
+  });
+
+
+  // Don't render sidebar if no user or role doesn't permit any items
+  // (Though Layout usually handles the user check)
+  if (!user || filteredNavigation.length === 0) {
+    return null;
+  }
 
   return (
     <div className="hidden border-r bg-background md:block md:w-64">
@@ -76,7 +119,8 @@ export function Sidebar() {
         </div>
         <div className="flex-1 overflow-auto py-2">
           <nav className="grid items-start px-2 text-sm font-medium">
-            {navigation.map((item) => {
+            {/* Map over the filtered navigation items */}
+            {filteredNavigation.map((item) => {
               const Icon = item.icon;
               const isActive = location.pathname === item.href;
               return (

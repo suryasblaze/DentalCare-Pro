@@ -2,7 +2,9 @@ import React, { useState } from 'react'; // Import useState
 import { Outlet } from 'react-router-dom';
 import { Header } from '@/components/ui/header';
 import { Sidebar } from '@/components/ui/sidebar';
-import { NotificationPanel, DbNotification } from '@/components/ui/NotificationPanel'; // Import NotificationPanel and DbNotification type
+import { useReminderNotifications } from '@/lib/hooks/useReminderNotifications'; // Import the reminder hook
+import { useInventoryAlerts } from '@/lib/hooks/useInventoryAlerts'; // Import the inventory alerts hook
+// Removed NotificationPanel imports as it's handled by Header
 
 // LayoutProps is no longer needed as children are handled by Outlet
 // interface LayoutProps {
@@ -10,26 +12,15 @@ import { NotificationPanel, DbNotification } from '@/components/ui/NotificationP
 // }
 
 export function Layout() {
-  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  // Initialize reminder notifications hook
+  useReminderNotifications();
+  // Initialize inventory alerts hook
+  useInventoryAlerts();
 
-  const handleViewAllNotificationsClick = () => {
-    setIsNotificationPanelOpen((prev) => !prev);
-  };
-
-  const handleCloseNotificationPanel = () => {
-    setIsNotificationPanelOpen(false);
-  };
-
-  // Placeholder notification data matching DbNotification structure
-  const placeholderNotifications: DbNotification[] = [
-    { id: '1', user_id: 'system', message: 'New Appointment Scheduled: Patient John Doe - April 5th, 10:00 AM', is_read: false, created_at: '2025-04-02T10:00:00Z', link_url: '/appointments' },
-    { id: '2', user_id: 'system', message: 'Treatment Plan Update: Patient Jane Smith - Plan approved', is_read: true, created_at: '2025-04-02T09:30:00Z', link_url: '/treatment-plans' },
-    { id: '3', user_id: 'system', message: 'System Alert: Backup completed successfully', is_read: false, created_at: '2025-04-02T08:00:00Z' },
-  ];
-
+  // Removed notification state and handlers from Layout
 
   return (
-    <div className="min-h-screen bg-background relative"> {/* Add relative positioning */}
+    <div className="min-h-screen bg-background"> {/* Removed relative positioning if not needed */}
       <div className="flex h-screen">
         <Sidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
@@ -41,14 +32,7 @@ export function Layout() {
             </div>
           </main>
         </div>
-        {/* Conditionally render NotificationPanel */}
-        {isNotificationPanelOpen && (
-          <NotificationPanel
-            notifications={placeholderNotifications} // Pass placeholder data
-            onClose={handleCloseNotificationPanel} // Pass close handler
-            onMarkAsRead={(id) => console.log('Mark as read (placeholder):', id)} // Add required prop
-          />
-        )}
+        {/* Removed NotificationPanel rendering from Layout */}
       </div>
     </div>
   );
