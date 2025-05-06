@@ -302,7 +302,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ onEditItem, refreshTrigge
                </Button>
             </TableHead>
             <TableHead className="px-6 py-3">Status</TableHead>
-            <TableHead className="px-6 py-3 text-right">Actions</TableHead> {/* Added Actions Header */}
+            {/* Actions Header Removed */}
           </TableRow>
         </TableHeader>
         <TableBody className="bg-white divide-y divide-gray-200">
@@ -340,32 +340,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ onEditItem, refreshTrigge
                   />
                 )}
               </TableCell>
-              <TableCell className="px-6 py-4 whitespace-nowrap text-right"> {/* Added Actions Cell */}
-                 <Button variant="ghost" size="icon" onClick={() => onEditItem(item)} title="Edit">
-                   <Pencil className="h-4 w-4" />
-                 </Button>
-                 <AlertDialog>
-                   <AlertDialogTrigger asChild>
-                     <Button variant="ghost" size="icon" title="Delete">
-                       <Trash2 className="h-4 w-4 text-destructive" />
-                     </Button>
-                   </AlertDialogTrigger>
-                   <AlertDialogContent>
-                     <AlertDialogHeader>
-                       <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                       <AlertDialogDescription>
-                         This action cannot be undone. This will permanently delete the item "{item.item_name}".
-                       </AlertDialogDescription>
-                     </AlertDialogHeader>
-                     <AlertDialogFooter>
-                       <AlertDialogCancel>Cancel</AlertDialogCancel>
-                       <AlertDialogAction onClick={() => handleDelete(item.id)} className="bg-destructive hover:bg-destructive/90">
-                         Delete
-                       </AlertDialogAction>
-                     </AlertDialogFooter>
-                   </AlertDialogContent>
-                 </AlertDialog>
-              </TableCell>
+              {/* Actions Cell Removed */}
             </TableRow>
           ))}
         </TableBody>
