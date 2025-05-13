@@ -31,20 +31,21 @@ import { format } from 'date-fns';
 import DentalChart, { InitialToothState, ToothCondition, DentalChartHandle } from './DentalChart';
 import { api } from '@/lib/api'; // Import the api object
 import { useToast } from '@/components/ui/use-toast'; // Import useToast
+import { AISuggestionForm, AISuggestion } from './AISuggestionForm';
 
 // Define schema for treatment plan form
 export const treatmentPlanSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().min(1, "Description is required"),
   patient_id: z.string().min(1, "Patient is required"),
-  start_date: z.string().min(1, "Start date is required"),
-  end_date: z.string().optional().nullable(),
-  status: z.enum(["planned", "in_progress", "completed", "cancelled"]),
-  priority: z.enum(["low", "medium", "high"]),
-  estimated_cost: z.string().optional().transform(val => val ? parseFloat(val) : null),
-  // Added domain and condition - adjust types/options as needed
   domain: z.string().optional(),
   condition: z.string().optional(),
+  treatment: z.string().min(1, "Select a treatment").optional(),
+  estimated_duration: z.string().optional(),
+  total_visits: z.string().optional(),
+  materials: z.string().optional(),
+  clinical_considerations: z.string().optional(),
+  post_treatment_care: z.string().optional(),
 });
 
 export type TreatmentPlanFormValues = z.infer<typeof treatmentPlanSchema>;
@@ -55,6 +56,14 @@ interface TreatmentPlanFormProps {
   onSubmit: (data: TreatmentPlanFormValues, toothIds: number[]) => Promise<void>;
   patients: any[];
   loading?: boolean;
+}
+
+interface ToothConditionData {
+  tooth_id: number;
+  conditions: ToothCondition[];
+  patient_id: string;
+  id?: string;
+  last_updated_at?: string;
 }
 
 export function TreatmentPlanForm({
@@ -105,13 +114,9 @@ export function TreatmentPlanForm({
       title: '',
       description: '',
       patient_id: '',
-      start_date: format(new Date(), 'yyyy-MM-dd'),
-      end_date: '',
-      status: 'planned',
-      priority: 'medium',
-      estimated_cost: undefined,
-      domain: '', // Added default
-      condition: '', // Added default
+      domain: '',
+      condition: '',
+      treatment: '',
     },
   });
 
@@ -131,9 +136,7 @@ export function TreatmentPlanForm({
     } else {
        form.reset({
          title: '', description: '', patient_id: selectedPatientId || '',
-         start_date: format(new Date(), 'yyyy-MM-dd'), end_date: '',
-         status: 'planned', priority: 'medium', estimated_cost: undefined,
-         domain: '', condition: '', // Reset added fields
+         domain: '', condition: '', treatment: '',
        });
        // Keep selectedToothIds as they might be relevant if reopening for edit
     }
@@ -241,13 +244,25 @@ export function TreatmentPlanForm({
       const initiallySelectedIds: number[] = []; // Store IDs to be initially selected
 
       conditionsData.forEach(item => {
-        // Ensure conditions is an array and filter out null/undefined if necessary
+        // Update the conditions handling
         const validConditions = Array.isArray(item.conditions)
-          // Add explicit type ToothCondition | null | undefined for 'c'
-          ? item.conditions.filter((c: ToothCondition | null | undefined): c is ToothCondition => c !== null && c !== undefined)
+          ? (item.conditions as unknown[]).filter((c): c is ToothCondition => 
+              typeof c === 'string' && [
+                'healthy',
+                'decayed',
+                'filled',
+                'missing',
+                'treatment-planned',
+                'root-canal',
+                'extraction',
+                'crown',
+                'has-treatment-before',
+                'recommended-to-be-treated'
+              ].includes(c)
+            )
           : [];
 
-        const finalConditions = validConditions.length > 0 ? validConditions : ['healthy'];
+        const finalConditions = validConditions.length > 0 ? validConditions : ['healthy' as ToothCondition];
         const isInitiallySelected = finalConditions.length > 1 || (finalConditions.length === 1 && finalConditions[0] !== 'healthy');
 
         if (item.tooth_id) { // Check if tooth_id is not null
@@ -305,27 +320,19 @@ export function TreatmentPlanForm({
 
       // 2. Transform the data into the format expected by the API
       // ONLY include teeth that are selected AND have conditions other than just ['healthy']
-      const conditionsToSave = Object.entries(currentChartState)
+      const conditionsToSave: ToothConditionData[] = Object.entries(currentChartState)
         .filter(([, toothData]) => {
           const isSelected = toothData.isSelected;
-          // Check if conditions array exists, has exactly one item, and that item is 'healthy'
           const isOnlyHealthy = Array.isArray(toothData.conditions) &&
                                 toothData.conditions.length === 1 &&
                                 toothData.conditions[0] === 'healthy';
-          // Keep if selected AND it's NOT the case that the only condition is 'healthy'
           return isSelected && !isOnlyHealthy;
-          // If you wanted to explicitly save selected 'healthy' teeth, you would return `isSelected;` here.
-          // But based on the requirement, we only persist non-healthy selected teeth.
         })
-        .map(([toothIdStr, toothData]) => {
-          // We already filtered, so conditions should be a valid, non-empty array here
-          // (and not just ['healthy'])
-          return {
-            tooth_id: parseInt(toothIdStr, 10),
-            // Use the actual conditions from the chart data
-            conditions: toothData.conditions as ToothCondition[], // Assert type as it passed filter
-          };
-        });
+        .map(([toothIdStr, toothData]) => ({
+          tooth_id: parseInt(toothIdStr, 10),
+          conditions: toothData.conditions as ToothCondition[],
+          patient_id: selectedPatientId,
+        }));
       console.log("Filtered and transformed data to save (only selected & non-healthy):", conditionsToSave);
 
 
@@ -423,13 +430,14 @@ export function TreatmentPlanForm({
     setAiSuggestions([]); // Clear previous suggestions
 
     try {
-      const webhookUrl = 'https://n8n1.kol.tel/webhook/33d4fdab-98eb-4cc4-8a69-2ab835e76511';
+      const webhookUrl = 'https://n8n1.kol.tel/webhook/2169736a-368b-49b5-b93f-ffc215203d99';
       const payload = {
         patientId: selectedPatientId,
         toothIds: selectedToothIds,
         domain: selectedDomain,
         condition: selectedCondition,
         details: matrixDetails, // Send fetched matrix details
+        treatment: form.getValues('treatment'), // Single treatment instead of array
         // Add any other relevant patient info if needed by n8n
       };
       console.log("Sending payload to n8n:", payload); // Log payload
@@ -494,7 +502,7 @@ export function TreatmentPlanForm({
       setIsGeneratingSuggestions(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPatientId, selectedToothIds, selectedDomain, selectedCondition, matrixDetails, toast]); // Add dependencies
+  }, [selectedPatientId, selectedToothIds, selectedDomain, selectedCondition, matrixDetails, form, toast]); // Add dependencies
 
   // Function to apply a selected AI suggestion to the form
   const handleApplySuggestion = (suggestion: any) => {
@@ -707,207 +715,202 @@ export function TreatmentPlanForm({
                       {matrixDetails.recommended_investigations && matrixDetails.recommended_investigations.length > 0 && (
                         <p><strong>Investigations:</strong> {matrixDetails.recommended_investigations.join(', ')}</p>
                       )}
+                      
+                      {/* Treatment options as radio buttons directly in the details box */}
                       {matrixDetails.treatment_options && matrixDetails.treatment_options.length > 0 && (
-                        <p><strong>Treatments:</strong> {matrixDetails.treatment_options.join(', ')}</p>
+                        <div className="mt-3">
+                          <p className="font-semibold mb-1">Select Treatment:</p>
+                          <FormField
+                            control={form.control}
+                            name="treatment"
+                            render={({ field }) => (
+                              <div className="space-y-1 ml-1">
+                                {matrixDetails.treatment_options.map((option: string) => (
+                                  <label key={option} className="flex items-center gap-2">
+                                    <input
+                                      type="radio"
+                                      value={option}
+                                      checked={field.value === option}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          field.onChange(option);
+                                        }
+                                      }}
+                                    />
+                                    <span>{option}</span>
+                                  </label>
+                                ))}
+                                <FormMessage />
+                              </div>
+                            )}
+                          />
+                        </div>
                       )}
-                      {/* Add other fields from matrix as needed */}
+
+                      {/* Title and Description Fields */}
+                      <div className="mt-4 pt-4 border-t space-y-4">
+                        <FormField
+                          control={form.control}
+                          name="title"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Title *</FormLabel>
+                              <FormControl>
+                                <Input placeholder="Treatment plan title" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="description"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Description *</FormLabel>
+                              <FormControl>
+                                <Textarea
+                                  placeholder="Detailed description of the treatment plan"
+                                  {...field}
+                                  rows={3}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Add the simplified AI Suggestion Form */}
+                        <div className="mt-4">
+                          <AISuggestionForm
+                            patientId={selectedPatientId || ''}
+                            toothIds={selectedToothIds}
+                            domain={selectedDomain || ''}
+                            condition={String(selectedCondition || '')}
+                            matrixDetails={matrixDetails}
+                            selectedTreatment={form.watch('treatment') || ''}
+                            title={form.watch('title') || ''}
+                            description={form.watch('description') || ''}
+                            onSuggestionApply={(suggestion) => {
+                              // Update all form fields with the suggestion data
+                              form.setValue('title', suggestion.title, { shouldValidate: true });
+                              form.setValue('description', suggestion.description, { shouldValidate: true });
+                              
+                              // Update additional fields if they exist in the suggestion
+                              if (suggestion.planDetails.appointmentPlan) {
+                                form.setValue('total_visits', suggestion.planDetails.appointmentPlan.totalSittings, { shouldValidate: true });
+                                form.setValue('estimated_duration', suggestion.planDetails.appointmentPlan.totalTreatmentTime, { shouldValidate: true });
+                              }
+                              
+                              form.setValue('materials', suggestion.planDetails.keyMaterials, { shouldValidate: true });
+                              form.setValue('clinical_considerations', suggestion.planDetails.clinicalConsiderations, { shouldValidate: true });
+                              form.setValue('post_treatment_care', suggestion.postTreatmentCare, { shouldValidate: true });
+
+                              toast({
+                                title: "Treatment Plan Applied",
+                                description: "AI suggestion has been applied to all fields.",
+                                variant: "default"
+                              });
+                            }}
+                            disabled={!selectedPatientId || selectedToothIds.length === 0 || !form.watch('treatment')}
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
                    {!isLoadingDetails && selectedDomain && selectedCondition && !matrixDetails && (
                      <div className="text-sm text-muted-foreground p-2 border rounded-md border-dashed">No details found for this combination.</div>
                    )}
-
-                  {/* AI Suggestion Trigger Button */}
-                  {selectedDomain && selectedCondition && !isLoadingDetails && ( // Show button only when domain/condition selected and details are loaded/not found
-                    <div className="pt-2 text-center">
-                      <Button
-                        type="button"
-                        onClick={handleGetAISuggestions}
-                        disabled={isGeneratingSuggestions || !selectedPatientId || selectedToothIds.length === 0}
-                        variant="secondary" // Or choose another variant
-                        size="sm"
-                      >
-                        {isGeneratingSuggestions ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <BrainCog className="mr-2 h-4 w-4" />
-                        )}
-                        Get AI Suggestions
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Display AI Suggestions */}
-                  {aiSuggestions.length > 0 && (
-                    <div className="mt-4 p-3 border rounded-md bg-blue-50/50 space-y-3">
-                      <h4 className="font-semibold text-base mb-2 text-blue-800">AI Suggestions ({aiSuggestions.length})</h4>
-                      {aiSuggestions.map((suggestion, index) => (
-                        <div key={index} className="p-2 border rounded bg-white shadow-sm flex items-start justify-between gap-2">
-                          <div className="flex-grow">
-                            <p className="font-medium text-sm">{suggestion.title}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{suggestion.description}</p>
-                            {/* Display other suggestion fields if available */}
-                          </div>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleApplySuggestion(suggestion)}
-                            className="flex-shrink-0"
-                          >
-                            Apply
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </>
               )}
 
-
-              {/* --- Main Form Fields --- */}
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Treatment plan title" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description *</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Detailed description of the treatment plan"
-                        {...field}
-                        rows={3}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="start_date"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Start Date *</FormLabel>
-                      <FormControl>
-                        <Input type="date" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="end_date"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>End Date (Optional)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="date"
-                          {...field}
-                          value={field.value || ''}
-                          min={form.watch('start_date')}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
+              {/* Add new form fields after the existing treatment selection */}
+              {matrixDetails && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="estimated_duration"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Estimated Duration</FormLabel>
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select status" />
-                          </SelectTrigger>
+                          <Input {...field} placeholder="e.g., 3-4 weeks" />
                         </FormControl>
-                        <SelectContent>
-                          <SelectItem value="planned">Planned</SelectItem>
-                          <SelectItem value="in_progress">In Progress</SelectItem>
-                          <SelectItem value="completed">Completed</SelectItem>
-                          <SelectItem value="cancelled">Cancelled</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="priority"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Priority</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
+                  <FormField
+                    control={form.control}
+                    name="total_visits"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Total Visits</FormLabel>
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select priority" />
-                          </SelectTrigger>
+                          <Input {...field} placeholder="e.g., 2" />
                         </FormControl>
-                        <SelectContent>
-                          <SelectItem value="low">Low</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              <FormField
-                control={form.control}
-                name="estimated_cost"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Estimated Total Cost (₹)</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        placeholder="0.00"
-                        {...field}
-                        value={field.value ?? ''}
-                        min="0"
-                        step="0.01"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  <FormField
+                    control={form.control}
+                    name="materials"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Required Materials</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            placeholder="List of required materials"
+                            className="min-h-[80px]"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="clinical_considerations"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Clinical Considerations</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            placeholder="Important clinical considerations"
+                            className="min-h-[80px]"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="post_treatment_care"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Post-Treatment Care</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            placeholder="Post-treatment care instructions"
+                            className="min-h-[80px]"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
 
               <DialogFooter>
                 <Button

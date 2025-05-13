@@ -23,9 +23,9 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
   }
 
   // If not loading, check user and role
-  if (!user || user.role !== 'admin') {
-    // Redirect non-admins to the dashboard (or a specific unauthorized page)
-    console.warn('Access denied: User is not an admin.');
+  if (!user || (user.role !== 'admin' && user.role !== 'owner')) {
+    // Redirect non-admins/non-owners to the dashboard (or a specific unauthorized page)
+    console.warn(`Access denied: User role '${user?.role}' is not 'admin' or 'owner'.`);
     return <Navigate to="/" replace />;
   }
 

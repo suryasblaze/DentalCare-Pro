@@ -12,8 +12,21 @@ import { PatientMedicalRecordsPage } from './pages/PatientMedicalRecordsPage'; /
 import InventoryPage from './features/inventory/pages/InventoryPage';
 import InvoicesPage from './features/inventory/pages/InvoicesPage'; // Import InvoicesPage
 import AssetsPage from './features/assets/pages/AssetsPage';
+import AssetDetailPage from './features/assets/pages/AssetDetailPage'; // Import Asset Detail Page
 import ReportsPage from './pages/ReportsPage';
 import RemindersPage from './features/reminders/pages/RemindersPage'; // Import RemindersPage
+import PurchaseOrderListPage from './features/purchases/pages/PurchaseOrderListPage'; // Import Purchase Order List Page
+import CreatePurchaseOrderPage from './features/purchases/pages/CreatePurchaseOrderPage'; // Import Create Purchase Order Page
+import PurchaseOrderDetailPage from './features/purchases/pages/PurchaseOrderDetailPage'; // Import Purchase Order Detail Page
+// import UrgentPurchasePage from './features/purchases/pages/UrgentPurchasePage'; // Removed import for deleted page
+import UrgentPurchaseListPage from './features/purchases/pages/UrgentPurchaseListPage'; // Import Urgent Purchase List Page
+import UrgentPurchaseDetailPage from './features/purchases/pages/UrgentPurchaseDetailPage'; // Import Urgent Purchase Detail Page
+import UrgentPurchaseHistoryPage from './features/purchases/pages/UrgentPurchaseHistoryPage'; // Import Urgent Purchase History Page
+import UrgentPurchaseMyRequestsPage from './features/purchases/pages/UrgentPurchaseMyRequestsPage'; // Import Urgent Purchase My Requests Page
+import { InventoryAdjustPage } from './features/inventory/pages/InventoryAdjustPage';
+import { StockTakePage } from './features/inventory/pages/StockTakePage';
+import InventoryApprovalPage from './pages/InventoryApprovalPage'; // Import Inventory Approval Page
+import SpecificApprovalPage from './features/inventory/pages/SpecificApprovalPage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import AdminRoute from './components/AdminRoute'; // Import AdminRoute
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -62,18 +75,35 @@ function AppContent() {
           {/* Admin Only Routes */}
           <Route element={<AdminRoute />}>
             <Route path="inventory" element={<InventoryPage />} />
+            <Route path="inventory/create-adjustment" element={<InventoryAdjustPage />} /> {/* Updated Inventory Adjust route */}
+            <Route path="inventory/stock-take" element={<StockTakePage />} /> {/* Add Stock Take route */}
             <Route path="inventory/invoices" element={<InvoicesPage />} /> {/* Add Invoices route */}
+            <Route path="purchases" element={<PurchaseOrderListPage />} /> {/* Add Purchases list route */}
+            <Route path="purchases/create" element={<CreatePurchaseOrderPage />} /> {/* Add Create Purchase route */}
+            {/* <Route path="purchases/urgent-entry" element={<UrgentPurchasePage />} /> */} {/* Removed route for deleted page */}
+            <Route path="purchases/urgent" element={<UrgentPurchaseListPage />} /> {/* Add Urgent Purchase Log route */}
+            <Route path="purchases/urgent/history" element={<UrgentPurchaseHistoryPage />} /> {/* Add Urgent Purchase History route */}
+            <Route path="purchases/urgent/my-requests" element={<UrgentPurchaseMyRequestsPage />} /> {/* Add Urgent Purchase My Requests route */}
+            <Route path="purchases/urgent/:id" element={<UrgentPurchaseDetailPage />} /> {/* Add Urgent Purchase Detail route */}
+            <Route path="purchases/:id" element={<PurchaseOrderDetailPage />} /> {/* Add Purchase Detail route */}
             <Route path="assets" element={<AssetsPage />} />
-            <Route path="reports" element={<ReportsPage />} /> {/* Moved Reports here */}
-            <Route path="reminders" element={<RemindersPage />} /> {/* Add Reminders route */}
+            <Route path="assets/:assetId" element={<AssetDetailPage />} /> {/* Add Asset Detail route */}
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="reminders" element={<RemindersPage />} />
             {/* Add Staff Leaves route here when created */}
           </Route>
+          {/* Routes accessible by admin, owner, or doctor */}
+          <Route path="inventory-approvals" element={<InventoryApprovalPage />} />
+          
           {/* Routes accessible by all logged-in users */}
           <Route path="search" element={<SearchResultsPage />} />
           {/* Redirect any unknown protected path to dashboard */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       )}
+      {/* Route for specific token-based approval, potentially accessible without full layout if user is not logged in but has token */}
+      {/* Or, if you want it within the layout and for logged-in users only, move it inside the :user block */}
+      <Route path="/approve-adjustment/:requestId/:approvalToken" element={<SpecificApprovalPage />} />
     </Routes>
   );
 }

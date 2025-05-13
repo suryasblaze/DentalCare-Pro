@@ -2,6 +2,12 @@ import React from 'react';
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"; // Import Accordion components
 import { useAuth } from '@/context/AuthContext'; // Import useAuth
 import {
   LayoutDashboard,
@@ -13,8 +19,10 @@ import {
   Archive,
   BarChart,
   Settings as SettingsIcon,
-  FileText, // Import icon for Invoices
-  Bell, // Import icon for Reminders
+  FileText,
+  Bell,
+  ShoppingCart,
+  ListChecks, // Added for Inventory Approvals
 } from "lucide-react";
 
 const navigation = [
@@ -45,14 +53,39 @@ const navigation = [
   },
   {
     name: "Inventory",
-    href: "/inventory",
+    href: "/inventory", // Main inventory link
     icon: Package,
+    children: [ // Define sub-items
+      // Removed the "Items" sub-link as the parent link goes there
+      {
+        name: "Purchases",
+        href: "/purchases",
+        // No icon needed
+      },
+      // Removed "Urgent Entry" link as it's now part of the Log page via Dialog
+      {
+        name: "Urgent Purchase Entry", // Renamed from Urgent Log
+        href: "/purchases/urgent", // Path remains the same (list page)
+        // No icon needed
+      },
+      {
+        name: "Invoices",
+        href: "/inventory/invoices",
+        // No icon needed
+      },
+      {
+        name: "Create Adjustment",
+        href: "/inventory/create-adjustment",
+        // No icon needed
+      },
+      {
+        name: "Stock Take",
+        href: "/inventory/stock-take",
+        // No icon needed
+      },
+    ],
   },
-  {
-    name: "Invoices", // Add Invoices link
-    href: "/inventory/invoices",
-    icon: FileText,
-  },
+  // Note: Removed the separate top-level Invoices and Purchase Orders links
   {
     name: "Assets",
     href: "/assets",
@@ -74,10 +107,16 @@ const navigation = [
     icon: SettingsIcon,
   },
   // TODO: Add Staff Leaves link if needed for admin role
+  {
+    name: "Inv. Approvals",
+    href: "/inventory-approvals",
+    icon: ListChecks,
+    roles: ['admin', 'owner', 'doctor'], // Added 'doctor'
+  },
 ];
 
-// Define which items are admin-only
-const adminOnlyItems = ["Inventory", "Invoices", "Assets", "Reports", "Reminders"]; // Add Reminders to adminOnlyItems
+// Define which items are admin-only by default if not specified by item.roles
+const adminOnlyItemNames = ["Inventory", "Assets", "Reports", "Reminders"];
 
 export function Sidebar() {
   const location = useLocation();
@@ -85,19 +124,25 @@ export function Sidebar() {
 
   // Filter navigation based on user role
   const filteredNavigation = navigation.filter(item => {
-    if (!user) return false; // Don't show if no user
+    if (!user || !user.role) return false; // Don't show if no user or role
 
-    // Admins see everything
-    if (user.role === 'admin') {
+    // If item has specific roles defined, check against them
+    if (item.roles && Array.isArray(item.roles)) {
+      return item.roles.includes(user.role);
+    }
+
+    // Fallback to existing logic for items without a 'roles' property
+    // Admins and Owners see all items not specifically restricted by 'roles'
+    if (user.role === 'admin' || user.role === 'owner') {
       return true;
     }
 
-    // Doctors see items that are NOT admin-only
+    // Doctors see items that are NOT in adminOnlyItemNames
     if (user.role === 'doctor') {
-      return !adminOnlyItems.includes(item.name);
+      return !adminOnlyItemNames.includes(item.name);
     }
 
-    // Hide for any other case or if role is missing
+    // Hide for any other case
     return false;
   });
 
@@ -122,13 +167,63 @@ export function Sidebar() {
             {/* Map over the filtered navigation items */}
             {filteredNavigation.map((item) => {
               const Icon = item.icon;
-              const isActive = location.pathname === item.href;
+              // For parent items, check if any child is active or if the parent itself is active
+              const isParentActive = item.children 
+                ? item.children.some(child => location.pathname.startsWith(child.href)) || location.pathname.startsWith(item.href)
+                : location.pathname.startsWith(item.href);
+
+              if (item.children) {
+                // Determine if the accordion item should be open by default
+                const defaultOpenValue = isParentActive ? item.name : "";
+                return (
+                  <Accordion key={item.name} type="single" collapsible defaultValue={defaultOpenValue} className="w-full">
+                    <AccordionItem value={item.name} className="border-b-0">
+                       {/* AccordionTrigger now handles the toggle, Link is inside for navigation */}
+                       <AccordionTrigger 
+                        className={cn(
+                          "w-full justify-start gap-2 rounded-md px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground [&[data-state=open]>svg]:rotate-180", // Keep chevron rotation
+                           // Apply secondary background only if the main parent link itself is active, not just a child
+                           location.pathname === item.href ? "bg-secondary text-secondary-foreground" : "hover:bg-muted" 
+                        )}
+                      >
+                         <Link to={item.href} className="flex items-center flex-grow gap-2" onClick={(e) => e.stopPropagation()}> {/* Prevent link click from interfering with trigger toggle if needed */}
+                            <Icon className="h-4 w-4" />
+                            <span>{item.name}</span>
+                         </Link>
+                         {/* The chevron is typically added automatically by AccordionTrigger */}
+                      </AccordionTrigger>
+                      <AccordionContent className="pt-1 pb-0 pl-7"> {/* Indent content */}
+                        <nav className="grid gap-1">
+                          {item.children.map((child) => {
+                            const isChildActive = location.pathname === child.href;
+                            return (
+                              <Link key={child.href} to={child.href}>
+                                <Button
+                                  variant={isChildActive ? "secondary" : "ghost"}
+                                  size="sm"
+                                  className={cn("w-full justify-start gap-2 pl-2", { // Adjusted padding
+                                    "bg-secondary text-secondary-foreground": isChildActive,
+                                  })}
+                                >
+                                  {child.name}
+                                </Button>
+                              </Link>
+                            );
+                          })}
+                        </nav>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                );
+              }
+
+              // Regular item without children
               return (
                 <Link key={item.href} to={item.href}>
                   <Button
-                    variant={isActive ? "secondary" : "ghost"}
-                    className={cn("w-full justify-start gap-2", {
-                      "bg-secondary": isActive,
+                    variant={isParentActive ? "secondary" : "ghost"}
+                    className={cn("w-full justify-start gap-2 rounded-md px-3 py-2 text-sm font-medium", {
+                      "bg-secondary text-secondary-foreground": isParentActive,
                     })}
                   >
                     <Icon className="h-4 w-4" />

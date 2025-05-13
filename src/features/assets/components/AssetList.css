@@ -1,0 +1,41 @@
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-blink {
+  animation: blink 1.5s ease-in-out infinite;
+  border: 1px solid #000;
+  border-radius: 4px;
+}
+
+.asset-badge {
+  padding: 4px 8px;
+  margin: 2px;
+  border-radius: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  text-align: center;
+}
+
+.asset-badge--active {
+  background-color: #28a745; /* Green */
+}
+
+.asset-badge--maintenance {
+  background-color: #ffc107; /* Yellow */
+}
+
+.asset-badge--retired {
+  background-color: #6c757d; /* Gray */
+}
+
+.asset-badge--disposed {
+  background-color: #dc3545; /* Red */
+}
+
+.table-row:hover {
+  background-color: #f8f9fa;
+  cursor: pointer;
+}

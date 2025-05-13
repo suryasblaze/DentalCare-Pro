@@ -1,25 +1,49 @@
 // src/features/assets/pages/AssetsPage.tsx
 
-import React, { useState, useCallback } from 'react';
-import { PlusCircle } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react'; // Added useEffect back
+import { PlusCircle, Wrench, Archive as ArchiveIcon, Tag as TagIcon } from 'lucide-react'; // Added Wrench, ArchiveIcon, TagIcon
 
 import { PageHeader } from '@/components/ui/page-header'; 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import AssetList from '../components/AssetList';
 import AssetForm from '../components/AssetForm';
-import { AssetRow, AssetCategory, AssetStatus } from '../types'; 
+import MarkAsServicedDialog from '../components/MarkAsServicedDialog';
+import DisposeAssetDialog from '../components/DisposeAssetDialog'; // Import Dispose dialog
+import { AssetRow, AssetCategory, AssetStatus, TagPlaceholder } from '../types'; 
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { supabase } from '@/lib/supabase'; // Import supabase for fetching tags
+// Removed duplicate React import line was here
 
 const AssetsPage: React.FC = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [assetToEdit, setAssetToEdit] = useState<AssetRow | null>(null);
+  const [selectedAssetForService, setSelectedAssetForService] = useState<AssetRow | null>(null);
+  const [isMarkAsServicedDialogOpen, setIsMarkAsServicedDialogOpen] = useState(false);
+  const [selectedAssetForDisposal, setSelectedAssetForDisposal] = useState<AssetRow | null>(null); // State for disposal
+  const [isDisposeAssetDialogOpen, setIsDisposeAssetDialogOpen] = useState(false); // State for disposal dialog
   const [refreshTrigger, setRefreshTrigger] = useState(0); // To trigger list refresh
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<AssetCategory | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<AssetStatus | 'all'>('all');
+  const [tagFilter, setTagFilter] = useState<string | 'all'>('all'); // State for tag filter
+  const [allTags, setAllTags] = useState<TagPlaceholder[]>([]); // State for all available tags
   const [filteredData, setFilteredData] = useState<AssetRow[]>([]); // For potential export
+
+  useEffect(() => {
+    // Fetch all tags for the filter dropdown
+    const fetchTags = async () => {
+      // TODO: Remove `as any` after regenerating Supabase types
+      const { data, error } = await supabase.from('tags' as any).select('id, name').order('name');
+      if (error) {
+        console.error("Error fetching tags:", error);
+      } else {
+        setAllTags((data as unknown as TagPlaceholder[]) || []); // Cast through unknown
+      }
+    };
+    fetchTags();
+  }, []);
 
   const handleOpenForm = (asset?: AssetRow) => {
     setAssetToEdit(asset || null);
@@ -29,6 +53,20 @@ const AssetsPage: React.FC = () => {
   const handleCloseForm = () => {
     setIsFormOpen(false);
     setAssetToEdit(null); // Clear editing state
+  };
+  
+  const handleOpenMarkAsServicedDialog = (asset: AssetRow) => {
+    setSelectedAssetForService(asset);
+    setIsMarkAsServicedDialogOpen(true);
+  };
+
+  const handleOpenDisposeAssetDialog = (asset: AssetRow) => {
+    setSelectedAssetForDisposal(asset);
+    setIsDisposeAssetDialogOpen(true);
+  };
+
+  const handleAssetUpdateSuccess = () => { // Generic handler for service/disposal success
+    setRefreshTrigger(prev => prev + 1);
   };
 
   const handleSave = (savedAsset: AssetRow) => {
@@ -54,6 +92,11 @@ const AssetsPage: React.FC = () => {
      setRefreshTrigger(prev => prev + 1);
   };
 
+  const handleTagChange = (value: string) => {
+    setTagFilter(value); // value will be tag.id or 'all'
+    setRefreshTrigger(prev => prev + 1);
+  };
+
   // Callback for AssetList to update data for export
    const handleDataFiltered = useCallback((data: AssetRow[]) => {
         setFilteredData(data);
@@ -74,7 +117,7 @@ const AssetsPage: React.FC = () => {
 
       <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
          {/* Search and Filters */}
-         <div className="flex flex-col md:flex-row gap-2 flex-grow">
+          <div className="flex flex-col md:flex-row gap-2 flex-grow">
              <Input
                 placeholder="Search by name or serial..."
                 value={searchTerm}
@@ -107,6 +150,18 @@ const AssetsPage: React.FC = () => {
                     <SelectItem value="Disposed">Disposed</SelectItem>
                 </SelectContent>
              </Select>
+             {/* Tag Filter Dropdown */}
+             <Select value={tagFilter} onValueChange={handleTagChange}>
+                <SelectTrigger className="w-full md:w-[180px]">
+                    <SelectValue placeholder="Filter by Tag" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">All Tags</SelectItem>
+                    {allTags.map(tag => (
+                        <SelectItem key={tag.id} value={tag.id}>{tag.name}</SelectItem>
+                    ))}
+                </SelectContent>
+             </Select>
          </div>
 
          {/* Action Buttons */}
@@ -133,13 +188,34 @@ const AssetsPage: React.FC = () => {
       </div>
 
       <AssetList
-        onEditAsset={handleOpenForm}
+        // onEditAsset={handleOpenForm} // Removed as edit from list is disabled
+        onMarkAsServiced={handleOpenMarkAsServicedDialog}
+        onDisposeAsset={handleOpenDisposeAssetDialog}
+        // tagFilter={tagFilter} // Pass tag filter to AssetList
         refreshTrigger={refreshTrigger}
         searchTerm={searchTerm}
         categoryFilter={categoryFilter}
         statusFilter={statusFilter}
         onDataFiltered={handleDataFiltered}
       />
+
+      {selectedAssetForService && (
+        <MarkAsServicedDialog
+          asset={selectedAssetForService}
+          open={isMarkAsServicedDialogOpen}
+          onOpenChange={setIsMarkAsServicedDialogOpen}
+          onSuccess={handleAssetUpdateSuccess}
+        />
+      )}
+
+      {selectedAssetForDisposal && (
+        <DisposeAssetDialog
+          asset={selectedAssetForDisposal}
+          open={isDisposeAssetDialogOpen}
+          onOpenChange={setIsDisposeAssetDialogOpen}
+          onSuccess={handleAssetUpdateSuccess}
+        />
+      )}
     </div>
   );
 };

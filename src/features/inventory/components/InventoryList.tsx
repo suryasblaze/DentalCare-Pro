@@ -14,14 +14,15 @@ import { Skeleton } from "@/components/ui/skeleton"; // For loading state
 import { Pencil, Trash2, AlertCircle, ArrowUpDown } from 'lucide-react'; // Icons, Add ArrowUpDown for sorting
 import { supabase } from '@/lib/supabase'; // Import supabase client for direct querying
 import { deleteInventoryItem } from '../services/inventoryService';
-import { InventoryItem, InventoryItemRow, StockStatus, InventoryItemCategory } from '../types'; // Add InventoryItemCategory
+import { InventoryItem, InventoryItemRow, StockStatus, InventoryItemCategory, InventoryItemBatchRow } from '../types'; // Add InventoryItemCategory and InventoryItemBatchRow
 import InventoryStatusBadge from './InventoryStatusBadge';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/AuthContext';
 import { logQuantityUpdate } from '../services/inventoryLogService';
 import InventoryEditForm from './InventoryEditForm';
 import QuantityUpdatePopover from './QuantityUpdatePopover';
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+// import { InventoryAdjustDialog } from './InventoryAdjustDialog'; // Dialog no longer used here
+import { useNavigate } from 'react-router-dom'; // Import useNavigate
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,16 +38,18 @@ import {
 
 // Re-use the helper function or import if moved to a shared location
 const calculateStockStatus = (item: InventoryItemRow): StockStatus => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // const today = new Date();
+  // today.setHours(0, 0, 0, 0);
 
-  if (item.expiry_date) {
-    const expiryDate = new Date(item.expiry_date);
-    expiryDate.setHours(0, 0, 0, 0);
-    if (expiryDate < today) {
-      return 'Expired';
-    }
-  }
+  // Expiry date check removed as it's not directly on InventoryItemRow.
+  // This would need to be handled by checking associated batches if an "Expired" status is needed at the item level.
+  // if (item.expiry_date) { // This field does not exist on InventoryItemRow
+  //   const expiryDate = new Date(item.expiry_date);
+  //   expiryDate.setHours(0, 0, 0, 0);
+  //   if (expiryDate < today) {
+  //     return 'Expired';
+  //   }
+  // }
   if ((item.quantity ?? 0) <= (item.low_stock_threshold ?? 0)) {
     return 'Low Stock';
   }
@@ -73,11 +76,14 @@ interface InventoryListProps {
 }
 
 // Define sortable columns and directions
-type SortableColumn = 'item_name' | 'category' | 'quantity' | 'expiry_date' | 'purchase_price';
+type SortableColumn = 'item_name' | 'item_code' | 'category' | 'quantity'; // Added 'item_code'
 type SortDirection = 'asc' | 'desc';
 
-// Define a combined type for items in state, including the calculated status
-type InventoryItemWithStatus = InventoryItemRow & { stock_status: StockStatus };
+// Define a combined type for items in state, including the calculated status and batches
+type InventoryItemWithStatus = InventoryItemRow & { 
+  stock_status: StockStatus;
+  batches?: InventoryItemBatchRow[]; // Add optional batches
+};
 
 const InventoryList: React.FC<InventoryListProps> = ({ onEditItem, refreshTrigger, searchTerm, categoryFilter, onDataFiltered }) => {
   const [items, setItems] = useState<InventoryItemWithStatus[]>([]); // Use the combined type for state
@@ -85,6 +91,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ onEditItem, refreshTrigge
   const [error, setError] = useState<string | null>(null);
   const [sortColumn, setSortColumn] = useState<SortableColumn>('item_name'); // Default sort
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const navigate = useNavigate(); // Initialize useNavigate
   const { toast } = useToast();
   const { user } = useAuth();
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null); // Ref to hold the channel instance
@@ -112,11 +119,12 @@ const InventoryList: React.FC<InventoryListProps> = ({ onEditItem, refreshTrigge
       const sortOptions: { ascending: boolean; nullsFirst?: boolean } = {
           ascending: sortDirection === 'asc',
       };
-       if ((sortColumn === 'expiry_date' || sortColumn === 'purchase_price') && sortDirection === 'asc') {
-           sortOptions.nullsFirst = false;
-       } else if ((sortColumn === 'expiry_date' || sortColumn === 'purchase_price') && sortDirection === 'desc') {
-            sortOptions.nullsFirst = true;
-       }
+      // Removed specific nullsFirst logic for expiry_date and purchase_price as they are no longer sortable here
+      // if ((sortColumn === 'expiry_date' || sortColumn === 'purchase_price') && sortDirection === 'asc') {
+      //     sortOptions.nullsFirst = false;
+      // } else if ((sortColumn === 'expiry_date' || sortColumn === 'purchase_price') && sortDirection === 'desc') {
+      //      sortOptions.nullsFirst = true;
+      // }
 
       query = query.order(sortColumn, sortOptions);
 
@@ -126,12 +134,33 @@ const InventoryList: React.FC<InventoryListProps> = ({ onEditItem, refreshTrigge
         throw fetchError;
       }
 
-      const itemsWithStatus: InventoryItemWithStatus[] = (fetchedItems || []).map((item): InventoryItemWithStatus => ({
-        ...(item as InventoryItemRow),
-        stock_status: calculateStockStatus(item as InventoryItemRow),
-      }));
-      setItems(itemsWithStatus);
-      onDataFiltered(itemsWithStatus as InventoryItem[]);
+      const itemsWithBatches: InventoryItemWithStatus[] = await Promise.all(
+        (fetchedItems || []).map(async (item): Promise<InventoryItemWithStatus> => {
+          let batches: InventoryItemBatchRow[] = [];
+          if (item.is_batched) {
+            const { data: batchData, error: batchError } = await supabase
+              .from('inventory_item_batches')
+              .select('*')
+              .eq('inventory_item_id', item.id)
+              .order('expiry_date', { ascending: true, nullsFirst: false }); // nullsFirst: false for ascending to make nulls last
+
+            if (batchError) {
+              console.error(`Failed to fetch batches for item ${item.id}:`, batchError);
+              // Continue without batches for this item if there's an error
+            } else {
+              batches = batchData || [];
+            }
+          }
+          return {
+            ...(item as InventoryItemRow),
+            stock_status: calculateStockStatus(item as InventoryItemRow),
+            batches,
+          };
+        })
+      );
+      
+      setItems(itemsWithBatches);
+      onDataFiltered(itemsWithBatches as InventoryItem[]);
 
       // Notification checks removed - handled by useInventoryAlerts hook
 
@@ -275,74 +304,58 @@ const InventoryList: React.FC<InventoryListProps> = ({ onEditItem, refreshTrigge
       <Table className="min-w-full divide-y divide-gray-200 bg-white shadow-md rounded-lg overflow-hidden">
         <TableHeader className="bg-gray-50">
           <TableRow className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            {/* Reordered Columns */}
+            <TableHead className="px-6 py-3">
+              <Button variant="ghost" onClick={() => handleSort('item_code')} className="px-0 group">
+                Item Code {renderSortIcon('item_code')}
+              </Button>
+            </TableHead>
+            <TableHead className="px-6 py-3">Batch No / Info</TableHead>
+            <TableHead className="px-6 py-3">Supplier ID/Info</TableHead>
             <TableHead className="px-6 py-3">
               <Button variant="ghost" onClick={() => handleSort('item_name')} className="px-0 group">
                 Item Name {renderSortIcon('item_name')}
               </Button>
             </TableHead>
-            <TableHead className="px-6 py-3">
-               <Button variant="ghost" onClick={() => handleSort('category')} className="px-0 group">
-                 Category {renderSortIcon('category')}
-               </Button>
-            </TableHead>
             <TableHead className="px-6 py-3 text-right">
                <Button variant="ghost" onClick={() => handleSort('quantity')} className="px-0 group">
-                 Quantity {renderSortIcon('quantity')}
-               </Button>
-            </TableHead>
-            <TableHead className="px-6 py-3">
-               <Button variant="ghost" onClick={() => handleSort('expiry_date')} className="px-0 group">
-                 Expiry Date {renderSortIcon('expiry_date')}
-               </Button>
-            </TableHead>
-            <TableHead className="px-6 py-3">Supplier</TableHead>
-            <TableHead className="px-6 py-3 text-right">
-               <Button variant="ghost" onClick={() => handleSort('purchase_price')} className="px-0 group">
-                 Price{renderSortIcon('purchase_price')}
-               </Button>
-            </TableHead>
-            <TableHead className="px-6 py-3">Status</TableHead>
-            {/* Actions Header Removed */}
-          </TableRow>
-        </TableHeader>
-        <TableBody className="bg-white divide-y divide-gray-200">
-          {items.map((item: InventoryItemWithStatus) => (
-            <TableRow key={item.id} className="hover:bg-gray-100 text-sm text-gray-900">
-              <TableCell className="px-6 py-4 whitespace-nowrap">{item.item_name}</TableCell>
-              <TableCell className="px-6 py-4 whitespace-nowrap">{item.category}</TableCell>
-              <TableCell className="px-6 py-4 whitespace-nowrap text-right">{item.quantity ?? '-'}</TableCell>
-              <TableCell className="px-6 py-4 whitespace-nowrap">{item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : 'N/A'}</TableCell>
-              <TableCell className="px-6 py-4 whitespace-nowrap">{item.supplier_info || 'N/A'}</TableCell>
-              <TableCell className="px-6 py-4 whitespace-nowrap text-right">
-                {item.purchase_price !== null && item.purchase_price !== undefined
-                  ? `₹${Number(item.purchase_price).toFixed(2)}`
-                  : 'N/A'}
-              </TableCell>
-              <TableCell className="px-6 py-4 whitespace-nowrap">
-                {item.stock_status === 'Low Stock' ? (
-                  <QuantityUpdatePopover
-                    currentItemQuantity={item.quantity ?? 0}
-                    onUpdate={(newQty) => handleQuantityUpdate(item.id, newQty)}
-                    itemId={item.id}
-                  >
-                    <InventoryStatusBadge
-                      status={item.stock_status}
-                      className={clsx(
-                        getStockColor(item.stock_status),
-                        "hover:opacity-80 transition-opacity duration-200 cursor-pointer"
-                      )}
-                    />
-                  </QuantityUpdatePopover>
+                  Quantity {renderSortIcon('quantity')}
+                </Button>
+             </TableHead>
+             {/* Expiry Date Removed */}
+             <TableHead className="px-6 py-3">Status</TableHead>
+             {/* Price Removed */}
+             {/* Actions Header Removed */}
+           </TableRow>
+         </TableHeader>
+         <TableBody className="bg-white divide-y divide-gray-200">
+           {items.map((item: InventoryItemWithStatus) => (
+             <TableRow key={item.id} className="hover:bg-gray-100 text-sm text-gray-900">
+               {/* Reordered Cells */}
+               <TableCell className="px-6 py-4 whitespace-nowrap">{item.item_code || 'N/A'}</TableCell>
+               <TableCell className="px-6 py-4 whitespace-nowrap">
+                {item.is_batched && item.batches && item.batches.length > 0 ? (
+                  item.batches.map((batch: InventoryItemBatchRow) => batch.batch_number || 'N/A').join(', ')
+                ) : item.is_batched ? (
+                  'No batches'
                 ) : (
-                  <InventoryStatusBadge
-                    status={item.stock_status}
-                    className={getStockColor(item.stock_status)}
-                  />
+                  'N/A'
                 )}
-              </TableCell>
-              {/* Actions Cell Removed */}
-            </TableRow>
-          ))}
+               </TableCell>
+               <TableCell className="px-6 py-4 whitespace-nowrap">{item.supplier_info || 'N/A'}</TableCell>
+               <TableCell className="px-6 py-4 whitespace-nowrap">{item.item_name}</TableCell>
+               <TableCell className="px-6 py-4 whitespace-nowrap text-right">{item.quantity ?? '-'}</TableCell>
+               <TableCell className="px-6 py-4 whitespace-nowrap">
+                 {/* Removed QuantityUpdatePopover wrapper */}
+                 <InventoryStatusBadge
+                   status={item.stock_status}
+                   className={getStockColor(item.stock_status)}
+                 />
+               </TableCell>
+               {/* Price Cell Removed */}
+               {/* Adjust Button Cell Removed */}
+             </TableRow>
+           ))}
         </TableBody>
       </Table>
     </div>

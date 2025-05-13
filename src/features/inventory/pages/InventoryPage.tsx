@@ -133,12 +133,7 @@ const InventoryPage: React.FC = () => {
         </Button>
       </div>
 
-      {/* --- Add Bulk Invoice Upload Section --- */}
-      <div className="mt-4 mb-6"> {/* Add some margin */}
-          <InvoiceUpload onUploadComplete={() => setRefreshTrigger(prev => prev + 1)} />
-      </div>
-      {/* --- End Bulk Invoice Upload Section --- */}
-
+      {/* --- Bulk Invoice Upload Section Removed --- */}
 
       {/* AI Insights will be conditionally rendered here */}
 

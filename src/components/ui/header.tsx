@@ -140,11 +140,7 @@ export function Header() {
         <div className="container flex h-14 items-center">
           <div className="mr-4 hidden md:flex">
             <Link to="/" className="mr-6 flex items-center space-x-2">
-              <img src="/dentalcarelogo.png" alt="" className="h-8" /> {/* Alt text is correct */}
-              {/* Re-applying style, ensuring no "Logo" text */}
-              <span className="text-xl font-semibold text-gray-700 dark:text-gray-200 tracking-tight"> {/* Reverted to a previous successful style attempt */}
-                Facets Dental
-              </span>
+              <img src="public/facetslogo.png" alt="Facets Dental Logo" className="h-8" />
             </Link>
           </div>
           <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">

@@ -32,6 +32,7 @@ const assetSchema = z.object({
   service_document_url: z.string().url({ message: "Please enter a valid URL" }).optional().nullable(),
   barcode_value: z.string().optional().nullable(),
   requires_maintenance: z.boolean().optional().default(false), // Add requires_maintenance field
+  // Tags will be handled separately, not directly part of this Zod schema for the main form
 });
 
 // Infer the type from the schema
@@ -418,6 +419,27 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
             </FormItem>
             )}
         />
+
+        {/* Tags Management Placeholder - Spans full width */}
+        <div className="md:col-span-2 space-y-2 pt-2">
+          <Label>Tags</Label>
+          <div className="p-4 border rounded-md min-h-[60px] text-muted-foreground">
+            {/* 
+              Placeholder for Tag Management UI.
+              This would typically involve:
+              1. Fetching all existing tags.
+              2. A multi-select combobox (e.g., from Shadcn UI or a library like react-select).
+              3. Ability to create new tags on the fly.
+              4. Storing selected tag IDs in component state.
+              5. On form submit, after saving the asset, update the asset_tags junction table.
+                 - For new assets: insert into asset_tags.
+                 - For existing assets: delete old asset_tags, then insert new ones.
+                 This logic would likely reside in the assetService.ts or be handled here.
+            */}
+            Tag management UI will be implemented here. (e.g., Multi-select combobox)
+          </div>
+        </div>
+
 
         {/* Action Buttons - Spans full width */}
         <div className="md:col-span-2 flex justify-end space-x-2 pt-4"> {/* Span both columns */}

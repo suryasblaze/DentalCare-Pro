@@ -2,20 +2,38 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from '@/components/ui/use-toast'; // Import toast for error feedback
-import type { InventoryNotification, InventoryNotificationInsert } from '@/types'; // Added InventoryNotificationInsert
+// Remove InventoryNotification specific types if not needed for the general table
+// import type { InventoryNotification, InventoryNotificationInsert } from '@/types';
 import {
   RealtimeChannel,
   RealtimePostgresChangesPayload,
   REALTIME_SUBSCRIBE_STATES
 } from '@supabase/supabase-js';
 
-// Define DbNotification type matching the database structure
-type DbNotification = InventoryNotification;
+// Define DbNotification type matching the 'notifications' table structure from migration 20250401105100
+interface DbNotification {
+  id: string;
+  user_id: string;
+  message: string;
+  is_read: boolean; // NOT NULL in the target table
+  link_url: string | null; // Nullable
+  created_at: string; // NOT NULL
+}
+
+// Define Insert type for the 'notifications' table
+interface DbNotificationInsert {
+  user_id: string;
+  message: string;
+  link_url?: string | null; // Optional on insert
+  is_read?: boolean; // Optional on insert, defaults to false in DB
+  // created_at defaults to now() in DB
+}
+
 
 const useNotifications = () => {
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState<InventoryNotification[]>([]); 
-  const channelRef = useRef<RealtimeChannel | null>(null); 
+  const [notifications, setNotifications] = useState<DbNotification[]>([]); // Use the new type
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -25,24 +43,25 @@ const useNotifications = () => {
 
     const fetchNotifications = async () => {
       const { data, error } = await supabase
-        .from('inventory_notifications')
+        .from('notifications') // Changed table name
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error fetching inventory notifications:', error);
+        console.error('Error fetching notifications from `notifications` table:', error); // More specific log
         toast({
           title: "Error",
-          description: "Could not fetch notifications.",
+          description: "Could not fetch notifications.", // Keep user message simple
           variant: "destructive",
         });
       } else {
+        console.log('Fetched notifications:', data); // Log fetched data
         setNotifications(data || []);
       }
     };
 
-    fetchNotifications();
+    fetchNotifications(); // Fetch on initial load or user change
 
     // Ensure channel is only created once and cleaned up properly
     if (!channelRef.current && user) { 
@@ -54,22 +73,31 @@ const useNotifications = () => {
           .on<DbNotification>( 
             'postgres_changes',
             {
-              event: 'INSERT', 
+              event: 'INSERT',
               schema: 'public',
-              table: 'inventory_notifications',
+              table: 'notifications', // Changed table name
               filter: `user_id=eq.${user.id}`
             },
             (payload: RealtimePostgresChangesPayload<DbNotification>) => {
+              console.log('[useNotifications] Realtime event received:', payload); // Log all events
               if (payload.eventType === 'INSERT' && payload.new) {
-                  console.log('New notification received:', payload.new);
+                  const newNotification = payload.new as DbNotification;
+                  console.log('[useNotifications] Realtime INSERT detected:', newNotification);
+
+                  // Add more logging around state update
                   setNotifications((prevNotifications) => {
-                      if (prevNotifications.some(n => n.id === payload.new.id)) {
-                          return prevNotifications;
+                      console.log('[useNotifications] Attempting state update via realtime. Prev length:', prevNotifications.length);
+                      // Prevent duplicates if realtime event arrives slightly delayed after fetch
+                      if (prevNotifications.some(n => n.id === newNotification.id)) {
+                          console.log(`[useNotifications] Duplicate notification ID ${newNotification.id} detected in realtime update, skipping state update.`);
+                          return prevNotifications; // Return previous state if duplicate
                       }
-                      return [payload.new, ...prevNotifications];
+                      const newState = [newNotification, ...prevNotifications];
+                      console.log('[useNotifications] State update successful via realtime. New length:', newState.length);
+                      return newState; // Return new state
                   });
               } else {
-                 console.log('Received non-insert or unexpected payload:', payload);
+                 console.log('[useNotifications] Received non-insert or unexpected payload via realtime:', payload); // Clarify log source
               }
             }
           )
@@ -120,7 +148,7 @@ const useNotifications = () => {
 
   const markAsRead = async (notificationId: string) => {
     const { error } = await supabase
-      .from('inventory_notifications')
+      .from('notifications') // Changed table name
       .update({ is_read: true })
       .eq('id', notificationId);
 
@@ -145,7 +173,7 @@ const useNotifications = () => {
       // 2. Check for recent identical notifications
       // Use { count: 'exact', head: true } which returns { count: number | null, data: null, error: ... }
       const { count: existingNotificationCount, error: checkError } = await supabase
-        .from('inventory_notifications')
+        .from('notifications') // Changed table name
         .select('*', { count: 'exact', head: true }) // Select '*' but only get count due to head:true
         .eq('user_id', userId)
         .eq('message', message) // Match the exact message
@@ -164,15 +192,15 @@ const useNotifications = () => {
       }
 
       // 4. If no recent identical notification, proceed with creation
-      const notificationData: InventoryNotificationInsert = {
+      const notificationData: DbNotificationInsert = { // Use the new insert type
         user_id: userId,
         message,
         link_url: linkUrl,
-        is_read: false,
+        is_read: false, // Explicitly set default
       };
 
       const { data, error } = await supabase
-        .from('inventory_notifications')
+        .from('notifications') // Changed table name
         .insert([notificationData])
         .select();
 
@@ -216,7 +244,7 @@ const useNotifications = () => {
 
     // Then, attempt to delete from the database
     const { error } = await supabase
-      .from('inventory_notifications')
+      .from('notifications') // Changed table name
       .delete()
       .eq('id', notificationId);
 

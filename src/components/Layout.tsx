@@ -4,6 +4,7 @@ import { Header } from '@/components/ui/header';
 import { Sidebar } from '@/components/ui/sidebar';
 import { useReminderNotifications } from '@/lib/hooks/useReminderNotifications'; // Import the reminder hook
 import { useInventoryAlerts } from '@/lib/hooks/useInventoryAlerts'; // Import the inventory alerts hook
+import { useAssetAlerts } from '@/lib/hooks/useAssetAlerts'; // Import the new asset alerts hook
 // Removed NotificationPanel imports as it's handled by Header
 
 // LayoutProps is no longer needed as children are handled by Outlet
@@ -16,6 +17,8 @@ export function Layout() {
   useReminderNotifications();
   // Initialize inventory alerts hook
   useInventoryAlerts();
+  // Initialize asset alerts hook
+  useAssetAlerts();
 
   // Removed notification state and handlers from Layout
 

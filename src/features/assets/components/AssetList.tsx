@@ -14,9 +14,11 @@ import { Pencil, Trash2, AlertCircle, ArrowUpDown, Link as LinkIcon } from 'luci
 import { Badge } from "@/components/ui/badge"; // Use Badge for status
 
 import { supabase } from '@/lib/supabase';
-import { deleteAsset } from '../services/assetService'; // Use asset service
-import { Asset, AssetRow, AssetCategory, AssetStatus } from '../types'; // Use asset types
+// import { deleteAsset } from '../services/assetService'; // Removed deleteAsset import
+import { Asset, AssetRow, AssetCategory, AssetStatus, AssetRowWithTags, TagPlaceholder } from '../types'; // Use asset types, import AssetRowWithTags and TagPlaceholder
 import { useToast } from '@/components/ui/use-toast';
+// AlertDialog related imports might be removed if no other dialog uses them here, or kept if other actions need it.
+// For now, keeping them as Edit/MarkAsServiced might become dialogs later.
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,18 +30,23 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Wrench, Eye, Archive as ArchiveIcon, Tag as TagIcon } from 'lucide-react'; // Import Wrench, Eye, ArchiveIcon, TagIcon
+import { Link } from 'react-router-dom'; // Import Link for navigation
 
 interface AssetListProps {
-  onEditAsset: (asset: AssetRow) => void; // Callback to open edit form
+  // onEditAsset: (asset: AssetRow) => void; // Prop no longer needed from list for editing
+  onMarkAsServiced: (asset: AssetRow) => void; // Callback to open mark as serviced dialog
+  onDisposeAsset: (asset: AssetRow) => void; // Callback to open dispose dialog
   refreshTrigger: number;
   searchTerm: string;
   categoryFilter: AssetCategory | 'all';
   statusFilter: AssetStatus | 'all';
+  tagFilter: string | 'all'; // Added tagFilter prop
   onDataFiltered: (filteredData: AssetRow[]) => void; // Pass raw rows for potential export
 }
 
 // Define sortable columns for assets
-type SortableColumn = 'asset_name' | 'category' | 'serial_number' | 'location' | 'purchase_date' | 'warranty_expiry_date' | 'next_maintenance_due_date' | 'status';
+type SortableColumn = 'asset_name' | 'category' | 'serial_number' | 'location' | 'purchase_date' | 'warranty_expiry_date' | 'last_serviced_date' | 'next_maintenance_due_date' | 'status'; // Add 'tags' if we make it sortable
 type SortDirection = 'asc' | 'desc';
 
 // Helper to format dates nicely
@@ -53,23 +60,49 @@ const formatDate = (dateString: string | null | undefined): string => {
 };
 
 // Helper to render status badge
+import { keyframes } from '@emotion/react';
+
+const blink = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+`;
+
 const AssetStatusBadge: React.FC<{ status: AssetStatus | null }> = ({ status }) => {
-    if (!status) return <Badge variant="outline">Unknown</Badge>;
+    if (!status) return <Badge variant="outline" className="bg-gray-200 text-gray-700">Unknown</Badge>;
 
     let variant: "default" | "secondary" | "destructive" | "outline" = "default";
+    let className = '';
     switch (status) {
-        case 'Active': variant = 'default'; break; // Or 'success' if you add that variant
-        case 'Under Maintenance': variant = 'secondary'; break; // Or 'warning'
-        case 'Retired': variant = 'outline'; break;
-        case 'Disposed': variant = 'destructive'; break;
-        default: variant = 'outline';
+        case 'Active': 
+            variant = 'default'; 
+            className = 'bg-green-100 text-green-800'; 
+            break;
+        case 'Under Maintenance': 
+            variant = 'secondary'; 
+            className = 'bg-yellow-100 text-yellow-800 animate-blink'; 
+            break;
+        case 'Retired': 
+            variant = 'outline'; 
+            className = 'bg-gray-200 text-gray-700'; 
+            break;
+        case 'Disposed': 
+            variant = 'destructive'; 
+            className = 'bg-red-100 text-red-800'; 
+            break;
+        default: 
+            variant = 'outline'; 
+            className = 'bg-gray-200 text-gray-700'; 
+            break;
     }
-    return <Badge variant={variant}>{status}</Badge>;
+    return <Badge variant={variant} className={className}>{status}</Badge>;
 };
 
+// Add the keyframes to the global styles
+import './AssetList.css';
 
-const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, searchTerm, categoryFilter, statusFilter, onDataFiltered }) => {
-  const [assets, setAssets] = useState<AssetRow[]>([]); // Store raw AssetRow
+
+const AssetList: React.FC<AssetListProps> = ({ /*onEditAsset,*/ onMarkAsServiced, onDisposeAsset, refreshTrigger, searchTerm, categoryFilter, statusFilter, tagFilter, onDataFiltered }) => {
+  const [assets, setAssets] = useState<AssetRowWithTags[]>([]); // Use AssetRowWithTags
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [sortColumn, setSortColumn] = useState<SortableColumn>('asset_name');
@@ -82,9 +115,17 @@ const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, sear
     setLoading(true);
     setError(null);
     try {
-      let query = supabase.from('assets').select('*');
+      // Fetch assets with their tags
+      // TODO: Remove `as any` for asset_tags and tags once types are regenerated
+      let query = supabase.from('assets').select(`
+        *,
+        asset_tags (
+          tags (id, name, color)
+        )
+      `);
 
       // Apply search filter (case-insensitive) on asset_name or serial_number
+      // TODO: Extend search to include tag names
       if (searchTerm) {
          query = query.or(`asset_name.ilike.%${searchTerm}%,serial_number.ilike.%${searchTerm}%`);
       }
@@ -97,6 +138,18 @@ const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, sear
       // Apply status filter
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
+      }
+
+      // Apply tag filter (Placeholder for actual implementation)
+      // This is complex for many-to-many directly in client.
+      // Would typically involve:
+      // 1. Fetch asset_ids from asset_tags where tag_id = tagFilter
+      // 2. Then query assets where id is in the fetched asset_ids
+      // OR use an RPC function that handles this join and filtering.
+      if (tagFilter !== 'all') {
+        // Placeholder: This will NOT work directly.
+        // query = query.eq('asset_tags.tag_id', tagFilter); // This is conceptual
+        console.warn("Tag filtering in AssetList is not fully implemented for direct client-side query. Requires RPC or subquery.");
       }
 
       // Apply sorting
@@ -117,9 +170,14 @@ const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, sear
       if (fetchError) {
         throw fetchError;
       }
+      
+      const assetsWithProcessedTags = (fetchedAssets || []).map(asset => ({
+        ...asset,
+        tags: Array.isArray(asset.asset_tags) ? asset.asset_tags.map((at: any) => at.tags).filter(Boolean) : []
+      }));
 
-      setAssets(fetchedAssets || []);
-      onDataFiltered(fetchedAssets || []); // Pass raw data up
+      setAssets(assetsWithProcessedTags as AssetRowWithTags[]);
+      onDataFiltered(assetsWithProcessedTags as AssetRow[]); // Pass raw data up, might need to adjust if onDataFiltered expects AssetRowWithTags
 
       // --- Add Maintenance Due Check/Notification ---
       // Example: Check for items due within 7 days
@@ -155,7 +213,7 @@ const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, sear
     } finally {
       setLoading(false);
     }
-  }, [toast, searchTerm, categoryFilter, statusFilter, sortColumn, sortDirection, onDataFiltered]); // Add statusFilter
+  }, [toast, searchTerm, categoryFilter, statusFilter, tagFilter, sortColumn, sortDirection, onDataFiltered]);
 
   useEffect(() => {
     fetchAssets();
@@ -199,21 +257,7 @@ const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, sear
     };
   }, [supabase, toast, fetchAssets]); // Dependencies
 
-
-  const handleDelete = async (id: string, assetName: string) => {
-    try {
-      await deleteAsset(id);
-      toast({ title: 'Success', description: `Asset "${assetName}" deleted successfully.` });
-      fetchAssets(); // Refresh list
-    } catch (err) {
-      console.error(`Failed to delete asset ${id}:`, err);
-      toast({
-        title: 'Error Deleting Asset',
-        description: err instanceof Error ? err.message : 'Could not delete asset.',
-        variant: 'destructive',
-      });
-    }
-  };
+  // Removed handleDelete function
 
   const handleSort = (column: SortableColumn) => {
     if (sortColumn === column) {
@@ -236,7 +280,7 @@ const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, sear
     return (
       <div className="space-y-2">
         {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-      </div>
+     </div>
     );
   }
 
@@ -269,6 +313,8 @@ const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, sear
                  Category {renderSortIcon('category')}
                </Button>
             </TableHead>
+            {/* Placeholder for Tags column header - sorting tags is complex */}
+            <TableHead>Tags</TableHead>
              <TableHead>
                <Button variant="ghost" onClick={() => handleSort('serial_number')} className="px-0 group">
                  Serial No. {renderSortIcon('serial_number')}
@@ -295,11 +341,16 @@ const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, sear
                </Button>
             </TableHead>
              <TableHead className="hidden md:table-cell">
-               <Button variant="ghost" onClick={() => handleSort('next_maintenance_due_date')} className="px-0 group">
-                 Next Maintenance {renderSortIcon('next_maintenance_due_date')}
+               <Button variant="ghost" onClick={() => handleSort('last_serviced_date')} className="px-0 group">
+                 Last Serviced {renderSortIcon('last_serviced_date')}
                </Button>
             </TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+             <TableHead className="hidden md:table-cell">
+               <Button variant="ghost" onClick={() => handleSort('next_maintenance_due_date')} className="px-0 group">
+                 Next Due {renderSortIcon('next_maintenance_due_date')}
+               </Button>
+            </TableHead>
+            <TableHead className="text-right">Actions</TableHead> {/* Uncommented Actions Header */}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -307,49 +358,61 @@ const AssetList: React.FC<AssetListProps> = ({ onEditAsset, refreshTrigger, sear
             <TableRow key={asset.id}>
               <TableCell className="font-medium p-2 text-center text-sm">{asset.asset_name}</TableCell>
               <TableCell className="p-2 text-center text-sm">{asset.category}</TableCell>
+              <TableCell className="p-2 text-center text-sm">
+                {asset.tags && asset.tags.length > 0 ? (
+                  asset.tags.map((tag: TagPlaceholder) => ( // Added type for tag
+                    <Badge key={tag.id} variant="outline" className="mr-1 mb-1 text-xs" style={tag.color ? { backgroundColor: tag.color, color: '#fff', borderColor: tag.color } : {}}>
+                      {tag.name}
+                    </Badge>
+                  ))
+                ) : (
+                  '-'
+                )}
+              </TableCell>
               <TableCell className="p-2 text-center text-sm">{asset.serial_number || 'N/A'}</TableCell>
               <TableCell className="p-2 text-center text-sm">{asset.location || 'N/A'}</TableCell>
               {/* Cast status to the expected type for the badge */}
               <TableCell className="p-2 text-center text-sm"><AssetStatusBadge status={asset.status as AssetStatus | null} /></TableCell>
               <TableCell className="hidden md:table-cell p-2 text-center text-sm">{formatDate(asset.purchase_date)}</TableCell>
               <TableCell className="hidden md:table-cell p-2 text-center text-sm">{formatDate(asset.warranty_expiry_date)}</TableCell>
+              <TableCell className="hidden md:table-cell p-2 text-center text-sm">{formatDate(asset.last_serviced_date)}</TableCell>
               <TableCell className="hidden md:table-cell p-2 text-center text-sm">{formatDate(asset.next_maintenance_due_date)}</TableCell>
-              <TableCell className="text-right p-2 text-center text-sm flex items-center">
-                 {asset.service_document_url && (
-                    <Button variant="ghost" size="icon" asChild title="View Service Document">
-                        <a href={asset.service_document_url} target="_blank" rel="noopener noreferrer">
-                            <LinkIcon className="h-4 w-4" />
-                        </a>
-                    </Button>
-                 )}
-                 <Button variant="ghost" size="icon" onClick={() => onEditAsset(asset)} title="Edit Asset">
-                   <Pencil className="h-4 w-4" />
-                 </Button>
-                 <AlertDialog>
-                   <AlertDialogTrigger asChild>
-                     <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-700" title="Delete Asset">
-                       <Trash2 className="h-4 w-4" />
-                     </Button>
-                   </AlertDialogTrigger>
-                   <AlertDialogContent>
-                     <AlertDialogHeader>
-                       <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                       <AlertDialogDescription>
-                         This action cannot be undone. This will permanently delete the asset
-                         "{asset.asset_name}".
-                       </AlertDialogDescription>
-                     </AlertDialogHeader>
-                     <AlertDialogFooter>
-                       <AlertDialogCancel>Cancel</AlertDialogCancel>
-                       <AlertDialogAction
-                         onClick={() => handleDelete(asset.id, asset.asset_name)}
-                         className="bg-red-600 hover:bg-red-700"
-                       >
-                         Delete
-                       </AlertDialogAction>
-                     </AlertDialogFooter>
-                   </AlertDialogContent>
-                 </AlertDialog>
+              <TableCell className="text-right p-2 text-sm">
+                <div className="flex items-center justify-end space-x-1">
+                  {/* TODO: Replace service_document_url check with check on asset_documents table / or show count of documents */}
+                  {asset.service_document_url && (
+                      <Button variant="ghost" size="icon" asChild title="View Service Document">
+                          <a href={asset.service_document_url} target="_blank" rel="noopener noreferrer">
+                              <LinkIcon className="h-4 w-4" />
+                          </a>
+                      </Button>
+                  )}
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => onMarkAsServiced(asset)} 
+                    title="Mark as Serviced"
+                    disabled={asset.status === 'Retired' || asset.status === 'Disposed'}
+                  >
+                    <Wrench className="h-4 w-4" />
+                  </Button>
+                  {/* Edit Asset button removed */}
+                  <Button variant="ghost" size="icon" asChild title="View Details">
+                    <Link to={`/assets/${asset.id}`}>
+                        <Eye className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onDisposeAsset(asset)}
+                    title="Dispose Asset"
+                    disabled={asset.status === 'Disposed' || asset.status === 'Retired'}
+                  >
+                    <ArchiveIcon className="h-4 w-4" />
+                  </Button>
+                  {/* Delete button and AlertDialog removed */}
+                </div>
               </TableCell>
             </TableRow>
           ))}
