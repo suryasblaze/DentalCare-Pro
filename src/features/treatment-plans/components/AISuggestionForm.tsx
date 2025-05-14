@@ -8,6 +8,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { cn } from '@/lib/utils';
 
 interface AppointmentDetail {
   visit: string;
@@ -20,6 +21,7 @@ interface AppointmentPlan {
   totalSittings: string;
   sittingDetails: AppointmentDetail[];
   totalTreatmentTime: string;
+  medicalPrecautions?: string;
 }
 
 interface AISuggestionFormProps {
@@ -31,6 +33,7 @@ interface AISuggestionFormProps {
   selectedTreatment: string;
   title: string;
   description: string;
+  patientRecord: any;
   onSuggestionApply: (suggestion: AISuggestion) => void;
   disabled?: boolean;
 }
@@ -45,13 +48,22 @@ export interface AISuggestion {
     clinicalConsiderations: string;
     expectedOutcomes: string;
     appointmentPlan?: AppointmentPlan;
+    isPatientSelected?: boolean;
   };
   caseOverview?: {
     condition: string;
     severity: string;
     teethInvolved: string;
-    patientSymptoms: string;
+    patientSymptoms?: string;
+    patientSelectedTreatment?: string;
   };
+  patientFactors?: {
+    relevantMedicalConditions: string;
+    medicationConsiderations: string;
+    ageRelatedConsiderations: string;
+  };
+  recommendedInvestigations?: string;
+  clinicalRationale?: string;
   postTreatmentCare: string;
 }
 
@@ -64,12 +76,15 @@ export function AISuggestionForm({
   selectedTreatment,
   title,
   description,
+  patientRecord,
   onSuggestionApply,
   disabled = false,
 }: AISuggestionFormProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const { toast } = useToast();
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
+  const [selectedCondition, setSelectedCondition] = useState<string | null>(null);
 
   const handleGenerateClick = async () => {
     if (!selectedTreatment) {
@@ -97,6 +112,7 @@ export function AISuggestionForm({
           condition,
           treatment: selectedTreatment,
           details: matrixDetails,
+          patientRecord: patientRecord,
           userInput: {
             title,
             description,
@@ -111,32 +127,54 @@ export function AISuggestionForm({
       const raw = await response.json();
       const output = raw[0]?.output?.response;
 
-      if (!output || !output.treatmentPlans) {
-        throw new Error('Invalid AI response structure.');
+      if (!output || !output.treatmentPlans || !Array.isArray(output.treatmentPlans)) {
+        throw new Error('Invalid AI response structure: treatmentPlans missing or not an array.');
       }
 
-      const parsedSuggestions: AISuggestion[] = output.treatmentPlans.map((plan: any) => ({
-        title: plan.planName,
-        description: output.clinicalAssessment,
-        planDetails: {
-          planName: plan.planName,
-          clinicalProtocol: plan.clinicalProtocol,
-          keyMaterials: plan.keyMaterials,
-          clinicalConsiderations: plan.clinicalConsiderations,
-          expectedOutcomes: plan.expectedOutcomes,
-          appointmentPlan: plan.appointmentPlan,
-        },
-        caseOverview: output.caseOverview,
-        postTreatmentCare: output.postTreatmentCare,
-      }));
+      const parsedSuggestions: AISuggestion[] = output.treatmentPlans.map((plan: any) => {
+        const planNameOriginal = plan.planName;
+        const planNameLower = planNameOriginal?.toLowerCase();
+        const patientSelectedTreatmentLower = output.caseOverview?.patientSelectedTreatment?.toLowerCase();
+
+        const c1 = planNameLower?.includes('(patient-selected)');
+        const c2 = planNameLower?.includes('(patient selected)');
+        const c3 = patientSelectedTreatmentLower && planNameLower?.startsWith(patientSelectedTreatmentLower);
+        const isPatientSelected = c1 || c2 || c3;
+
+        console.log(
+          `[AISuggestionForm] Plan: ${planNameOriginal} | Lower: ${planNameLower} | C1: ${c1} | C2: ${c2} | patientSelectedTreatmentLower: ${patientSelectedTreatmentLower} | C3 (startsWith): ${c3} | FINAL isPatientSelected: ${isPatientSelected}`
+        );
+
+        console.log(`[AISuggestionForm] Raw AI plan object for: ${planNameOriginal}`, plan);
+
+        console.log(`[AISuggestionForm] Metadata source fields for: ${planNameOriginal}`, {
+          aiPlanClinicalConsiderations: plan.clinicalConsiderations,
+          aiPlanKeyMaterials: plan.keyMaterials,
+          aiOutputPostTreatmentCare: output.postTreatmentCare
+        });
+
+        return {
+          title: plan.planName,
+          description: output.clinicalAssessment || "",
+          planDetails: {
+            planName: plan.planName,
+            clinicalProtocol: plan.clinicalProtocol,
+            keyMaterials: plan.keyMaterials,
+            clinicalConsiderations: plan.clinicalConsiderations,
+            expectedOutcomes: plan.expectedOutcomes,
+            appointmentPlan: plan.appointmentPlan || plan.planDetails?.appointmentPlan,
+            isPatientSelected: isPatientSelected, 
+          },
+          caseOverview: output.caseOverview,
+          patientFactors: output.patientFactors,
+          recommendedInvestigations: output.recommendedInvestigations,
+          clinicalRationale: output.clinicalRationale,
+          postTreatmentCare: output.postTreatmentCare || "",
+        };
+      });
 
       setSuggestions(parsedSuggestions);
 
-      toast({
-        title: 'Suggestions Generated',
-        description: `Generated ${parsedSuggestions.length} treatment plan suggestions`,
-        variant: 'default',
-      });
     } catch (error) {
       console.error('Error generating suggestions:', error);
       toast({
@@ -150,39 +188,83 @@ export function AISuggestionForm({
   };
 
   const formatDescription = (suggestion: AISuggestion): string => {
-    const parts = [
-      `Case Overview:`,
-      suggestion.description,
-      `\nClinical Protocol:`,
-      suggestion.planDetails.clinicalProtocol,
-      `\nKey Materials:`,
-      suggestion.planDetails.keyMaterials,
-      `\nClinical Considerations:`,
-      suggestion.planDetails.clinicalConsiderations,
-      `\nExpected Outcomes:`,
-      suggestion.planDetails.expectedOutcomes,
-    ];
+    const parts: string[] = [];
 
-    if (suggestion.planDetails.appointmentPlan) {
+    parts.push(
+      `Case Overview:`,
+      `  Condition: ${suggestion.caseOverview?.condition || 'N/A'}`,
+      `  Severity: ${suggestion.caseOverview?.severity || 'N/A'}`,
+      `  Teeth Involved: ${suggestion.caseOverview?.teethInvolved || 'N/A'}`
+    );
+    if (suggestion.caseOverview?.patientSymptoms) {
+      parts.push(`  Patient Symptoms: ${suggestion.caseOverview.patientSymptoms}`);
+    }
+    if (suggestion.caseOverview?.patientSelectedTreatment) {
+      parts.push(`  Patient Selected Treatment: ${suggestion.caseOverview.patientSelectedTreatment}`);
+    }
+
+    parts.push(`
+Clinical Assessment:`, suggestion.description);
+
+    if (suggestion.patientFactors) {
       parts.push(
-        `\nAppointment Plan:`,
-        `Total Sittings: ${suggestion.planDetails.appointmentPlan.totalSittings}`,
-        `Total Treatment Time: ${suggestion.planDetails.appointmentPlan.totalTreatmentTime}`,
-        `\nSitting Details:`,
-        suggestion.planDetails.appointmentPlan.sittingDetails
-          .map(sitting => 
-            `Visit ${sitting.visit}:\n` +
-            `- Procedures: ${sitting.procedures}\n` +
-            `- Duration: ${sitting.estimatedDuration}\n` +
-            `- Time Gap: ${sitting.timeGap}`
-          )
-          .join('\n\n')
+        `
+Patient Factors:`,
+        `  Relevant Medical Conditions: ${suggestion.patientFactors.relevantMedicalConditions}`,
+        `  Medication Considerations: ${suggestion.patientFactors.medicationConsiderations}`,
+        `  Age-Related Considerations: ${suggestion.patientFactors.ageRelatedConsiderations}`
       );
     }
 
-    parts.push(`\nPost-Treatment Care:`, suggestion.postTreatmentCare);
+    if (suggestion.recommendedInvestigations) {
+      parts.push(`
+Recommended Investigations:`, `  ${suggestion.recommendedInvestigations}`);
+    }
 
-    return parts.join('\n');
+    parts.push(
+      `
+Details for Plan: ${suggestion.title}`,
+      `  Clinical Protocol:`,
+      `    ${suggestion.planDetails.clinicalProtocol}`,
+      `  Key Materials:`,
+      `    ${suggestion.planDetails.keyMaterials}`,
+      `  Clinical Considerations:`,
+      `    ${suggestion.planDetails.clinicalConsiderations}`,
+      `  Expected Outcomes:`,
+      `    ${suggestion.planDetails.expectedOutcomes}`
+    );
+
+    if (suggestion.planDetails.appointmentPlan) {
+      parts.push(
+        `
+  Appointment Plan:`,
+        `    Total Sittings: ${suggestion.planDetails.appointmentPlan.totalSittings}`,
+        `    Total Treatment Time: ${suggestion.planDetails.appointmentPlan.totalTreatmentTime}`
+      );
+      if (suggestion.planDetails.appointmentPlan.medicalPrecautions) {
+        parts.push(`    Medical Precautions: ${suggestion.planDetails.appointmentPlan.medicalPrecautions}`);
+      }
+      parts.push(`
+    Sitting Details:`);
+      suggestion.planDetails.appointmentPlan.sittingDetails.forEach(sitting => {
+        parts.push(
+          `      Visit ${sitting.visit}:`,
+          `        Procedures: ${sitting.procedures}`,
+          `        Duration: ${sitting.estimatedDuration}`,
+          `        Time Gap: ${sitting.timeGap}`
+        );
+      });
+    }
+
+    if (suggestion.clinicalRationale) {
+      parts.push(`
+Clinical Rationale:`, `  ${suggestion.clinicalRationale}`);
+    }
+
+    parts.push(`
+Post-Treatment Care:`, `  ${suggestion.postTreatmentCare}`);
+
+    return parts.filter(Boolean).join('\n');
   };
 
   return (
@@ -211,49 +293,82 @@ export function AISuggestionForm({
             {suggestions.map((suggestion, index) => (
               <div
                 key={index}
-                className="border rounded-lg overflow-hidden bg-card"
+                className={cn(
+                  "border rounded-lg overflow-hidden bg-card",
+                  suggestion.planDetails.isPatientSelected && "border-primary/50 bg-primary/5"
+                )}
               >
                 <div className="p-4 bg-muted/50">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h5 className="font-medium text-base">{suggestion.title}</h5>
+                      <h5 className="font-medium text-base">
+                        {suggestion.title}{" "}
+                        {suggestion.planDetails.isPatientSelected && (
+                          <span className="ml-2 text-xs text-primary font-normal">(Patient Selected Plan)</span>
+                        )}
+                      </h5>
                       {suggestion.caseOverview && (
-                        <div className="mt-1 text-sm text-muted-foreground">
-                          <p>Condition: {suggestion.caseOverview.condition}</p>
-                          <p>Severity: {suggestion.caseOverview.severity}</p>
-                          {suggestion.caseOverview.patientSymptoms && (
-                            <p>Symptoms: {suggestion.caseOverview.patientSymptoms}</p>
-                          )}
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          <p><strong>Condition:</strong> {suggestion.caseOverview.condition}</p>
+                          <p><strong>Severity:</strong> {suggestion.caseOverview.severity}</p>
+                          <p><strong>Teeth:</strong> {suggestion.caseOverview.teethInvolved}</p>
+                          {suggestion.caseOverview.patientSymptoms && <p><strong>Symptoms:</strong> {suggestion.caseOverview.patientSymptoms}</p>}
+                          {suggestion.caseOverview.patientSelectedTreatment && <p><strong>Patient Preference:</strong> {suggestion.caseOverview.patientSelectedTreatment}</p>}
                         </div>
                       )}
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        onSuggestionApply({
-                          title: suggestion.title,
-                          description: formatDescription(suggestion),
-                          planDetails: suggestion.planDetails,
-                          caseOverview: suggestion.caseOverview,
-                          postTreatmentCare: suggestion.postTreatmentCare,
-                        });
-                      }}
-                    >
-                      Apply This Plan
-                    </Button>
+                    {suggestion.planDetails.isPatientSelected && (
+                       <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onSuggestionApply(suggestion)}
+                      >
+                        Apply This Plan
+                      </Button>
+                    )}
                   </div>
                 </div>
 
                 <Accordion type="single" collapsible className="w-full">
-                  <AccordionItem value="clinical-details">
-                    <AccordionTrigger className="px-4">Clinical Details</AccordionTrigger>
+                  <AccordionItem value="clinical-assessment">
+                    <AccordionTrigger className="px-4">Overall Clinical Assessment</AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4">
+                      <p className="text-sm text-muted-foreground whitespace-pre-line">
+                        {suggestion.description}
+                      </p>
+                    </AccordionContent>
+                  </AccordionItem>
+
+                  {suggestion.patientFactors && (
+                    <AccordionItem value="patient-factors">
+                      <AccordionTrigger className="px-4">Patient Factors</AccordionTrigger>
+                      <AccordionContent className="px-4 pb-4 text-sm space-y-1">
+                        <p><strong>Relevant Medical Conditions:</strong> {suggestion.patientFactors.relevantMedicalConditions}</p>
+                        <p><strong>Medication Considerations:</strong> {suggestion.patientFactors.medicationConsiderations}</p>
+                        <p><strong>Age-Related Considerations:</strong> {suggestion.patientFactors.ageRelatedConsiderations}</p>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+
+                  {suggestion.recommendedInvestigations && (
+                    <AccordionItem value="recommended-investigations">
+                      <AccordionTrigger className="px-4">Recommended Investigations</AccordionTrigger>
+                      <AccordionContent className="px-4 pb-4 text-sm">
+                        <p>{suggestion.recommendedInvestigations}</p>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                  
+                  <AccordionItem value="plan-details">
+                    <AccordionTrigger className="px-4">Details for: {suggestion.planDetails.planName}</AccordionTrigger>
                     <AccordionContent className="px-4 pb-4">
                       <div className="space-y-3 text-sm">
                         <div>
                           <p className="font-medium">Clinical Protocol:</p>
-                          <p className="text-muted-foreground whitespace-pre-line">{suggestion.planDetails.clinicalProtocol}</p>
+                          <p className="text-muted-foreground whitespace-pre-line">
+                            {suggestion.planDetails.clinicalProtocol}
+                          </p>
                         </div>
                         <div>
                           <p className="font-medium">Key Materials:</p>
@@ -261,11 +376,13 @@ export function AISuggestionForm({
                         </div>
                         <div>
                           <p className="font-medium">Clinical Considerations:</p>
-                          <p className="text-muted-foreground">{suggestion.planDetails.clinicalConsiderations}</p>
+                          <p className="text-muted-foreground whitespace-pre-line">
+                            {suggestion.planDetails.clinicalConsiderations}
+                          </p>
                         </div>
                         <div>
                           <p className="font-medium">Expected Outcomes:</p>
-                          <p className="text-muted-foreground">{suggestion.planDetails.expectedOutcomes}</p>
+                          <p className="text-muted-foreground whitespace-pre-line">{suggestion.planDetails.expectedOutcomes}</p>
                         </div>
                       </div>
                     </AccordionContent>
@@ -281,29 +398,52 @@ export function AISuggestionForm({
                       </AccordionTrigger>
                       <AccordionContent className="px-4 pb-4">
                         <div className="space-y-3 text-sm">
-                          <div className="flex items-center gap-4 text-muted-foreground">
+                          <div className="flex items-center gap-4 text-muted-foreground mb-2">
                             <div>
-                              <Clock className="h-4 w-4 mb-1" />
-                              <p>Total Sittings: {suggestion.planDetails.appointmentPlan.totalSittings}</p>
+                              <Clock className="h-4 w-4 inline mr-1" />
+                              <span>Total Sittings: {suggestion.planDetails.appointmentPlan.totalSittings}</span>
                             </div>
                             <div>
-                              <Calendar className="h-4 w-4 mb-1" />
-                              <p>Duration: {suggestion.planDetails.appointmentPlan.totalTreatmentTime}</p>
+                              <Calendar className="h-4 w-4 inline mr-1" />
+                              <span>Total Duration: {suggestion.planDetails.appointmentPlan.totalTreatmentTime}</span>
                             </div>
                           </div>
+                          {suggestion.planDetails.appointmentPlan.medicalPrecautions && (
+                            <div className="mb-3">
+                              <p className="font-medium">Medical Precautions:</p>
+                              <p className="text-muted-foreground whitespace-pre-line">{suggestion.planDetails.appointmentPlan.medicalPrecautions}</p>
+                            </div>
+                          )}
                           <div className="space-y-2">
                             {suggestion.planDetails.appointmentPlan.sittingDetails.map((sitting, idx) => (
-                              <div key={idx} className="border rounded p-2">
+                              <div key={idx} className="border rounded p-3 bg-background">
                                 <p className="font-medium">Visit {sitting.visit}</p>
-                                <p className="text-muted-foreground">{sitting.procedures}</p>
-                                <div className="mt-1 text-xs text-muted-foreground">
-                                  <p>Duration: {sitting.estimatedDuration}</p>
-                                  {sitting.timeGap !== "N/A" && <p>Gap until next visit: {sitting.timeGap}</p>}
+                                <p className="text-muted-foreground mt-1">{sitting.procedures}</p>
+                                <div className="mt-2 text-xs text-muted-foreground flex items-center gap-3">
+                                  <p className="flex items-center">
+                                    <Clock className="h-3 w-3 mr-1" />
+                                    Duration: {sitting.estimatedDuration}
+                                  </p>
+                                  {sitting.timeGap !== "N/A" && (
+                                    <p className="flex items-center">
+                                      <Calendar className="h-3 w-3 mr-1" />
+                                      Next visit in: {sitting.timeGap}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             ))}
                           </div>
                         </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+
+                  {suggestion.clinicalRationale && (
+                    <AccordionItem value="clinical-rationale">
+                      <AccordionTrigger className="px-4">Clinical Rationale</AccordionTrigger>
+                      <AccordionContent className="px-4 pb-4 text-sm">
+                        <p className="whitespace-pre-line">{suggestion.clinicalRationale}</p>
                       </AccordionContent>
                     </AccordionItem>
                   )}
@@ -323,3 +463,4 @@ export function AISuggestionForm({
     </div>
   );
 }
+

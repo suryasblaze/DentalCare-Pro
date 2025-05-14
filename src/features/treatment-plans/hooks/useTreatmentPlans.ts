@@ -7,6 +7,12 @@ import { api } from '@/lib/api';
 import { z } from 'zod';
 import { treatmentPlanSchema } from '../components/TreatmentPlanForm';
 import { treatmentSchema } from '../components/TreatmentForm';
+import { format } from 'date-fns';
+import type { Database } from 'supabase_types'; // Ensure Database type is imported
+import type { AISuggestion } from '../components/AISuggestionForm'; // Added import
+
+// Define TreatmentPlanUpdate for explicit casting if needed
+type TreatmentPlanUpdate = Database['public']['Tables']['treatment_plans']['Update'];
 
 export function useTreatmentPlans() {
   // Define Status Types
@@ -60,7 +66,7 @@ export function useTreatmentPlans() {
   const { update: updatePlanStatus, loading: updatingPlanStatus } = useOptimisticUpdate(
     // Apply TreatmentPlanStatus type
     (data: { planId: string; newStatus: TreatmentPlanStatus }) => 
-      treatmentService.updateTreatmentPlan(data.planId, { status: data.newStatus }),
+      treatmentService.updateTreatmentPlan(data.planId, { status: data.newStatus } as TreatmentPlanUpdate),
     {
       onError: () => {
         toast({
@@ -159,41 +165,126 @@ export function useTreatmentPlans() {
   
   // Create treatment plan
   // Add toothIds as the second argument
-  const createTreatmentPlan = useCallback(async (planData: z.infer<typeof treatmentPlanSchema>, toothIds: number[]) => { 
+  const createTreatmentPlan = useCallback(async (
+    planDetailsFromForm: Partial<z.infer<typeof treatmentPlanSchema>> & { /* initialTreatments?: any[], */ originalAISuggestion?: AISuggestion }, 
+    toothIds: number[]
+  ) => { 
+    let createdPlanId: string | null = null;
+    let createdPlanObjectForReturn: any = null;
+
     try {
       setLoading(true);
       
-      // Pass toothIds to the service layer
-      const createdPlan = await treatmentService.createTreatmentPlan(planData, toothIds); 
-      
+      const { 
+        // initialTreatments, // No longer creating treatments here
+        originalAISuggestion, 
+        clinical_considerations,
+        materials,
+        post_treatment_care,
+        total_visits: totalVisitsFromForm,
+        ...planTableFields 
+      } = planDetailsFromForm;
+
+      const finalPlanTableData = {
+        title: planTableFields.title || 'Untitled Plan',
+        description: planTableFields.description || 'No description',
+        patient_id: planTableFields.patient_id || '', 
+        status: planTableFields.status || 'planned',
+        start_date: planTableFields.start_date || format(new Date(), 'yyyy-MM-dd'),
+        priority: planTableFields.priority || 'medium',
+        // ai_generated will be true if originalAISuggestion exists
+        ai_generated: !!originalAISuggestion, 
+      };
+
+      // Step 1: Create the main treatment plan record & associate teeth
+      const planCreationResult = await treatmentService.createTreatmentPlan(finalPlanTableData, toothIds);
+
+      if (planCreationResult.error || !planCreationResult.data || !planCreationResult.data.id) {
+        console.error('Error creating base treatment plan:', planCreationResult.error);
+        toast({
+          title: "Error",
+          description: planCreationResult.error?.message || "Failed to create base treatment plan record.",
+          variant: "destructive"
+        });
+        throw planCreationResult.error || new Error("Base plan creation failed or ID missing.");
+      }
+      createdPlanId = planCreationResult.data.id;
+      createdPlanObjectForReturn = planCreationResult.data; 
+
       toast({
-        title: "Success",
-        description: "Treatment plan created successfully"
+        title: "Plan Created",
+        description: "Base plan record and teeth associations saved. Saving metadata..."
       });
       
-      // Refresh data
-      await fetchData();
+      // Step 2: Create Metadata
+      const metadataPayload = {
+        treatment_plan_id: createdPlanId,
+        clinical_considerations: clinical_considerations || null,
+        key_materials: materials || null, 
+        post_treatment_care: post_treatment_care || null,
+        // total_visits now comes from the form, or can be derived from aiSuggestion if needed by metadata directly
+        total_visits: totalVisitsFromForm ? parseInt(totalVisitsFromForm) : 
+                      (originalAISuggestion?.planDetails?.appointmentPlan?.sittingDetails?.length || 0),
+        completed_visits: 0,
+      };
+
+      try {
+        await api.patients.createTreatmentPlanMetadata(metadataPayload);
+        toast({
+            title: "Metadata Saved",
+            description: "Additional plan details saved successfully."
+        });
+      } catch (metaError) {
+        console.error('Error creating treatment plan metadata:', metaError);
+        toast({
+          title: "Warning",
+          description: "Plan created, but failed to save some additional details (metadata).",
+          variant: "default"
+        });
+      }
       
-      // Get the processed plan for display
-      const processedPlan = treatmentService.processTreatmentPlanData(
-        [createdPlan],
-        patients
-      )[0];
+      // Step 3: Fetch full details of the newly created plan
+      const detailsResult = await api.patients.getTreatmentPlanDetails(createdPlanId);
+
+      if (detailsResult.error || !detailsResult.data) {
+        console.error('Error fetching new plan details:', detailsResult.error);
+        toast({
+          title: "Warning",
+          description: "Plan fully created, but failed to fetch updated details. A manual refresh may be needed.",
+          variant: "default"
+        });
+        fetchData(); 
+        // Return a synthesized plan object if fetching fails (treatments will be empty initially)
+        const placeholderPlan = treatmentService.processTreatmentPlanData([{ ...createdPlanObjectForReturn, treatments: [], metadata: metadataPayload }], patients)[0];
+        return {
+            ...placeholderPlan,
+            originalAISuggestion: originalAISuggestion 
+        };
+      }
+
+      const newPlanWithFullDetails = detailsResult.data;
+      // The newPlanWithFullDetails.treatments will be empty as none were created here.
+      const processedPlan = treatmentService.processTreatmentPlanData([newPlanWithFullDetails], patients)[0];
       
-      // Return the newly created plan
-      return processedPlan;
+      fetchData(); 
+      
+      console.log('[useTreatmentPlans] createTreatmentPlan - Returning originalAISuggestion:', planDetailsFromForm.originalAISuggestion);
+      return {
+        ...processedPlan, // treatments array will be empty or reflect actual DB state (empty)
+        originalAISuggestion: planDetailsFromForm.originalAISuggestion
+      };
     } catch (error) {
-      console.error('Error creating treatment plan:', error);
+      console.error('Error in createTreatmentPlan process:', error);
       toast({
         title: "Error",
-        description: "Failed to create treatment plan",
+        description: `An unexpected error occurred: ${error instanceof Error ? error.message : "Please check console."}`, 
         variant: "destructive"
       });
       throw error;
     } finally {
       setLoading(false);
     }
-  }, [fetchData, patients, toast]);
+  }, [fetchData, patients, toast]); 
   
   // Create treatment
   const createTreatment = useCallback(async (treatmentData: z.infer<typeof treatmentSchema>) => {
@@ -310,6 +401,9 @@ export function useTreatmentPlans() {
     }
     
     // Call the API with optimistic update
+    // Assuming treatmentService.updateTreatmentPlan correctly calls api.patients.updateTreatmentPlan
+    // The linter error on line 63 was related to the type expected by treatmentService.updateTreatmentPlan.
+    // If api.patients.updateTreatmentPlan handles { status: newStatus } correctly, this should be fine.
     await updatePlanStatus({ planId, newStatus });
   }, [treatmentPlans, selectedPlan, optimisticData, updatePlanStatus]);
   

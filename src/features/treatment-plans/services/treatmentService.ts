@@ -3,9 +3,52 @@ import { z } from 'zod';
 import { treatmentPlanSchema } from '../components/TreatmentPlanForm';
 import { treatmentSchema } from '../components/TreatmentForm';
 import type { Database } from 'supabase_types'; // Try importing directly
+import { format, addDays, addWeeks, addMonths, parseISO } from 'date-fns'; // Add date-fns import
 
-// Define TreatmentRow based on Database types
+// Define specific types based on generated types from database.types.ts
+type TreatmentPlanRow = Database['public']['Tables']['treatment_plans']['Row'];
+type TreatmentPlanInsert = Database['public']['Tables']['treatment_plans']['Insert'];
+// Explicitly define TreatmentPlanUpdate based on Supabase generated types
+type TreatmentPlanUpdate = Database['public']['Tables']['treatment_plans']['Update'];
 type TreatmentRow = Database['public']['Tables']['treatments']['Row'];
+// Add TreatmentVisitInsert type
+type TreatmentVisitInsert = Database['public']['Tables']['treatment_visits']['Insert'];
+// Assuming AISuggestion type is available or defined elsewhere, 
+// for now, we'll use a placeholder for the structure of AI Sittings if not directly importable.
+interface AISittingDetail {
+  visit?: string;
+  procedures?: string;
+  estimatedDuration?: string;
+  timeGap?: string; // e.g., "2 weeks", "1 month", "3-5 days"
+}
+
+// Helper function to parse timeGap string and add to date
+const parseTimeGapAndAddDate = (currentScheduledDate: Date, timeGap: string): Date => {
+  if (!timeGap) return currentScheduledDate; // Should not happen if AI provides it
+
+  const gap = timeGap.toLowerCase();
+  const parts = gap.match(/^(\d+)(-(\d+))?\s*(day|week|month)s?$/);
+
+  if (!parts) {
+    console.warn(`Invalid timeGap format: ${timeGap}. Defaulting to 1 day.`);
+    return addDays(currentScheduledDate, 1); // Default to 1 day if format is unexpected
+  }
+
+  const value = parseInt(parts[1], 10); // Use the lower bound if it's a range like "3-5 days"
+  const unit = parts[4];
+
+  switch (unit) {
+    case 'day':
+      return addDays(currentScheduledDate, value);
+    case 'week':
+      return addWeeks(currentScheduledDate, value);
+    case 'month':
+      return addMonths(currentScheduledDate, value);
+    default:
+      console.warn(`Unknown timeGap unit: ${unit}. Defaulting to 1 day.`);
+      return addDays(currentScheduledDate, 1);
+  }
+};
 
 /**
  * Service for treatment plan related operations
@@ -28,20 +71,44 @@ export const treatmentService = {
   /**
    * Create a new treatment plan
    */
-  // Add toothIds argument
-  async createTreatmentPlan(planData: z.infer<typeof treatmentPlanSchema>, toothIds: number[]) { 
-    // Pass toothIds to the API layer
-    return api.patients.createTreatmentPlan(planData, toothIds); 
+  async createTreatmentPlan(planData: Partial<z.infer<typeof treatmentPlanSchema>>, toothIds: number[]) { 
+    // Construct the full object required by the API, ensuring all non-nullable fields are present
+    const fullPlanData = {
+      ...planData, // Spread the data from the form
+      title: planData.title || 'Untitled Plan', // Ensure title is present
+      description: planData.description || 'No description', // Ensure description is present
+      patient_id: planData.patient_id || '', // Ensure patient_id is present (form validation should catch this earlier)
+      status: planData.status || 'planned', // Default status if not provided
+      start_date: planData.start_date || format(new Date(), 'yyyy-MM-dd'), // Default start_date if not provided
+      priority: planData.priority || 'medium', // Default priority
+      ai_generated: planData.ai_generated !== undefined ? planData.ai_generated : false, // Default ai_generated
+      // Add other potentially required fields with defaults if necessary,
+      // matching what api.patients.createTreatmentPlan expects
+    };
+    // Ensure all required fields by your DB schema for treatment_plans are here.
+    // The linter error was because planData (from treatmentPlanSchema) was missing status and start_date.
+    // Now, fullPlanData should satisfy the type expected by api.patients.createTreatmentPlan.
+    return api.patients.createTreatmentPlan(fullPlanData as any, toothIds); // Using 'as any' temporarily if precise typing is complex. Ideally, fullPlanData matches the API's expected type.
   },
   
   /**
    * Create a treatment plan with its treatments in a single transaction
    */
   async createTreatmentPlanWithTreatments(
-    planData: z.infer<typeof treatmentPlanSchema>,
+    planData: Partial<z.infer<typeof treatmentPlanSchema>>,
     treatments: z.infer<typeof treatmentSchema>[]
   ) {
-    // Convert cost to number before sending to API
+    const fullPlanData = {
+      ...planData,
+      title: planData.title || 'Untitled Plan',
+      description: planData.description || 'No description',
+      patient_id: planData.patient_id || '',
+      status: planData.status || 'planned',
+      start_date: planData.start_date || format(new Date(), 'yyyy-MM-dd'),
+      priority: planData.priority || 'medium',
+      ai_generated: planData.ai_generated !== undefined ? planData.ai_generated : false,
+    };
+
     const treatmentsWithNumericCost = treatments.map(t => {
       const costAsNumber = parseFloat(t.cost);
       return {
@@ -49,16 +116,15 @@ export const treatmentService = {
         cost: isNaN(costAsNumber) ? 0 : costAsNumber, // Ensure it's a valid number, default to 0
       };
     });
-    // Ensure the mapped type matches the expected TreatmentInsert type from api.ts
     // Cast to 'any' as a temporary workaround if complex type mismatches occur, 
     // ideally, ensure treatmentSchema aligns with TreatmentInsert type
-    return api.patients.createTreatmentPlanWithTreatments(planData, treatmentsWithNumericCost as any); 
+    return api.patients.createTreatmentPlanWithTreatments(fullPlanData as any, treatmentsWithNumericCost as any); 
   },
 
   /**
    * Update a treatment plan
    */
-  async updateTreatmentPlan(id: string, planData: Partial<z.infer<typeof treatmentPlanSchema>>) {
+  async updateTreatmentPlan(id: string, planData: TreatmentPlanUpdate) {
     return api.patients.updateTreatmentPlan(id, planData);
   },
   
@@ -88,19 +154,25 @@ export const treatmentService = {
    */
   async updateTreatment(id: string, treatmentData: Partial<z.infer<typeof treatmentSchema>>) {
     // Prepare the update object
-    const updatePayload: Partial<TreatmentRow> = { ...treatmentData }; // Use TreatmentRow type if available, else Partial<any>
+    const updatePayload: Partial<TreatmentRow> = {};
 
-    // Convert cost if present
-    if (updatePayload.cost !== undefined && updatePayload.cost !== null) {
-      const costAsNumber = parseFloat(String(updatePayload.cost)); // Ensure it's string before parsing
-      // Update payload with numeric cost if valid, otherwise remove/handle error
-      if (!isNaN(costAsNumber)) {
-        updatePayload.cost = costAsNumber; 
-      } else {
-        // Decide how to handle invalid cost during update: remove or keep original? Removing for now.
-        delete updatePayload.cost; 
-        console.warn(`Invalid cost format during update for treatment ${id}: ${updatePayload.cost}`);
+    // Explicitly map fields from treatmentData (string-based schema) to updatePayload (number-based for cost)
+    for (const key in treatmentData) {
+      if (key === 'cost' && treatmentData.cost !== undefined) {
+        const costAsNumber = parseFloat(treatmentData.cost);
+        updatePayload.cost = isNaN(costAsNumber) ? undefined : costAsNumber; // Assign number or undefined
+      } else if (key === 'status' && treatmentData.status !== undefined) { // Handle other fields like status
+        updatePayload.status = treatmentData.status;
+      } else if (key === 'description' && treatmentData.description !== undefined) {
+        updatePayload.description = treatmentData.description;
+      } else if (key === 'type' && treatmentData.type !== undefined) {
+        updatePayload.type = treatmentData.type;
+      } else if (key === 'priority' && treatmentData.priority !== undefined) {
+        updatePayload.priority = treatmentData.priority;
+      } else if (key === 'plan_id' && treatmentData.plan_id !== undefined) {
+        updatePayload.plan_id = treatmentData.plan_id;
       }
+      // Add other fields from treatmentSchema as needed
     }
 
     // --- Add logic for actual start/end times ---
@@ -175,5 +247,37 @@ export const treatmentService = {
         teeth // Add the processed teeth array
       };
     });
-  }
+  },
+
+  async createMultipleVisits(planId: string, aiSittings: AISittingDetail[], planStartDateString: string) {
+    if (!aiSittings || aiSittings.length === 0) {
+      return { data: [], error: null }; // No sittings to create
+    }
+
+    let currentScheduledDate = parseISO(planStartDateString); // Start with the plan's start date
+    const visitsToCreate: TreatmentVisitInsert[] = [];
+
+    for (let i = 0; i < aiSittings.length; i++) {
+      const sitting = aiSittings[i];
+      
+      if (i > 0 && aiSittings[i-1].timeGap) {
+        // For subsequent visits, calculate based on the PREVIOUS visit's timeGap
+        currentScheduledDate = parseTimeGapAndAddDate(currentScheduledDate, aiSittings[i-1].timeGap!);
+      }
+      // For the first visit (i=0), currentScheduledDate remains planStartDateString as parsed initially
+
+      const visitData: TreatmentVisitInsert = {
+        treatment_plan_id: planId,
+        visit_number: i + 1,
+        procedures: sitting.procedures || 'N/A',
+        estimated_duration: sitting.estimatedDuration,
+        time_gap: sitting.timeGap, // Store the original timeGap from AI for this visit
+        status: 'pending', // Default status
+        scheduled_date: format(currentScheduledDate, 'yyyy-MM-dd'), // Format to string for DB
+      };
+      visitsToCreate.push(visitData);
+    }
+
+    return api.patients.createTreatmentVisitsBatch(visitsToCreate);
+  },
 };

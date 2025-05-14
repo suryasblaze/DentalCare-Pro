@@ -26,7 +26,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Plus, Smile, BrainCog, Save } from 'lucide-react'; // Use Smile icon, Add BrainCog, Add Save
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 // Import DentalChart, InitialToothState, ToothCondition, and DentalChartHandle
 import DentalChart, { InitialToothState, ToothCondition, DentalChartHandle } from './DentalChart';
 import { api } from '@/lib/api'; // Import the api object
@@ -46,6 +46,14 @@ export const treatmentPlanSchema = z.object({
   materials: z.string().optional(),
   clinical_considerations: z.string().optional(),
   post_treatment_care: z.string().optional(),
+  // Add missing fields that are part of the database table and used in services
+  status: z.string().optional(), 
+  start_date: z.string().optional(), // Should be date, but keeping string to align with form and service layer default logic
+  priority: z.string().optional(),
+  ai_generated: z.boolean().optional(),
+  // Add fields to carry AI-generated treatments and the original suggestion
+  initialTreatments: z.array(z.any()).optional(),
+  originalAISuggestion: z.any().optional(),
 });
 
 export type TreatmentPlanFormValues = z.infer<typeof treatmentPlanSchema>;
@@ -53,9 +61,10 @@ export type TreatmentPlanFormValues = z.infer<typeof treatmentPlanSchema>;
 interface TreatmentPlanFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: TreatmentPlanFormValues, toothIds: number[]) => Promise<void>;
+  onSubmit: (data: TreatmentPlanFormValues, toothIds: number[]) => Promise<any>; // Changed Promise<void> to Promise<any> to get createdPlan
   patients: any[];
   loading?: boolean;
+  initialData?: TreatmentPlanFormValues; // Make initialData an optional prop
 }
 
 interface ToothConditionData {
@@ -66,12 +75,30 @@ interface ToothConditionData {
   last_updated_at?: string;
 }
 
+// Add interface for treatment plan item
+interface TreatmentPlanItem {
+  id: string;
+  title: string;
+  description: string;
+  status: 'pending' | 'in-progress' | 'completed';
+  appointmentDetails: {
+    totalVisits: number;
+    completedVisits: number;
+    nextVisit?: {
+      date: string;
+      procedures: string;
+      duration: string;
+    };
+  };
+}
+
 export function TreatmentPlanForm({
   open,
   onOpenChange,
   onSubmit,
   patients,
   loading = false,
+  initialData, // Destructure initialData here
 }: TreatmentPlanFormProps) {
   // State for patient search
   const [searchTerm, setSearchTerm] = useState('');
@@ -79,6 +106,8 @@ export function TreatmentPlanForm({
   const [isLoadingPatients, setIsLoadingPatients] = useState(false);
   const [errorPatients, setErrorPatients] = useState<string | null>(null);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [selectedPatientRecord, setSelectedPatientRecord] = useState<any | null>(null); // Added state for full patient record
+  const [isLoadingPatientDetails, setIsLoadingPatientDetails] = useState(false); // Added state for loading full patient details
 
   // State for selected teeth IDs (confirmed from dialog)
   const [selectedToothIds, setSelectedToothIds] = useState<number[]>([]);
@@ -101,9 +130,10 @@ export function TreatmentPlanForm({
   const [matrixDetails, setMatrixDetails] = useState<any | null>(null); // Using any due to TS issues
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   // State for AI suggestions
-  const [aiSuggestions, setAiSuggestions] = useState<any[]>([]); // Store AI suggestions (use a more specific type if known)
+  const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[]>([]); // Changed type from any[]
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [isSavingChart, setIsSavingChart] = useState(false); // State for saving indicator
+  const [selectedAISuggestionForSubmit, setSelectedAISuggestionForSubmit] = useState<AISuggestion | null>(null); // New state for applied AI suggestion
 
   const { toast } = useToast(); // Initialize toast
   const dentalChartRef = useRef<DentalChartHandle>(null); // Ref for DentalChart component
@@ -117,6 +147,11 @@ export function TreatmentPlanForm({
       domain: '',
       condition: '',
       treatment: '',
+      estimated_duration: '',
+      total_visits: '',
+      materials: '',
+      clinical_considerations: '',
+      post_treatment_care: '',
     },
   });
 
@@ -130,13 +165,25 @@ export function TreatmentPlanForm({
       setMatrixDetails(null); // Clear matrix details
       setAiSuggestions([]); // Clear AI suggestions
       setIsGeneratingSuggestions(false); // Reset AI loading state
+      setSelectedPatientRecord(null); // Reset patient record
+      setSelectedAISuggestionForSubmit(null); // Reset applied AI suggestion
+      setIsLoadingPatientDetails(false); // Reset patient details loading state
       form.reset();
       setIsChartDialogOpen(false); // Ensure chart dialog is closed too
       setDialogSelectedToothIds([]); // Reset temporary selection
     } else {
        form.reset({
-         title: '', description: '', patient_id: selectedPatientId || '',
-         domain: '', condition: '', treatment: '',
+         title: '', 
+         description: '', 
+         patient_id: selectedPatientId || '',
+         domain: '', 
+         condition: '', 
+         treatment: '',
+         estimated_duration: '',
+         total_visits: '',
+         materials: '',
+         clinical_considerations: '',
+         post_treatment_care: '',
        });
        // Keep selectedToothIds as they might be relevant if reopening for edit
     }
@@ -182,7 +229,6 @@ export function TreatmentPlanForm({
       console.log(`Filtered conditions for ${selectedDomain}:`, relatedConditions); // Log filtered conditions
       setFilteredConditions(relatedConditions);
       // Reset condition field if the current condition is not valid for the new domain
-      // Ensure selectedCondition is a valid string before checking includes
       if (selectedCondition && !relatedConditions.includes(selectedCondition)) {
          form.setValue('condition', ''); // Reset condition selection
          setMatrixDetails(null); // Also clear details
@@ -193,8 +239,7 @@ export function TreatmentPlanForm({
       setMatrixDetails(null); // Also clear details
       setAiSuggestions([]); // Clear suggestions if domain changes
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDomain, matrixOptions]); // Rerun when domain or the base options change
+  }, [selectedDomain, matrixOptions, selectedCondition, form]); // Dependencies: selected domain and condition
 
   // Fetch matrix details when domain and condition change
   useEffect(() => {
@@ -212,29 +257,52 @@ export function TreatmentPlanForm({
         setMatrixDetails(details);
       } catch (error) {
         console.error(`Failed to fetch matrix details for ${selectedDomain}/${selectedCondition}:`, error);
-      setMatrixDetails(null); // Ensure details are null on error
-      setAiSuggestions([]); // Clear suggestions if details fetch fails or changes
+        setMatrixDetails(null); // Ensure details are null on error
+        setAiSuggestions([]); // Clear suggestions if details fetch fails or changes
       } finally {
         setIsLoadingDetails(false);
       }
     };
 
-    // Debounce or check if values are valid before fetching? For now, fetch directly.
     fetchDetails();
-
   }, [selectedDomain, selectedCondition]); // Dependencies: selected domain and condition
+
+  // Update form field handlers
+  const handleDomainChange = (value: string) => {
+    form.setValue('domain', value);
+    form.setValue('condition', ''); // Reset condition when domain changes
+    setMatrixDetails(null); // Clear details when domain changes
+    setAiSuggestions([]); // Clear suggestions if domain changes
+  };
+
+  const handleConditionChange = (value: string) => {
+    form.setValue('condition', value);
+    setMatrixDetails(null); // Clear details when condition changes directly
+    setAiSuggestions([]); // Clear suggestions if condition changes
+  };
 
   // Handler for patient selection from search results - Fetch conditions and set initial selection
   const handlePatientSelect = async (patient: any) => {
     setSelectedPatientId(patient.id);
     setSelectedPatientName(`${patient.first_name || ''} ${patient.last_name || ''}`.trim());
+    // setSelectedPatientRecord(patient); // Store the full patient object - Will be set after fetching full details
     form.setValue('patient_id', patient.id, { shouldValidate: true });
     setSearchTerm('');
     setChartInitialState({}); // Clear previous patient's chart state immediately
     setSelectedToothIds([]); // Clear selected teeth for the new patient
+    setSelectedPatientRecord(null); // Clear previous full patient record
+    setIsLoadingPatientDetails(true);
 
-    // Fetch existing tooth conditions for the selected patient
     try {
+      // Fetch full patient details
+      console.log(`Fetching full patient details for patient: ${patient.id}`);
+      // IMPORTANT: Assume api.patients.getPatientDetails(id) exists and returns the full record.
+      // You might need to adjust this API call based on your actual API structure.
+      const fullPatientRecord = await api.patients.getById(patient.id); 
+      setSelectedPatientRecord(fullPatientRecord);
+      console.log("Fetched full patient record:", fullPatientRecord);
+
+      // Fetch existing tooth conditions for the selected patient
       console.log(`Fetching tooth conditions for patient: ${patient.id}`);
       const conditionsData = await api.patients.getPatientToothConditions(patient.id);
       console.log("Fetched conditions data:", conditionsData);
@@ -284,13 +352,17 @@ export function TreatmentPlanForm({
       // No need to set dialogSelectedToothIds here, it's set when the dialog opens
 
     } catch (error) {
-      console.error("Failed to fetch patient tooth conditions:", error);
+      console.error("Failed to fetch patient details or tooth conditions:", error);
       toast({
-        title: "Error Loading Chart",
-        description: "Could not load existing tooth conditions.",
+        title: "Error Loading Patient Data",
+        description: "Could not load patient details or tooth conditions.",
         variant: "destructive",
       });
+      setSelectedPatientRecord(null); // Clear record on error
       setChartInitialState({}); // Reset to empty on error
+      setSelectedToothIds([]);
+    } finally {
+      setIsLoadingPatientDetails(false);
     }
   };
 
@@ -407,20 +479,77 @@ export function TreatmentPlanForm({
 
    // Main form submission handler
    const handleSubmit = async (values: TreatmentPlanFormValues) => {
-    await onSubmit(values, selectedToothIds); // Pass form data and confirmed teeth IDs
-    // Reset confirmed teeth selection after successful submission
-    setSelectedToothIds([]);
-    setAiSuggestions([]); // Clear suggestions on successful submit
-    form.reset(); // Reset form fields
-   };
+    if (!selectedPatientId) {
+      toast({
+        title: 'Patient Not Selected',
+        description: 'Please select a patient before submitting.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    let dataForSubmit: any = { ...values };
+
+    // Remove fields not directly part of the main plan table or used for initial setup
+    // but keep ones that might be used by metadata or other related tables if creating a new plan
+    delete dataForSubmit.patient_name; // This is for display, patient_id is the fk
+
+    if (selectedAISuggestionForSubmit) {
+      dataForSubmit.originalAISuggestion = selectedAISuggestionForSubmit;
+      // ai_generated is now handled by useTreatmentPlans based on originalAISuggestion presence
+      // dataForSubmit.ai_generated = true; // No longer set here
+
+      // DO NOT create initialTreatments here anymore.
+      // These will be handled by TreatmentPlanDetails if the user wants to add them.
+      /*
+      if (selectedAISuggestionForSubmit.planDetails?.appointmentPlan?.sittingDetails) {
+        dataForSubmit.initialTreatments = selectedAISuggestionForSubmit.planDetails.appointmentPlan.sittingDetails.map(
+          (sitting, index) => ({
+            type: `Visit ${sitting.visit}: ${sitting.procedures.substring(0, 50)}...`,
+            description: sitting.procedures,
+            status: 'pending',
+            priority: 'medium',
+            cost: 0, // Default cost, can be updated later
+            estimated_duration: sitting.estimatedDuration,
+            // plan_id will be set by the service if creating plan + treatments together
+          })
+        );
+      }
+      */
+    } else {
+      dataForSubmit.ai_generated = false;
+    }
+
+    // If editing, some fields might not be present in `values` if they weren't changed,
+    // so merge with `initialData` for updates, but only if `initialData` exists (i.e., editing an existing plan)
+    /*
+    if (initialData && initialData.id) {
+      dataForSubmit = { ...initialData, ...dataForSubmit, id: initialData.id };
+    }
+    */
+    
+    try {
+      await onSubmit(dataForSubmit, selectedToothIds); 
+      form.reset();
+      setSelectedAISuggestionForSubmit(null); 
+      onOpenChange(false); 
+    } catch (error) {
+      console.error("Error submitting treatment plan form:", error);
+      toast({
+        title: "Submission Error",
+        description: "Failed to save the treatment plan. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Function to fetch AI suggestions from n8n
   const handleGetAISuggestions = useCallback(async () => {
-    if (!selectedPatientId || selectedToothIds.length === 0 || !selectedDomain || !selectedCondition) {
+    if (!selectedPatientId || selectedToothIds.length === 0 || !selectedDomain || !selectedCondition || !selectedPatientRecord) {
       toast({
         title: "Missing Information",
         description: "Please select patient, teeth, domain, and condition first.",
-        variant: "default", // Changed from "warning" to "default"
+        variant: "default",
         duration: 3000,
       });
       return;
@@ -438,6 +567,7 @@ export function TreatmentPlanForm({
         condition: selectedCondition,
         details: matrixDetails, // Send fetched matrix details
         treatment: form.getValues('treatment'), // Single treatment instead of array
+        patientRecord: selectedPatientRecord, // Include the full patient record
         // Add any other relevant patient info if needed by n8n
       };
       console.log("Sending payload to n8n:", payload); // Log payload
@@ -502,24 +632,48 @@ export function TreatmentPlanForm({
       setIsGeneratingSuggestions(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPatientId, selectedToothIds, selectedDomain, selectedCondition, matrixDetails, form, toast]); // Add dependencies
+  }, [selectedPatientId, selectedToothIds, selectedDomain, selectedCondition, matrixDetails, form, toast, selectedPatientRecord]); // Add dependencies
 
   // Function to apply a selected AI suggestion to the form
-  const handleApplySuggestion = (suggestion: any) => {
-    if (suggestion && suggestion.title && suggestion.description) {
-      form.setValue('title', suggestion.title, { shouldValidate: true });
-      form.setValue('description', suggestion.description, { shouldValidate: true });
-      toast({
-        title: "Suggestion Applied",
-        description: `"${suggestion.title}" pre-filled. Please review and add cost.`,
-        variant: "default",
-        duration: 3000,
-      });
-      // Optionally clear suggestions after applying one? Or allow applying others?
-      // setAiSuggestions([]);
-    } else {
-       console.warn("Attempted to apply invalid suggestion:", suggestion);
+  const handleApplySuggestion = (suggestion: AISuggestion) => {
+    setSelectedAISuggestionForSubmit(suggestion);
+    form.setValue('title', suggestion.title);
+    form.setValue('description', suggestion.description);
+
+    if (suggestion.planDetails?.clinicalConsiderations) {
+      form.setValue('clinical_considerations', suggestion.planDetails.clinicalConsiderations);
     }
+    if (suggestion.postTreatmentCare) {
+      form.setValue('post_treatment_care', suggestion.postTreatmentCare);
+    }
+    if (suggestion.planDetails?.keyMaterials) {
+        form.setValue('materials', suggestion.planDetails.keyMaterials);
+    }
+    if (suggestion.planDetails?.appointmentPlan?.totalSittings) {
+        form.setValue('total_visits', suggestion.planDetails.appointmentPlan.totalSittings);
+    }
+    if (suggestion.planDetails?.appointmentPlan?.totalTreatmentTime) {
+        // This might need parsing if AISuggestion.totalTreatmentTime is e.g. "Ongoing"
+        // For now, let's assume it can be directly set or requires specific mapping
+        form.setValue('estimated_duration', suggestion.planDetails.appointmentPlan.totalTreatmentTime);
+    }
+
+    // Attempt to pre-fill the 'treatment' radio button based on the suggestion title
+    if (matrixDetails?.treatment_options && Array.isArray(matrixDetails.treatment_options) && suggestion.title) {
+      const matchedOption = matrixDetails.treatment_options.find((opt: string) => 
+        suggestion.title.toLowerCase().includes(opt.toLowerCase())
+      );
+      if (matchedOption) {
+        form.setValue('treatment', matchedOption);
+      }
+    }
+
+    form.setValue('ai_generated', true); // Mark that this plan is AI assisted
+
+    toast({
+      title: 'AI Suggestion Applied',
+      description: `"${suggestion.title}" has been pre-filled into the form.`,
+    });
   };
 
   // Need to wrap the return in a Fragment as Dialogs are siblings
@@ -634,12 +788,12 @@ export function TreatmentPlanForm({
                 <>
                   <FormField
                     control={form.control}
-                    name="domain" // Make sure 'domain' is in your form schema and defaultValues
+                    name="domain"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Domain</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
+                          onValueChange={handleDomainChange}
                           value={field.value || ''}
                           disabled={isLoadingOptions}
                         >
@@ -652,10 +806,8 @@ export function TreatmentPlanForm({
                             {isLoadingOptions ? (
                               <SelectItem value="loading" disabled>Loading...</SelectItem>
                             ) : (
-                              // Map over unique domains derived from matrixOptions
                               domains.map((domain) => (
                                 <SelectItem key={domain} value={domain}>
-                                  {/* Simple capitalization for display */}
                                   {domain.charAt(0).toUpperCase() + domain.slice(1)}
                                 </SelectItem>
                               ))
@@ -669,12 +821,12 @@ export function TreatmentPlanForm({
 
                   <FormField
                     control={form.control}
-                    name="condition" // Make sure 'condition' is in your form schema and defaultValues
+                    name="condition"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Condition</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
+                          onValueChange={handleConditionChange}
                           value={field.value || ''}
                           disabled={isLoadingOptions}
                         >
@@ -684,13 +836,11 @@ export function TreatmentPlanForm({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                             {isLoadingOptions ? (
+                            {isLoadingOptions ? (
                               <SelectItem value="loading" disabled>Loading...</SelectItem>
                             ) : (
-                              // Map over filtered conditions based on selected domain
                               filteredConditions.map((condition) => (
                                 <SelectItem key={condition} value={condition}>
-                                  {/* Simple capitalization for display */}
                                   {condition.charAt(0).toUpperCase() + condition.slice(1)}
                                 </SelectItem>
                               ))
@@ -793,27 +943,10 @@ export function TreatmentPlanForm({
                             title={form.watch('title') || ''}
                             description={form.watch('description') || ''}
                             onSuggestionApply={(suggestion) => {
-                              // Update all form fields with the suggestion data
-                              form.setValue('title', suggestion.title, { shouldValidate: true });
-                              form.setValue('description', suggestion.description, { shouldValidate: true });
-                              
-                              // Update additional fields if they exist in the suggestion
-                              if (suggestion.planDetails.appointmentPlan) {
-                                form.setValue('total_visits', suggestion.planDetails.appointmentPlan.totalSittings, { shouldValidate: true });
-                                form.setValue('estimated_duration', suggestion.planDetails.appointmentPlan.totalTreatmentTime, { shouldValidate: true });
-                              }
-                              
-                              form.setValue('materials', suggestion.planDetails.keyMaterials, { shouldValidate: true });
-                              form.setValue('clinical_considerations', suggestion.planDetails.clinicalConsiderations, { shouldValidate: true });
-                              form.setValue('post_treatment_care', suggestion.postTreatmentCare, { shouldValidate: true });
-
-                              toast({
-                                title: "Treatment Plan Applied",
-                                description: "AI suggestion has been applied to all fields.",
-                                variant: "default"
-                              });
+                              handleApplySuggestion(suggestion);
                             }}
-                            disabled={!selectedPatientId || selectedToothIds.length === 0 || !form.watch('treatment')}
+                            disabled={!selectedPatientId || selectedToothIds.length === 0 || !form.watch('treatment') || !selectedPatientRecord || isLoadingPatientDetails || isGeneratingSuggestions}
+                            patientRecord={selectedPatientRecord}
                           />
                         </div>
                       </div>

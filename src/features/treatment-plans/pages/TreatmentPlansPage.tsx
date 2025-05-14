@@ -50,6 +50,7 @@ export function TreatmentPlansPage() {
   const [showPlanDetailsDialog, setShowPlanDetailsDialog] = useState(false);
   const [showAddTreatmentDialog, setShowAddTreatmentDialog] = useState(false);
   const [showAIGeneratorDialog, setShowAIGeneratorDialog] = useState(false); // Added state for AI dialog
+  const [currentAiSuggestionForDetails, setCurrentAiSuggestionForDetails] = useState<AISuggestion | null>(null); // New state
   
   // Handle creating a new treatment plan
   // Update signature to accept toothIds
@@ -59,11 +60,18 @@ export function TreatmentPlansPage() {
       const newPlan = await createTreatmentPlan(planData, toothIds); 
       setShowNewPlanDialog(false);
       
-      // Show the details of the new plan
       setSelectedPlan(newPlan);
+      console.log('[TreatmentPlansPage] handleCreatePlan - newPlan object:', newPlan);
+      console.log('[TreatmentPlansPage] handleCreatePlan - newPlan.originalAISuggestion:', newPlan?.originalAISuggestion);
+      if (newPlan?.originalAISuggestion) { 
+        setCurrentAiSuggestionForDetails(newPlan.originalAISuggestion);
+      } else {
+        setCurrentAiSuggestionForDetails(null);
+      }
       setShowPlanDetailsDialog(true);
     } catch (error) {
       console.error('Error creating plan:', error);
+      // Error toast is likely handled within createTreatmentPlan or its service calls
     }
   };
 
@@ -243,19 +251,26 @@ export function TreatmentPlansPage() {
       />
       
       {/* Treatment Plan Details Dialog */}
-      {selectedPlan && (
+      {showPlanDetailsDialog && selectedPlan && (
         <TreatmentPlanDetails
+          key={selectedPlan.id}
           open={showPlanDetailsDialog}
-          onOpenChange={setShowPlanDetailsDialog}
+          onOpenChange={(isOpen) => {
+            setShowPlanDetailsDialog(isOpen);
+          }}
           plan={selectedPlan}
           onRefresh={refreshSelectedPlan}
           onAddTreatment={handleOpenAddTreatmentDialog}
-          onStatusChange={handlePlanStatusChangeWrapper} // Use wrapper
-          onDeletePlan={deletePlan}
-          onTreatmentStatusChange={handleTreatmentStatusChangeWrapper} // Use wrapper
+          onStatusChange={handlePlanStatusChangeWrapper}
+          onDeletePlan={async (planId) => { // Make onDeletePlan async
+            await deletePlan(planId); // Ensure deletePlan is awaited
+            setShowPlanDetailsDialog(false); // Close dialog after deletion
+          }}
+          onTreatmentStatusChange={handleTreatmentStatusChangeWrapper} 
           onDeleteTreatment={deleteTreatment}
-          loading={loading || updatingTreatmentStatus || updatingPlanStatus}
+          loading={loading || updatingPlanStatus || updatingTreatmentStatus}
           navigateToPatient={navigateToPatient}
+          aiInitialSuggestion={currentAiSuggestionForDetails} // Pass the suggestion here
         />
       )}
       

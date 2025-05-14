@@ -750,23 +750,19 @@ export const api = {
       return processedData; // Return the processed data
     },
 
-    async getTreatmentPlans(patientId: string | null) {
-      const cacheKey = patientId ? `treatment_plans:${patientId}` : 'treatment_plans:all';
-      const cachedData = globalCache.get<TreatmentPlanRow[]>(cacheKey); // Use specific type
-      if (cachedData) {
-        return cachedData;
-      }
-
+    async getTreatmentPlans(patientId: string | null = null) {
       let query = supabase
         .from('treatment_plans')
         .select(`
           *,
           treatments (*),
-          treatment_plan_teeth (
-            teeth ( id, description )
+          metadata:treatment_plan_metadata(*),
+          visits:treatment_visits(*),
+          teeth:treatment_plan_teeth(
+            tooth_id
           )
         `)
-        .order('start_date', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (patientId) {
         query = query.eq('patient_id', patientId);
@@ -774,10 +770,12 @@ export const api = {
 
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching treatment plans:", error);
+        throw error;
+      }
 
-      globalCache.set(cacheKey, data);
-      return data || []; // Return empty array if null
+      return data;
     },
 
     // Update createMedicalRecord to handle toothIds and map record_type
@@ -1133,40 +1131,116 @@ export const api = {
 
       if (planError) {
         console.error("Error creating treatment plan:", planError);
-        throw planError;
-      }
-      if (!planData) {
-        throw new Error("Failed to create treatment plan: No data returned.");
+        return { error: planError };
       }
 
-      const newPlanId = planData.id;
+      if (!planData) {
+        return { error: new Error("Failed to create treatment plan: No data returned.") };
+      }
 
       // Step 2: Insert into the junction table if toothIds are provided
       if (toothIds && toothIds.length > 0) {
         const teethLinks = toothIds.map(toothId => ({
-          treatment_plan_id: newPlanId,
+          treatment_plan_id: planData.id,
           tooth_id: toothId,
         }));
 
         const { error: teethError } = await supabase
-          .from('treatment_plan_teeth') // Your junction table name
+          .from('treatment_plan_teeth')
           .insert(teethLinks);
 
         if (teethError) {
           console.error("Error linking teeth to treatment plan:", teethError);
-          // Log the error and re-throw
-          throw teethError;
-        } else {
-          console.log('Successfully inserted into treatment_plan_teeth for plan ID:', newPlanId);
+          return { error: teethError };
         }
       }
 
-      // Invalidate cache
-      globalCache.invalidate(`treatment_plans:${plan.patient_id}`);
-      globalCache.invalidate('treatment_plans:all');
-      
-      // Return the created plan data (without teeth links, fetch separately if needed)
-      return planData; 
+      return { data: planData, error: null };
+    },
+
+    async createTreatmentPlanMetadata(metadata: {
+      treatment_plan_id: string;
+      clinical_considerations: string | null;
+      key_materials: string | null;
+      post_treatment_care: string | null;
+      total_visits: number;
+      completed_visits: number;
+    }) {
+      const { data, error } = await supabase
+        .from('treatment_plan_metadata')
+        .insert(metadata)
+        .select()
+        .single();
+
+      return { data, error };
+    },
+
+    async createTreatmentVisit(visit: {
+      treatment_plan_id: string;
+      visit_number: number;
+      procedures: string;
+      estimated_duration?: string;
+      time_gap?: string;
+      status: 'pending' | 'completed' | 'cancelled';
+      scheduled_date?: Date | null; // Keep as Date | null as per existing definition
+    }) {
+      const visitDataToInsert = {
+        ...visit,
+        // If scheduled_date is a Date object, format it to ISO string for DB consistency
+        // Supabase client might handle Date objects, but explicit string is safer for 'date' or 'timestamp' columns.
+        scheduled_date: visit.scheduled_date ? visit.scheduled_date.toISOString().split('T')[0] : null 
+      };
+
+      const { data, error } = await supabase
+        .from('treatment_visits')
+        .insert([visitDataToInsert]) 
+        .select()
+        .single(); 
+
+      if (error) throw error;
+      return data;
+    },
+
+    // New function for batch-creating visits
+    async createTreatmentVisitsBatch(visits: Database['public']['Tables']['treatment_visits']['Insert'][]) {
+      // Ensure scheduled_date within each visit object is a string if it's a Date object.
+      // The 'Insert' type might already expect strings for date/timestamp fields.
+      // If not, map over visits to format dates before insertion.
+      // For now, assuming 'visits' array is correctly formatted regarding date strings.
+      const { data, error } = await supabase
+        .from('treatment_visits')
+        .insert(visits)
+        .select();
+
+      // Return { data, error } consistently
+      if (error) {
+        console.error('Error in createTreatmentVisitsBatch:', error);
+        // Return the error object so the calling function can handle it
+        return { data: null, error }; 
+      }
+      return { data, error: null }; // Return data and null error on success
+    },
+
+    async getTreatmentPlanDetails(planId: string) {
+      const { data: plan, error: planError } = await supabase
+        .from('treatment_plans')
+        .select(`
+          *,
+          metadata:treatment_plan_metadata(*),
+          visits:treatment_visits(*),
+          teeth:treatment_plan_teeth(
+            tooth_id
+          )
+        `)
+        .eq('id', planId)
+        .single();
+
+      if (planError) {
+        console.error("Error fetching treatment plan details:", planError);
+        return { error: planError };
+      }
+
+      return { data: plan, error: null };
     },
 
     async updateTreatmentPlan(id: string, plan: Database['public']['Tables']['treatment_plans']['Update']) { // Use Update type

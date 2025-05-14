@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'; // Import useEffect
-import { Check, Clock, Trash2, X, RotateCcw } from 'lucide-react'; 
+import { Check, Clock, Trash2, X, RotateCcw, Calendar as CalendarIcon } from 'lucide-react'; 
 import { Button } from '@/components/ui/button'; 
 import { Loader2 } from 'lucide-react';
 import { formatDistanceStrict, differenceInSeconds } from 'date-fns'; // Import date-fns functions
@@ -22,6 +22,7 @@ interface TreatmentItemProps {
   onStatusChange: (id: string, status: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   loading?: boolean;
+  estimatedVisitDate?: string | null; // New prop for estimated visit date
 }
 
 export function TreatmentItem({ 
@@ -29,6 +30,7 @@ export function TreatmentItem({
   onStatusChange, 
   onDelete,
   loading = false,
+  estimatedVisitDate, // Destructure the new prop
 }: TreatmentItemProps) {
   // State for delete confirmation dialog
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -168,7 +170,7 @@ export function TreatmentItem({
     }
     
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>
+      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${color}`}>
         {status.replace('_', ' ')}
       </span>
     );
@@ -191,7 +193,7 @@ export function TreatmentItem({
     }
     
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>
+      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${color}`}>
         {priority}
       </span>
     );
@@ -199,124 +201,153 @@ export function TreatmentItem({
   
   // Ensure treatment object exists before trying to access its properties
   if (!treatment) {
-    return null; // Or return some placeholder/loading state
+    return <div className="text-center text-sm text-gray-500 py-4">No treatment data.</div>;
   }
 
-  return (
-    <div className="border rounded-lg p-4">
-      <div className="flex justify-between items-start">
-        <div>
-          <h4 className="font-medium">{treatment.type}</h4>
-          <p className="text-sm text-muted-foreground">{treatment.description}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {renderStatusBadge(treatment.status)}
-          {treatment.priority && renderPriorityBadge(treatment.priority)}
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sm">Cost: {formatCurrency(treatment.cost)}</span>
-        </div>
-        
-        {/* Display the running/final duration */}
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-muted-foreground" />
-          {/* Display the elapsedTimeDisplay state which holds either running time or final/estimated duration */}
-          <p className="text-sm">Duration: {elapsedTimeDisplay}</p> 
-        </div>
-      </div>
-      
-      <div className="flex justify-end gap-2 mt-4">
-        {/* Mark Complete: Show only if status is 'pending' */}
-        {treatment.status === 'pending' && (
-          <Button
-            variant="outline"
-            size="sm"
-            title="Mark this treatment as completed"
-            onClick={() => onStatusChange(treatment.id, 'completed')}
-            disabled={loading || showDeleteConfirm} // Disable if loading or delete dialog is open
-          >
-            {loading && !showDeleteConfirm ? ( // Show loader only if this action is loading
-              <Loader2 className="h-3 w-3 mr-1 animate-spin" /> 
-            ) : (
-              <Check className="h-3 w-3 mr-1" />
-            )}
-            Mark Complete
-          </Button>
-        )}
-        
-        {/* Cancel: Show only if status is 'pending' */}
-        {treatment.status === 'pending' && ( 
-          <Button
-            variant="outline"
-            size="sm"
-            title="Cancel this treatment"
-            onClick={() => onStatusChange(treatment.id, 'cancelled')}
-            disabled={loading || showDeleteConfirm}
-          >
-            {loading && !showDeleteConfirm ? (
-              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-            ) : (
-              <X className="h-3 w-3 mr-1" />
-            )}
-            Cancel
-          </Button>
-        )}
+  const handleBookAppointment = () => {
+    console.log(`Book appointment for treatment ID: ${treatment.id}, Estimated Date: ${estimatedVisitDate}`);
+    // TODO: Implement actual navigation to appointment booking page/modal
+  };
 
-        {/* Reopen: Show only if status is 'completed' or 'cancelled' */}
-        {(treatment.status === 'completed' || treatment.status === 'cancelled') && ( 
-          <Button
-            variant="outline"
-            size="sm"
-            title="Reopen this treatment (set to pending)"
-            onClick={() => onStatusChange(treatment.id, 'pending')} // Set back to pending
-            disabled={loading || showDeleteConfirm}
-          >
-            {loading && !showDeleteConfirm ? (
-              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-            ) : (
-              <RotateCcw className="h-3 w-3 mr-1" /> // Reopen icon
+  // Safely parse cost to a number
+  const costString = String(treatment.cost || '0'); // Ensure treatment.cost is converted to string, default to '0'
+  const costAsNumber = parseFloat(costString);
+  const displayCost = isNaN(costAsNumber) ? 0 : costAsNumber;
+
+  return (
+    <div className="bg-white shadow-md rounded-lg mb-3 transition-all hover:shadow-lg">
+      <div className="px-5 py-4">
+        <div className="flex justify-between items-start mb-2">
+          <div>
+            <h4 className="font-semibold text-md text-gray-800 group-hover:text-blue-600 transition-colors duration-200">{treatment.type}</h4>
+            <p className="text-sm text-gray-600 mt-0.5">{treatment.description}</p>
+          </div>
+          <div className="flex items-center space-x-2 shrink-0 ml-4">
+            {renderStatusBadge(treatment.status)}
+            {treatment.priority && renderPriorityBadge(treatment.priority)}
+          </div>
+        </div>
+        <div className="flex items-center text-xs text-gray-500 mt-3 pt-3 border-t border-gray-200">
+          {/* Display Estimated Visit Date */}
+          {estimatedVisitDate && (
+            <>
+              <CalendarIcon className="mr-1.5 h-3.5 w-3.5 text-gray-400" />
+              <span className="font-medium">Est. Visit:</span>
+              <span className="ml-1">{estimatedVisitDate}</span>
+              <span className="mx-2 text-gray-300">|</span>
+            </>
+          )}
+          <Clock className="mr-1.5 h-3.5 w-3.5 text-gray-400" />
+          <span className="font-medium">Duration:</span>
+          <span className="ml-1">{elapsedTimeDisplay}</span>
+          {treatment.time_gap && (
+            <>
+              <span className="mx-2 text-gray-300">|</span>
+              <span className="font-medium">Next visit in:</span>
+              <span className="ml-1">{treatment.time_gap}</span>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="bg-gray-50 px-5 py-3 border-t border-gray-200">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-gray-700">
+            Cost: <span className="text-gray-900">{formatCurrency(displayCost, 'USD')}</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            {/* "Book Appointment" button is intentionally REMOVED from here */}
+            {treatment.status === 'pending' && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                  title="Mark this treatment as completed"
+                  onClick={() => onStatusChange(treatment.id, 'completed')}
+                  disabled={loading || showDeleteConfirm} // Disable if loading or delete dialog is open
+                >
+                  {loading && !showDeleteConfirm ? ( // Show loader only if this action is loading
+                    <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> 
+                  ) : (
+                    <Check className="h-3 w-3 mr-1.5" />
+                  )}
+                  Mark Complete
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                  title="Cancel this treatment"
+                  onClick={() => onStatusChange(treatment.id, 'cancelled')}
+                  disabled={loading || showDeleteConfirm}
+                >
+                  {loading && !showDeleteConfirm ? (
+                    <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                  ) : (
+                    <X className="h-3 w-3 mr-1.5" />
+                  )}
+                  Cancel
+                </Button>
+              </>
             )}
-            Reopen
-          </Button>
-        )}
-        
-        {/* Delete Button with Confirmation Dialog */}
-        {/* Keep Delete always available unless loading */}
-        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-          <AlertDialogTrigger asChild>
-            <Button
-              variant="destructive"
-              size="sm"
-              title="Delete this treatment permanently"
-              disabled={loading} // Only disable based on general loading, not dialog state
-            >
-              {/* Show loader specifically if delete is in progress? Requires more state */}
-              <Trash2 className="h-3 w-3" /> 
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This action cannot be undone. This will permanently delete the treatment: "{treatment.type}".
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-              <AlertDialogAction 
-                onClick={() => onDelete(treatment.id)} 
-                disabled={loading}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+
+            {/* Reopen: Show only if status is 'completed' or 'cancelled' */}
+            {(treatment.status === 'completed' || treatment.status === 'cancelled') && ( 
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                title="Reopen this treatment (set to pending)"
+                onClick={() => onStatusChange(treatment.id, 'pending')} // Set back to pending
+                disabled={loading || showDeleteConfirm}
               >
-                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                 Yes, delete treatment
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+                {loading && !showDeleteConfirm ? (
+                  <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-3 w-3 mr-1.5" /> // Reopen icon
+                )}
+                Reopen
+              </Button>
+            )}
+            
+            {/* Delete Button with Confirmation Dialog */}
+            {/* Keep Delete always available unless loading */}
+            <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="text-xs"
+                  title="Delete this treatment permanently"
+                  disabled={loading} // Only disable based on general loading, not dialog state
+                >
+                  {/* Show loader specifically if delete is in progress? Requires more state */}
+                  <Trash2 className="h-3 w-3" /> 
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This action cannot be undone. This will permanently delete the treatment: "{treatment.type}".
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction 
+                    onClick={() => onDelete(treatment.id)} 
+                    disabled={loading}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                     {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                     Yes, delete treatment
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
       </div>
     </div>
   );
