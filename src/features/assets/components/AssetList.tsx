@@ -10,15 +10,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Pencil, Trash2, AlertCircle, ArrowUpDown, Link as LinkIcon } from 'lucide-react'; // Add LinkIcon
-import { Badge } from "@/components/ui/badge"; // Use Badge for status
+// MODIFIED: Added CalendarClock
+import { Pencil, Trash2, AlertCircle, ArrowUpDown, Link as LinkIcon, Wrench, Eye, Archive as ArchiveIcon, Tag as TagIcon, CalendarClock } from 'lucide-react'; 
+import { Badge } from "@/components/ui/badge";
 
 import { supabase } from '@/lib/supabase';
-// import { deleteAsset } from '../services/assetService'; // Removed deleteAsset import
-import { Asset, AssetRow, AssetCategory, AssetStatus, AssetRowWithTags, TagPlaceholder } from '../types'; // Use asset types, import AssetRowWithTags and TagPlaceholder
+import { AssetRow, AssetCategory, AssetStatus, AssetRowWithTags } from '../types'; // Adjusted import based on new types.ts
 import { useToast } from '@/components/ui/use-toast';
-// AlertDialog related imports might be removed if no other dialog uses them here, or kept if other actions need it.
-// For now, keeping them as Edit/MarkAsServiced might become dialogs later.
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,8 +28,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Wrench, Eye, Archive as ArchiveIcon, Tag as TagIcon } from 'lucide-react'; // Import Wrench, Eye, ArchiveIcon, TagIcon
-import { Link } from 'react-router-dom'; // Import Link for navigation
+// import { Wrench, Eye, Archive as ArchiveIcon, Tag as TagIcon } from 'lucide-react'; // Already imported above
+import { Link } from 'react-router-dom';
+// NEW: Import the dialog component
+import { SetMaintenanceIntervalDialog } from './SetMaintenanceIntervalDialog';
 
 interface AssetListProps {
   // onEditAsset: (asset: AssetRow) => void; // Prop no longer needed from list for editing
@@ -102,14 +102,15 @@ import './AssetList.css';
 
 
 const AssetList: React.FC<AssetListProps> = ({ /*onEditAsset,*/ onMarkAsServiced, onDisposeAsset, refreshTrigger, searchTerm, categoryFilter, statusFilter, tagFilter, onDataFiltered }) => {
-  const [assets, setAssets] = useState<AssetRowWithTags[]>([]); // Use AssetRowWithTags
+  const [assets, setAssets] = useState<AssetRowWithTags[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [sortColumn, setSortColumn] = useState<SortableColumn>('asset_name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const { toast } = useToast();
-  // Add state for maintenance notifications if desired
-  // const [maintenanceNotifiedIds, setMaintenanceNotifiedIds] = useState<Set<string>>(new Set());
+  // NEW: State for Set Maintenance Interval Dialog
+  const [isSetIntervalDialogOpen, setIsSetIntervalDialogOpen] = useState(false);
+  const [selectedAssetForInterval, setSelectedAssetForInterval] = useState<AssetRowWithTags | null>(null);
 
   const fetchAssets = useCallback(async () => {
     setLoading(true);
@@ -214,6 +215,13 @@ const AssetList: React.FC<AssetListProps> = ({ /*onEditAsset,*/ onMarkAsServiced
       setLoading(false);
     }
   }, [toast, searchTerm, categoryFilter, statusFilter, tagFilter, sortColumn, sortDirection, onDataFiltered]);
+
+  // NEW: Handler for opening the Set Maintenance Interval dialog
+  const handleSetMaintenanceInterval = (asset: AssetRowWithTags) => {
+    setSelectedAssetForInterval(asset);
+    setIsSetIntervalDialogOpen(true);
+  };
+
 
   useEffect(() => {
     fetchAssets();
@@ -411,6 +419,15 @@ const AssetList: React.FC<AssetListProps> = ({ /*onEditAsset,*/ onMarkAsServiced
                   >
                     <ArchiveIcon className="h-4 w-4" />
                   </Button>
+                  {/* NEW: Set Maintenance Interval Button */}
+                  <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleSetMaintenanceInterval(asset)}
+                      title="Set Maintenance Interval"
+                  >
+                      <CalendarClock className="h-4 w-4" />
+                  </Button>
                   {/* Delete button and AlertDialog removed */}
                 </div>
               </TableCell>
@@ -418,6 +435,18 @@ const AssetList: React.FC<AssetListProps> = ({ /*onEditAsset,*/ onMarkAsServiced
           ))}
         </TableBody>
       </Table>
+      {/* NEW: Render Set Maintenance Interval Dialog */}
+      {isSetIntervalDialogOpen && selectedAssetForInterval && (
+          <SetMaintenanceIntervalDialog
+              asset={selectedAssetForInterval}
+              isOpen={isSetIntervalDialogOpen}
+              onOpenChange={setIsSetIntervalDialogOpen}
+              onIntervalSet={() => {
+                  fetchAssets(); // Refresh list
+                  toast({ title: "Success", description: "Maintenance interval updated." });
+              }}
+          />
+      )}
     </div>
   );
 };
