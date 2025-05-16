@@ -4,7 +4,7 @@ import { Bell, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuContent, // Keep for user menu
+  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -14,31 +14,22 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
-import useNotifications from '@/lib/hooks/useNotifications'; // Import the hook
-import { NotificationPanel } from '@/components/ui/NotificationPanel'; // Import the panel
-import { Badge } from "@/components/ui/badge"; // Import Badge for count
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { api } from '@/lib/api';
-// Removed unused import: import { User } from '@supabase/supabase-js';
+import useNotifications from '@/lib/hooks/useNotifications';
+import { NotificationPanel } from '@/components/ui/NotificationPanel';
+import { Badge } from "@/components/ui/badge";
 
-// Import the notification type, assuming it's defined in useNotifications or a central types file
-// If DbNotification is not exported from useNotifications, we might need to define it here or import from types/index.ts
-// For now, let's assume we can import it or define it inline if needed.
-// Let's try defining it inline for now if it's not exported.
 interface DbNotification {
   id: string;
   user_id: string;
   message: string;
-  is_read: boolean | null; // Allow null
+  is_read: boolean | null;
   link_url?: string | null;
-  created_at: string | null; // Allow null
+  created_at: string | null;
 }
 
 export interface UserProfile {
   id: string;
   email?: string;
-  // Add other fields that might be present in your user object
-  // For example: display_name, avatar_url, etc.
   display_name?: string;
   avatar_url?: string;
 }
@@ -47,7 +38,6 @@ export interface HeaderProps {
   user?: UserProfile | null;
 }
 
-// Helper function to get initials (can be outside or inside if not using hooks)
 const getInitials = (name?: string | null, email?: string | null): string => {
   if (name) {
     const names = name.split(' ');
@@ -60,25 +50,18 @@ const getInitials = (name?: string | null, email?: string | null): string => {
   if (email) {
     return email.substring(0, 2).toUpperCase();
   }
-  return 'U'; // Default fallback
+  return 'U';
 };
 
 export function Header({ user }: HeaderProps) {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { user: authUser, signOut } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false); // State for panel visibility
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const { notifications, markAsRead, clearNotification } = useNotifications();
 
-  // Use the notifications hook
-  const { notifications, markAsRead, clearNotification } = useNotifications(); // Get clearNotification
-
-  // *** Add Logging ***
-  console.log("Notifications in Header:", notifications);
-  // *** End Logging ***
-
-  // Calculate unread count
   const unreadCount = useMemo(() => {
-    // Filter where is_read is not explicitly true (includes false and null)
     return notifications.filter((n) => n.is_read !== true).length;
   }, [notifications]);
 
@@ -109,17 +92,14 @@ export function Header({ user }: HeaderProps) {
     }
   };
 
-  // Toggle notification panel
   const toggleNotificationPanel = () => {
     setIsNotificationPanelOpen(prev => !prev);
   };
 
-  // Close notification panel
   const closeNotificationPanel = () => {
     setIsNotificationPanelOpen(false);
   };
 
-  // Handle clicking outside the panel to close it
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const panel = document.getElementById('notification-panel');
@@ -142,28 +122,23 @@ export function Header({ user }: HeaderProps) {
     };
   }, [isNotificationPanelOpen]);
 
-  // Extract user details directly from the user object provided by AuthContext
-  const userFullName = user?.display_name; // Assuming display_name is directly on user
-  const userAvatarUrl = user?.avatar_url; // Access avatar_url directly
+  const userFullName = user?.display_name;
+  const userAvatarUrl = user?.avatar_url;
   const userEmail = user?.email;
 
-  // State for the custom logo
   const [logoSrc, setLogoSrc] = useState("https://i.postimg.cc/j2qGSXwJ/facetslogo.png");
 
-  const { logout } = useAuth(); // Make sure useAuth is correctly providing logout
-
-  // Effect to load and update logo
   useEffect(() => {
     const loadLogo = () => {
       const storedLogo = localStorage.getItem('customClinicLogo');
       if (storedLogo) {
         setLogoSrc(storedLogo);
       } else {
-        setLogoSrc("https://i.postimg.cc/j2qGSXwJ/facetslogo.png"); 
+        setLogoSrc("https://i.postimg.cc/j2qGSXwJ/facetslogo.png");
       }
     };
 
-    loadLogo(); 
+    loadLogo();
 
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'customClinicLogo') {
@@ -179,7 +154,7 @@ export function Header({ user }: HeaderProps) {
   }, []);
 
   return (
-    <> {/* Use Fragment to render panel potentially outside header flow but positioned correctly */}
+    <>
       <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center">
           <div className="mr-4 hidden md:flex">
@@ -203,7 +178,6 @@ export function Header({ user }: HeaderProps) {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* Notification Button - Toggles Panel */}
               <Button
                 id="notification-trigger"
                 variant="ghost"
@@ -223,7 +197,6 @@ export function Header({ user }: HeaderProps) {
                 )}
               </Button>
 
-              {/* User Profile Dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -232,7 +205,7 @@ export function Header({ user }: HeaderProps) {
                   >
                     <Avatar className="h-8 w-8">
                       <AvatarImage
-                        src={userAvatarUrl || "https://syevxwuraxjpvkcclmjj.supabase.co/storage/v1/object/public/avatars/68f6a588-b802-4e33-8c6b-3de2d070d3bf-1744191950747.jpg"} // Use dynamic or fallback avatar
+                        src={userAvatarUrl || "https://syevxwuraxjpvkcclmjj.supabase.co/storage/v1/object/public/avatars/68f6a588-b802-4e33-8c6b-3de2d070d3bf-1744191950747.jpg"}
                         alt={userFullName || userEmail || 'User'}
                       />
                       <AvatarFallback>{getInitials(userFullName, userEmail)}</AvatarFallback>
@@ -269,15 +242,13 @@ export function Header({ user }: HeaderProps) {
         </div>
       </header>
 
-      {/* Conditionally render the Notification Panel */}
       {isNotificationPanelOpen && (
-        // Wrap panel for positioning and click-outside detection
-        <div id="notification-panel" className="absolute top-0 right-0 z-50 mt-14 mr-4"> {/* Adjust positioning as needed */}
+        <div id="notification-panel" className="absolute top-0 right-0 z-50 mt-14 mr-4">
           <NotificationPanel
             notifications={notifications}
             onClose={closeNotificationPanel}
             onMarkAsRead={markAsRead}
-            onClearNotification={clearNotification} // Pass the clear function
+            onClearNotification={clearNotification}
           />
         </div>
       )}
