@@ -18,6 +18,11 @@ interface AIInsightsResponse {
   generatedAt: string;
 }
 
+interface InventoryAIInsightsProps {
+  onLoadingChange: (loading: boolean) => void;
+  onInitialFetchComplete: () => void;
+}
+
 const iconMap = {
   reorder: <Package className="text-blue-500" size={16} />,
   expiry: <Calendar className="text-red-500" size={16} />,
@@ -62,18 +67,28 @@ const parseInsights = (insights: AIInsight[]) => {
   return { grouped, ungrouped };
 };
 
-const InventoryAIInsights: React.FC = () => {
+const InventoryAIInsights: React.FC<InventoryAIInsightsProps> = ({ onLoadingChange, onInitialFetchComplete }) => {
   const [insights, setInsights] = useState<AIInsight[] | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchInsights = async () => {
+  const fetchInsights = async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
+    onLoadingChange(true);
+
     try {
-      const { data, error } = await supabase.functions.invoke('ai-insights');
-      if (error) throw error;
+      signal?.throwIfAborted();
+
+      const { data, error: invokeError } = await supabase.functions.invoke(
+        'ai-insights'
+      );
+      
+      signal?.throwIfAborted();
+
+      if (invokeError) throw invokeError;
+
       const response = data as AIInsightsResponse;
       if (response.assets?.structuredInsights) {
         setInsights(response.assets.structuredInsights);
@@ -82,15 +97,34 @@ const InventoryAIInsights: React.FC = () => {
         throw new Error('Invalid AI insight format.');
       }
     } catch (err: any) {
-      setError(err.message || 'Unknown error');
+      if (err.name === 'AbortError') {
+        setError('AI insights request timed out (120 seconds).');
+      } else if (err && typeof err === 'object' && 'message' in err) {
+        setError((err as Error).message || 'Unknown error fetching AI insights');
+      } else {
+        setError('An unknown error occurred while fetching AI insights.');
+      }
+      setInsights(null);
     } finally {
       setLoading(false);
+      onLoadingChange(false);
+      onInitialFetchComplete();
     }
   };
 
   useEffect(() => {
-    fetchInsights();
-  }, []);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+    fetchInsights(controller.signal);
+
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+      onLoadingChange(false);
+      onInitialFetchComplete();
+    };
+  }, [onLoadingChange, onInitialFetchComplete]);
 
   if (loading) {
     return (

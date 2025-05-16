@@ -14,6 +14,74 @@ import type { AISuggestion } from '../components/AISuggestionForm'; // Added imp
 // Define TreatmentPlanUpdate for explicit casting if needed
 type TreatmentPlanUpdate = Database['public']['Tables']['treatment_plans']['Update'];
 
+// New function to get treatment IDs for visits that have a booked (non-cancelled) appointment
+export const getAppointmentTreatmentIdsForPlan = async (planId: string): Promise<string[]> => {
+  if (!planId) {
+    console.log('[getAppointmentTreatmentIdsForPlan] No planId provided, exiting.');
+    return [];
+  }
+  console.log(`[getAppointmentTreatmentIdsForPlan] Attempting to fetch for planId: ${planId}`);
+
+  let visits = null;
+  try {
+    console.log(`[getAppointmentTreatmentIdsForPlan] ENTERING TRY BLOCK for planId: ${planId}`);
+
+    console.log(`[getAppointmentTreatmentIdsForPlan] PRE: Calling treatmentService.getVisitsByPlanId for planId: ${planId}`);
+    visits = await treatmentService.getVisitsByPlanId(planId);
+    console.log(`[getAppointmentTreatmentIdsForPlan] POST: treatmentService.getVisitsByPlanId returned for planId ${planId}. Result:`, visits);
+
+    if (!visits) {
+      console.log(`[getAppointmentTreatmentIdsForPlan] Visits data is null or undefined for plan ${planId}.`);
+      return [];
+    }
+    if (visits.length === 0) {
+      console.log(`[getAppointmentTreatmentIdsForPlan] No visits found (empty array) for plan ${planId}`);
+      return [];
+    }
+
+    const visitIds = visits.map(visit => visit.id);
+    console.log(`[getAppointmentTreatmentIdsForPlan] Visit IDs for plan ${planId}:`, visitIds);
+    if (visitIds.length === 0) {
+        console.log(`[getAppointmentTreatmentIdsForPlan] No visit IDs extracted (map result empty) for plan ${planId}`);
+        return [];
+    }
+
+    console.log(`[getAppointmentTreatmentIdsForPlan] PRE: Calling api.appointments.getAppointmentsByTreatmentIds with visitIds:`, visitIds);
+    const appointments = await api.appointments.getAppointmentsByTreatmentIds(visitIds);
+    console.log(`[getAppointmentTreatmentIdsForPlan] POST: api.appointments.getAppointmentsByTreatmentIds returned. Appointments for visit IDs (${visitIds.join(', ')}):`, appointments);
+    
+    if (!appointments) {
+      console.log(`[getAppointmentTreatmentIdsForPlan] Appointments data is null or undefined for the given visit IDs.`);
+      return [];
+    }
+    if (appointments.length === 0) {
+      console.log(`[getAppointmentTreatmentIdsForPlan] No appointments found (empty array) for visit IDs`);
+      return [];
+    }
+
+    const bookedTreatmentIds = appointments
+      .filter(appt => {
+        const isBooked = appt.status !== 'cancelled' && appt.treatment_id;
+        return isBooked;
+      })
+      .map(appt => appt.treatment_id as string);
+    console.log(`[getAppointmentTreatmentIdsForPlan] Filtered Booked Treatment IDs for plan ${planId}:`, bookedTreatmentIds);
+      
+    const uniqueBookedTreatmentIds = [...new Set(bookedTreatmentIds)];
+    console.log(`[getAppointmentTreatmentIdsForPlan] Unique Booked Treatment IDs for plan ${planId} before returning:`, uniqueBookedTreatmentIds);
+    return uniqueBookedTreatmentIds;
+
+  } catch (error) {
+    console.error(`[getAppointmentTreatmentIdsForPlan] CRITICAL ERROR in getAppointmentTreatmentIdsForPlan for planId ${planId}. Error:`, error);
+    if (visits !== null) {
+      console.error(`[getAppointmentTreatmentIdsForPlan] State of 'visits' when error occurred:`, visits);
+    } else {
+      console.error(`[getAppointmentTreatmentIdsForPlan] 'visits' was null when error occurred (error likely in getVisitsByPlanId itself).`);
+    }
+    return [];
+  }
+};
+
 export function useTreatmentPlans() {
   // Define Status Types
   type TreatmentPlanStatus = 'planned' | 'in_progress' | 'completed' | 'cancelled';
@@ -288,67 +356,50 @@ export function useTreatmentPlans() {
   
   // Create treatment
   const createTreatment = useCallback(async (treatmentData: z.infer<typeof treatmentSchema>) => {
-    // Store original selected plan for potential rollback
-    setOptimisticData({
-      ...optimisticData,
-      selectedPlan: { ...selectedPlan }
-    });
-    
     try {
       setLoading(true);
-      
-      // Apply optimistic update
-      if (selectedPlan) {
-        const newTreatmentObj = {
-          id: `temp-${Date.now()}`,
-          ...treatmentData,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        
-        // Add new treatment to the selected plan's treatments
-        const updatedTreatments = [...(selectedPlan.treatments || []), newTreatmentObj];
-        
-        // Update the selected plan with the new treatment
-        const updatedPlan = {
-          ...selectedPlan,
-          treatments: updatedTreatments,
-          totalTreatments: selectedPlan.totalTreatments + 1,
-          totalCost: selectedPlan.totalCost + treatmentData.cost,
-        };
-        
-        setSelectedPlan(updatedPlan);
-      }
-      
-      // Create treatment
       await treatmentService.createTreatment(treatmentData);
-      
       toast({
-        title: "Success",
-        description: "Treatment added successfully"
+        title: "Treatment Added",
+        description: "New treatment has been successfully added to the plan."
       });
-      
-      // Refresh data to get the actual database state - Only refresh selected plan
-      // await fetchData(); // Removed redundant fetch
-      await refreshSelectedPlan();
-    } catch (error) {
-      console.error('Error adding treatment:', error);
-      
-      // Revert to the original plan on error
-      if (optimisticData.selectedPlan) {
-        setSelectedPlan(optimisticData.selectedPlan);
-      }
-      
+      await refreshSelectedPlan(); // Refresh to show the new treatment
+    } catch (error: any) {
+      console.error('Error creating treatment:', error);
       toast({
         title: "Error",
-        description: "Failed to add treatment",
+        description: error.message || "Failed to add treatment.",
         variant: "destructive"
       });
-      throw error;
+      // Rethrow to allow the calling component to handle if needed
+      throw error; 
     } finally {
       setLoading(false);
     }
-  }, [refreshSelectedPlan, selectedPlan, optimisticData, toast]); // Removed fetchData from dependencies
+  }, [toast, refreshSelectedPlan]);
+  
+  // Update a treatment's details
+  const updateTreatmentDetails = useCallback(async (treatmentId: string, data: Partial<z.infer<typeof treatmentSchema>>) => {
+    try {
+      setLoading(true);
+      await treatmentService.updateTreatment(treatmentId, data);
+      toast({
+        title: "Treatment Updated",
+        description: "Treatment details have been successfully updated."
+      });
+      await refreshSelectedPlan();
+    } catch (error: any) {
+      console.error('Error updating treatment details:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update treatment details.",
+        variant: "destructive"
+      });
+      throw error; // Rethrow to allow the calling component to handle if needed
+    } finally {
+      setLoading(false);
+    }
+  }, [toast, refreshSelectedPlan]);
   
   // Update treatment status
   // Apply TreatmentStatus type
@@ -519,6 +570,7 @@ export function useTreatmentPlans() {
     refreshSelectedPlan,
     createTreatmentPlan,
     createTreatment,
+    updateTreatmentDetails,
     handleUpdateTreatmentStatus,
     handleUpdatePlanStatus,
     deleteTreatment,

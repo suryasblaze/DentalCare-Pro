@@ -31,7 +31,7 @@ interface AISuggestionFormProps {
   condition: string;
   matrixDetails: any;
   selectedTreatment: string;
-  title: string;
+  symptoms: string;
   description: string;
   patientRecord: any;
   onSuggestionApply: (suggestion: AISuggestion) => void;
@@ -74,7 +74,7 @@ export function AISuggestionForm({
   condition,
   matrixDetails,
   selectedTreatment,
-  title,
+  symptoms,
   description,
   patientRecord,
   onSuggestionApply,
@@ -87,6 +87,8 @@ export function AISuggestionForm({
   const [selectedCondition, setSelectedCondition] = useState<string | null>(null);
 
   const handleGenerateClick = async () => {
+    if (isGenerating) return; // Prevent re-clicks while already generating
+
     if (!selectedTreatment) {
       toast({
         title: 'Missing Information',
@@ -99,7 +101,13 @@ export function AISuggestionForm({
     setIsGenerating(true);
     setSuggestions([]);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds
+
     try {
+      const signal = controller.signal;
+      signal.throwIfAborted(); // Check before the call
+
       const response = await fetch('https://n8n1.kol.tel/webhook/2169736a-368b-49b5-b93f-ffc215203d99', {
         method: 'POST',
         headers: {
@@ -114,11 +122,15 @@ export function AISuggestionForm({
           details: matrixDetails,
           patientRecord: patientRecord,
           userInput: {
-            title,
+            symptoms,
             description,
           },
         }),
+        // signal: controller.signal, // Removed signal from fetch options
       });
+
+      signal.throwIfAborted(); // Check after the call
+      clearTimeout(timeoutId); // Clear the timeout if the request completes in time
 
       if (!response.ok) {
         throw new Error(`AI suggestion failed: ${response.status}`);
@@ -176,12 +188,21 @@ export function AISuggestionForm({
       setSuggestions(parsedSuggestions);
 
     } catch (error) {
+      clearTimeout(timeoutId); // Ensure timeout is cleared on error as well
       console.error('Error generating suggestions:', error);
-      toast({
-        title: 'Generation Failed',
-        description: error instanceof Error ? error.message : 'Failed to generate suggestions',
-        variant: 'destructive',
-      });
+      if (error instanceof Error && error.name === 'AbortError') {
+        toast({
+          title: 'Request Timed Out',
+          description: 'The AI suggestion service took too long to respond (120 seconds).',
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Generation Failed',
+          description: error instanceof Error ? error.message : 'Failed to generate suggestions',
+          variant: 'destructive',
+        });
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -273,16 +294,21 @@ Post-Treatment Care:`, `  ${suggestion.postTreatmentCare}`);
         <Button
           type="button"
           onClick={handleGenerateClick}
-          disabled={disabled || isGenerating || !selectedTreatment}
-          variant="secondary"
-          size="sm"
+          disabled={disabled || !selectedTreatment}
+          className={`ai-insights-button ${isGenerating ? 'opacity-100 cursor-not-allowed' : ''}`}
+          style={isGenerating ? { opacity: 1 } : {}}
         >
           {isGenerating ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <>
+              <BrainCog className="mr-2 h-4 w-4 animate-spin" />
+              {"AI is thinking... (this may take up to 2 minutes)"}
+            </>
           ) : (
-            <BrainCog className="mr-2 h-4 w-4" />
+            <>
+              <BrainCog className="mr-2 h-4 w-4" />
+              {"Generate AI Suggestions"}
+            </>
           )}
-          Generate AI Suggestions
         </Button>
       </div>
 

@@ -315,6 +315,8 @@ export function AITreatmentGenerator({
   };
 
   const handleGenerateTreatmentPlan = async () => {
+    if (isGenerating) return; // Prevent re-clicks
+
     if (!selectedPatientId) {
       toast({
         title: "Patient Required",
@@ -354,38 +356,47 @@ export function AITreatmentGenerator({
     }
 
     setIsGenerating(true);
-    setGeneratedPlan(null); // Clear previous plan before generating new one
+    setGeneratedPlan(null);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds
 
     try {
-      // n8n webhook URL
-      const webhookUrl = 'https://n8n1.kol.tel/webhook/33d4fdab-98eb-4cc4-8a69-2ab835e76511';
+      const signal = controller.signal;
+      signal.throwIfAborted(); // Check before the call
 
-      const response = await fetch(webhookUrl, {
+      // Simulate API call for AI plan generation
+      // Replace this with your actual fetch or Supabase call
+      const n8nWebhookUrl = 'https://n8n1.kol.tel/webhook/c9a421f2-a0b5-4d87-a0a6-80698632889a';
+      const payload = {
+        patientDetails: fetchedPatientDetails,
+        selectedToothIds: selectedToothIds,
+        currentCondition: currentCondition,
+        currentQuestion: currentQuestion,
+      };
+
+      console.log("[AITreatmentGenerator] Sending payload to n8n for plan generation:", payload);
+
+      const response = await fetch(n8nWebhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        // Send patient ID and the issue description to the webhook
-        body: JSON.stringify({
-          patientId: selectedPatientId,
-          toothIds: selectedToothIds, // Include selected tooth IDs
-          condition: currentCondition,
-          question: currentQuestion,
-          // Include the entire fetched patient record
-          patientRecord: fetchedPatientDetails, // Send the full object or null
-        }),
+        body: JSON.stringify(payload),
+        // signal: controller.signal, // Removed signal from fetch options
       });
 
+      signal.throwIfAborted(); // Check after the call
+      clearTimeout(timeoutId); // Clear timeout if fetch completes
+
       if (!response.ok) {
-        // Log the response body for more detailed error information
         const errorBody = await response.text();
-        console.error('Error response from webhook:', response.status, errorBody);
-        throw new Error(`Webhook call failed with status: ${response.status}`);
+        console.error('[AITreatmentGenerator] Error response from n8n webhook:', response.status, errorBody);
+        throw new Error(`AI plan generation failed: ${response.status}`);
       }
 
-      // Parse the JSON response from the webhook
       const responseData = await response.json();
-      console.log("Webhook response data:", responseData);
+      console.log("[AITreatmentGenerator] Received response from n8n:", responseData);
 
       // Extract the 'output' object first
       const outputObject = responseData?.[0]?.output;
@@ -481,7 +492,7 @@ export function AITreatmentGenerator({
         duration: 5000 // Show longer for error
       });
     } finally {
-      setIsGenerating(false); // Ensure loading state is reset
+      setIsGenerating(false);
     }
   };
 
@@ -838,21 +849,22 @@ export function AITreatmentGenerator({
           <Button
             onClick={handleGenerateTreatmentPlan}
             disabled={
-              isGenerating ||
               !selectedPatientId ||
-              selectedToothIds.length === 0 || // Add check for selected teeth
+              selectedToothIds.length === 0 || 
               !currentCondition.trim() ||
               !currentQuestion.trim()
             }
+            className={`ai-insights-button ${isGenerating ? 'opacity-100 cursor-not-allowed' : ''}`}
+            style={isGenerating ? { opacity: 1 } : {}}
           >
             {isGenerating ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Generating...
+                <BrainCog className="mr-2 h-4 w-4 animate-spin" />
+                {"AI is thinking... (this may take up to 2 minutes)"}
               </>
             ) : (
               <>
-                <BrainCog className="mr-2 h-4 w-4" /> {/* Using BrainCog icon */}
+                <BrainCog className="mr-2 h-4 w-4" /> 
                 Generate Plan
               </>
             )}

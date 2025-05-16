@@ -17,6 +17,8 @@ import { useToast } from "@/components/ui/use-toast";
 import useNotifications from '@/lib/hooks/useNotifications'; // Import the hook
 import { NotificationPanel } from '@/components/ui/NotificationPanel'; // Import the panel
 import { Badge } from "@/components/ui/badge"; // Import Badge for count
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { api } from '@/lib/api';
 // Removed unused import: import { User } from '@supabase/supabase-js';
 
 // Import the notification type, assuming it's defined in useNotifications or a central types file
@@ -32,8 +34,20 @@ interface DbNotification {
   created_at: string | null; // Allow null
 }
 
+export interface UserProfile {
+  id: string;
+  email?: string;
+  // Add other fields that might be present in your user object
+  // For example: display_name, avatar_url, etc.
+  display_name?: string;
+  avatar_url?: string;
+}
 
-// Helper function to get initials
+export interface HeaderProps {
+  user?: UserProfile | null;
+}
+
+// Helper function to get initials (can be outside or inside if not using hooks)
 const getInitials = (name?: string | null, email?: string | null): string => {
   if (name) {
     const names = name.split(' ');
@@ -49,8 +63,7 @@ const getInitials = (name?: string | null, email?: string | null): string => {
   return 'U'; // Default fallback
 };
 
-export function Header() {
-  const { user, signOut } = useAuth();
+export function Header({ user }: HeaderProps) {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,18 +143,51 @@ export function Header() {
   }, [isNotificationPanelOpen]);
 
   // Extract user details directly from the user object provided by AuthContext
-  const userFullName = user?.full_name; // Assuming full_name is directly on user
+  const userFullName = user?.display_name; // Assuming display_name is directly on user
   const userAvatarUrl = user?.avatar_url; // Access avatar_url directly
   const userEmail = user?.email;
+
+  // State for the custom logo
+  const [logoSrc, setLogoSrc] = useState("https://i.postimg.cc/j2qGSXwJ/facetslogo.png");
+
+  const { logout } = useAuth(); // Make sure useAuth is correctly providing logout
+
+  // Effect to load and update logo
+  useEffect(() => {
+    const loadLogo = () => {
+      const storedLogo = localStorage.getItem('customClinicLogo');
+      if (storedLogo) {
+        setLogoSrc(storedLogo);
+      } else {
+        setLogoSrc("https://i.postimg.cc/j2qGSXwJ/facetslogo.png"); 
+      }
+    };
+
+    loadLogo(); 
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'customClinicLogo') {
+        loadLogo();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
 
   return (
     <> {/* Use Fragment to render panel potentially outside header flow but positioned correctly */}
       <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center">
           <div className="mr-4 hidden md:flex">
-            <Link to="/" className="mr-6 flex items-center space-x-2">
-              <img src="public/facetslogo.png" alt="Facets Dental Logo" className="h-8" />
-            </Link>
+            <div className="flex items-center">
+              <Link to="/dashboard" className="flex items-center space-x-2">
+                <img src={logoSrc} alt="Facets Dental Logo" className="h-10" />
+              </Link>
+            </div>
           </div>
           <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
             <div className="w-full flex-1 md:w-auto md:flex-none">

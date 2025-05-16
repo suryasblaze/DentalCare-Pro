@@ -40,6 +40,10 @@ export function Settings() {
     end_time: '',
     reason: '',
   });
+  // Add a new state for the logo
+  const [customLogo, setCustomLogo] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isLogoSaved, setIsLogoSaved] = useState(false); // New state for button
 
   useEffect(() => {
     Promise.all([
@@ -48,6 +52,14 @@ export function Settings() {
       fetchAbsences() // Add fetchAbsences call
     ]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Effect to load logo from localStorage on component mount
+  useEffect(() => {
+    const storedLogo = localStorage.getItem('customClinicLogo');
+    if (storedLogo) {
+      setCustomLogo(storedLogo);
+    }
   }, []);
 
   const fetchStaff = async () => {
@@ -204,6 +216,48 @@ export function Settings() {
     }
   };
 
+  // Handler for logo file selection
+  const handleLogoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files[0]) {
+      const file = event.target.files[0];
+      // Basic file size check (e.g., 1MB)
+      if (file.size > 1 * 1024 * 1024) {
+        toast({
+          title: "File Too Large",
+          description: "Please upload a logo smaller than 1MB.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setSelectedFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCustomLogo(reader.result as string);
+        setIsLogoSaved(false); // Reset save status when new logo is selected
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Handler for saving the logo
+  const handleSaveLogo = () => {
+    if (customLogo) {
+      localStorage.setItem('customClinicLogo', customLogo);
+      toast({
+        title: "Logo Saved",
+        description: "Your new clinic logo has been saved.",
+        variant: "default",
+      });
+      setIsLogoSaved(true); // Set save status to true (and it will stay true)
+    } else {
+      toast({
+        title: "No Logo Selected",
+        description: "Please select a logo file first.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (loading) {
     return <div>Loading settings...</div>;
   }
@@ -267,6 +321,49 @@ export function Settings() {
                   value={settings.website}
                   onChange={(e) => setSettings({ ...settings, website: e.target.value })}
                 />
+              </div>
+              {/* Logo Upload Section */}
+              <div className="mt-6 space-y-4">
+                <div>
+                  <Label htmlFor="logo-upload" className="block text-sm font-medium text-gray-700">Clinic Logo</Label>
+                  <p className="text-xs text-gray-500 mt-1 mb-2">Recommended aspect ratio: 4:1 (e.g., 200x50 pixels). Max file size: 1MB.</p>
+                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-blue-400 transition-colors duration-150 ease-in-out">
+                    <div className="space-y-1 text-center">
+                      {!customLogo && (
+                        <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                          <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                      {customLogo && (
+                        <div className="my-2 flex justify-center">
+                          <img 
+                            src={customLogo} 
+                            alt="Clinic Logo Preview" 
+                            className="max-h-24 max-w-[250px] object-contain rounded-md shadow-md" />
+                        </div>
+                      )}
+                      <div className="flex text-sm text-gray-600 justify-center">
+                        <label 
+                          htmlFor="logo-upload" 
+                          className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"
+                        >
+                          <span>{customLogo ? 'Change logo' : 'Upload a file'}</span>
+                          <input id="logo-upload" name="logo-upload" type="file" className="sr-only" accept="image/png, image/jpeg, image/svg+xml" onChange={handleLogoFileChange} />
+                        </label>
+                        {!customLogo && <p className="pl-1">or drag and drop</p>}
+                      </div>
+                      <p className="text-xs text-gray-500">PNG, JPG, SVG up to 1MB</p>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedFile && (
+                  <div className="mt-3 flex justify-center">
+                    <Button onClick={handleSaveLogo} className="min-w-[120px]" disabled={isLogoSaved}>
+                      {isLogoSaved ? 'Logo Saved!' : 'Save Logo'}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

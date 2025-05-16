@@ -43,6 +43,7 @@ import {
   Calendar as CalendarIcon, // Renamed Calendar icon
   Smile, // Added Smile icon
   BrainCog, // Added BrainCog icon
+  Pencil, // Added Pencil icon for Edit
 } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils/validation'; // Assuming formatCurrency exists
@@ -58,61 +59,74 @@ import type { AISuggestion } from './AISuggestionForm';
 
 // Helper function to parse timeGap string (e.g., "2 weeks", "1 month") and add to a date
 const calculateEstimatedDate = (baseDateStr: string, timeGapStr: string | null | undefined): string => {
-  if (!timeGapStr) return baseDateStr; // If no time gap, return base date
+  if (!timeGapStr) {
+    // If no time gap, try to parse and reformat baseDateStr to 'yyyy-MM-dd' or return original if invalid
+    try {
+      return format(parseISO(baseDateStr), 'yyyy-MM-dd'); // Attempt ISO parse first
+    } catch (e) {
+      try {
+        // Attempt to parse "MMM d, yyyy" format, e.g., "May 15, 2025"
+        // Date-fns `parse` is better for specific formats but new Date() can sometimes handle it.
+        const parsedDate = new Date(baseDateStr); // More lenient parsing
+        if (!isNaN(parsedDate.getTime())) {
+          return format(parsedDate, 'yyyy-MM-dd');
+        }
+        console.warn(`[calculateEstimatedDate] Could not parse baseDateStr with any known method: ${baseDateStr}`);
+        return baseDateStr; // Fallback to original if all parsing fails
+      } catch (e2) {
+        console.warn(`[calculateEstimatedDate] Further error parsing baseDateStr: ${baseDateStr}`);
+        return baseDateStr;
+      }
+    }
+  }
+
+  let baseDate;
+  try {
+    baseDate = parseISO(baseDateStr);
+  } catch (e) {
+    try {
+      baseDate = new Date(baseDateStr); // Try general parser for baseDateStr if parseISO fails
+      if (isNaN(baseDate.getTime())) throw new Error('Invalid base date after new Date()');
+    } catch (e2) {
+      console.error(`[calculateEstimatedDate] Invalid baseDate: ${baseDateStr}`, e2);
+      return 'Invalid Date'; // Return a clear error string
+    }
+  }
+  if (isNaN(baseDate.getTime())) {
+    console.error(`[calculateEstimatedDate] BaseDate is invalid after parsing attempts: ${baseDateStr}`);
+    return 'Invalid Date';
+  }
 
   try {
-    // Try parsing baseDateStr as if it might already be in 'MMM d, yyyy' or as ISO
-    let baseDate;
-    try {
-      baseDate = parseISO(baseDateStr); // Handles ISO strings like YYYY-MM-DDTHH:mm:ss.sssZ
-      // Check if parseISO returned a valid date, if not, it might be already formatted 'MMM d, yyyy'
-      // For simplicity, if baseDateStr is already 'MMM d, yyyy', parseISO might not work as expected
-      // without a specific format string. Date-fns `parse` is more flexible for specific formats.
-      // However, `add` function expects a Date object, so `baseDate` must be a valid Date.
-      // If baseDateStr is 'Jan 1, 2024', parseISO might fail or give an unexpected result.
-      // Let's assume baseDateStr is either ISO or we adjust it to be so before this function if needed.
-      // For now, relying on parseISO and its robustness for common date strings.
-    } catch (e) { // If parseISO fails, it could be an invalid format
-      console.warn(`[calculateEstimatedDate] Could not parse baseDateStr with parseISO: ${baseDateStr}. Attempting to re-parse or defaulting.`);
-      // Fallback or re-throw if critical. For now, let it proceed if it results in a date, or handle downstream.
-      // This part might need more robust parsing if baseDateStr format varies widely and isn't ISO.
-      baseDate = new Date(baseDateStr); // General Date constructor as a fallback, can be unreliable.
-    }
-
-    if (isNaN(baseDate.getTime())) { // Check if baseDate is valid
-        console.error(`[calculateEstimatedDate] Invalid baseDate after parsing: ${baseDateStr}`);
-        return baseDateStr; // Return original if baseDate is invalid
-    }
-
     const parts = timeGapStr.toLowerCase().split(' ');
-    if (parts.length !== 2) return format(baseDate, 'MMM d, yyyy'); // Expect "number unit" format, return formatted baseDate
+    if (parts.length !== 2) return format(baseDate, 'yyyy-MM-dd');
 
     const amount = parseInt(parts[0], 10);
-    const unit = parts[1].endsWith('s') ? parts[1] : parts[1] + 's'; // Ensure plural (e.g., week -> weeks)
+    const unit = parts[1].endsWith('s') ? parts[1] : parts[1] + 's';
 
-    if (isNaN(amount)) return format(baseDate, 'MMM d, yyyy'); // If amount is NaN, return formatted baseDate
+    if (isNaN(amount)) return format(baseDate, 'yyyy-MM-dd');
 
     let duration = {};
     if (unit === 'days') duration = { days: amount };
     else if (unit === 'weeks') duration = { weeks: amount };
     else if (unit === 'months') duration = { months: amount };
     else if (unit === 'years') duration = { years: amount };
-    else return format(baseDate, 'MMM d, yyyy'); // Unknown unit, return formatted baseDate
+    else return format(baseDate, 'yyyy-MM-dd');
 
-    return format(add(baseDate, duration), 'MMM d, yyyy');
+    return format(add(baseDate, duration), 'yyyy-MM-dd'); // Output yyyy-MM-dd
   } catch (error) {
     console.error(`Error calculating estimated date with baseDate: ${baseDateStr}, timeGap: ${timeGapStr}`, error);
-    // Try to format baseDateStr if it's a valid date string itself, otherwise return as is
     try {
-        return format(parseISO(baseDateStr), 'MMM d, yyyy');
-    } catch (formatError) {
-        return baseDateStr; // Fallback to original base date string on error
+      return format(baseDate, 'yyyy-MM-dd'); // Fallback to formatted baseDate if calculation fails
+    } catch {
+      return 'Invalid Date'; // Final fallback
     }
   }
 };
 
 // Add interface for visits
-interface TreatmentVisit {
+// Ensure this interface is comprehensive for editing purposes
+export interface TreatmentVisit { // Added export
   id: string;
   treatment_plan_id: string;
   visit_number: number;
@@ -121,6 +135,10 @@ interface TreatmentVisit {
   time_gap?: string;
   status: 'pending' | 'completed' | 'cancelled';
   scheduled_date?: string;
+  cost?: number | string; // Assuming cost can be part of a visit/treatment item
+  type?: string; // As seen in other treatment structures
+  description?: string; // As seen in other treatment structures, though 'procedures' is here
+  priority?: string; // Assuming priority might be editable per visit
 }
 
 interface TreatmentPlanDetailsProps {
@@ -168,6 +186,8 @@ interface TreatmentPlanDetailsProps {
   loading?: boolean;
   navigateToPatient?: (patientId: string) => void;
   aiInitialSuggestion?: AISuggestion | null; // New prop for initial AI suggestion
+  onEditTreatment: (treatment: TreatmentVisit) => void; // New prop for editing a treatment/visit
+  bookedVisitIds?: string[]; // New prop for booked visit IDs
 }
 
 export function TreatmentPlanDetails({
@@ -183,6 +203,8 @@ export function TreatmentPlanDetails({
   loading = false,
   navigateToPatient,
   aiInitialSuggestion, // Destructure new prop
+  onEditTreatment, // Destructure new prop
+  bookedVisitIds = [], // Destructure new prop with default value
 }: TreatmentPlanDetailsProps) {
   const { toast } = useToast(); // Initialize toast for feedback
   const navigate = useNavigate(); // Initialize navigate
@@ -255,7 +277,7 @@ export function TreatmentPlanDetails({
     return plan.treatments.map((treatment, index) => {
       let estimatedVisitDate;
       if (index === 0) {
-        estimatedVisitDate = format(parseISO(runningDate), 'MMM d, yyyy');
+        estimatedVisitDate = format(parseISO(runningDate), 'yyyy-MM-dd');
       } else {
         // For subsequent treatments, calculate based on the previous treatment's time_gap
         // Note: This assumes treatments are sorted.
@@ -285,6 +307,42 @@ export function TreatmentPlanDetails({
     return Math.ceil(plan.treatments.length / ITEMS_PER_PAGE);
   }, [plan?.treatments]);
   // --- End Pagination State ---
+
+  // Helper function to prepare visit data for editing
+  const prepareVisitForEditing = (treatmentData: any, currentPlanId: string, visitIndex?: number): TreatmentVisit => {
+    const visitNumber = typeof visitIndex === 'number' ? visitIndex + 1 : treatmentData.visit_number;
+    let finalScheduledDate = null;
+    // Prefer treatmentData.scheduled_date if it exists and is valid yyyy-MM-dd
+    if (treatmentData.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(treatmentData.scheduled_date)) {
+      finalScheduledDate = treatmentData.scheduled_date;
+    } else if (treatmentData.estimatedVisitDate && /^\d{4}-\d{2}-\d{2}$/.test(treatmentData.estimatedVisitDate)) {
+      // Use estimatedVisitDate if it's valid yyyy-MM-dd (now produced by calculateEstimatedDate)
+      finalScheduledDate = treatmentData.estimatedVisitDate;
+    } else if (treatmentData.scheduled_date) { // If scheduled_date is present but not yyyy-MM-dd, try to parse it
+      try {
+        finalScheduledDate = format(parseISO(treatmentData.scheduled_date), 'yyyy-MM-dd');
+      } catch (e) {
+          try {
+              const parsed = new Date(treatmentData.scheduled_date);
+              if(!isNaN(parsed.getTime())) finalScheduledDate = format(parsed, 'yyyy-MM-dd');
+          } catch (e2) { /* ignore if unparseable */ }
+      }
+    }
+
+    return {
+      id: treatmentData.id,
+      treatment_plan_id: currentPlanId,
+      visit_number: visitNumber || 0,
+      procedures: treatmentData.description || treatmentData.procedures || '',
+      type: treatmentData.type || treatmentData.title || '',
+      estimated_duration: treatmentData.estimated_duration,
+      time_gap: treatmentData.time_gap,
+      status: treatmentData.status || 'pending',
+      scheduled_date: finalScheduledDate, // This should be yyyy-MM-dd or null
+      cost: treatmentData.cost,
+      priority: treatmentData.priority || 'medium',
+    };
+  };
 
   // New handler function to create treatments from AI suggestions
   const handleCreateAiSuggestedTreatments = async () => {
@@ -576,14 +634,17 @@ export function TreatmentPlanDetails({
               {plan.treatments && plan.treatments.length > 0 ? (
                 <>
                   <div className="space-y-3">
-                    {paginatedTreatmentsWithDates.map((treatment: any) => (
+                    {paginatedTreatmentsWithDates.map((treatment: any, index: number) => (
                       <TreatmentItem
                         key={treatment.id}
                         treatment={treatment}
-                        onStatusChange={onTreatmentStatusChange}
+                        onStatusChange={onTreatmentStatusChange} 
                         onDelete={onDeleteTreatment}
-                        loading={loading}
-                        estimatedVisitDate={treatment.estimatedVisitDate}
+                        onEdit={() => {
+                          const visitToEdit = prepareVisitForEditing(treatment, plan.id, index);
+                          onEditTreatment(visitToEdit);
+                        }}
+                        loading={loading} 
                       />
                     ))}
                   </div>
@@ -706,54 +767,113 @@ export function TreatmentPlanDetails({
               </TabsContent>
 
               <TabsContent value="visits" className="space-y-4">
-                <div className="border rounded-lg p-4 bg-gray-50">
-                  <div className="flex justify-between items-center mb-4 pb-4 border-b">
-                    <h4 className="font-semibold text-lg text-gray-700">Visits & Booking</h4>
-                    <div className="text-sm text-gray-600">
-                      {/* This metadata might reflect actual booked visits, which could differ from plannable treatments */}
-                      {/* For now, let's show total plannable treatments as total visits */}
-                      Completed: {plan.metadata?.[0]?.completed_visits || 0} of {treatmentsWithEstimatedDates?.length || 0} potential visits
-                    </div>
+                <div className="border rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-medium">Scheduled Visits Overview</h4>
                   </div>
-
+                  
                   {treatmentsWithEstimatedDates && treatmentsWithEstimatedDates.length > 0 ? (
                     <div className="space-y-3">
-                      {treatmentsWithEstimatedDates.map((treatment: any, index: number) => (
+                      {treatmentsWithEstimatedDates.map((treatment: any, index: number) => {
+                        const isBooked = bookedVisitIds.includes(treatment.id);
+                        console.log(`[Scheduled Visit Item] Visit ID: ${treatment.id}, Treatment Type: ${treatment.type}, Is Booked: ${isBooked}, All Booked IDs:`, bookedVisitIds);
+
+                        return (
                         <div key={treatment.id || index} className="border rounded-md p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
                           <div className="flex justify-between items-start">
                             <div>
-                              <h5 className="font-medium text-gray-800">{treatment.type || `Visit ${index + 1}`}</h5>
-                              <p className="text-xs text-gray-500 mt-0.5 truncate max-w-md">{treatment.description || 'No description'}</p>
+                              <h5 className="font-medium text-gray-800">{treatment.type || treatment.title || `Visit ${index + 1}`}</h5>
+                              <p className="text-xs text-gray-500 mt-0.5 truncate max-w-md">{treatment.description || treatment.procedures || 'No description'}</p>
                             </div>
-                            {/* Optional: Display treatment status if relevant here (e.g. pending, completed) */}
-                            {/* For booking, all listed here are typically pending completion */}
+                            {treatment.status && (
+                                <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                                    treatment.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                    treatment.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                                    'bg-blue-100 text-blue-700'
+                                }`}>
+                                  {treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1)}
+                                </span>
+                            )}
                           </div>
                           
-                          <div className="mt-3 pt-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                            <div className="flex items-center gap-2 text-sm text-gray-700 mb-2 sm:mb-0">
-                              <CalendarIcon className="h-4 w-4 text-blue-500" />
-                              <span>Est. Date: {treatment.estimatedVisitDate || 'Not calculated'}</span>
+                          <div className="mt-3 space-y-2 text-xs text-gray-600">
+                            <div className="flex items-center">
+                              <CalendarIcon className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                              <strong>Est. Visit:</strong>&nbsp;{treatment.scheduled_date || treatment.estimatedVisitDate || 'Not set'}
                             </div>
-                            <Button 
-                              variant="default"
-                              size="sm"
-                              onClick={() => navigate('/appointments')} // Ensure '/appointments' is your correct route
-                              // Disable if treatment status is completed or cancelled, or if no estimated date
-                              disabled={treatment.status === 'completed' || treatment.status === 'cancelled' || !treatment.estimatedVisitDate}
-                              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-150 ease-in-out"
-                            >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              Book Appointment
-                            </Button>
+                            {treatment.estimated_duration && (
+                              <div className="flex items-center">
+                                <Clock className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                <strong>Duration:</strong>&nbsp;{treatment.estimated_duration}
+                              </div>
+                            )}
+                            {treatment.time_gap && (
+                              <div className="flex items-center">
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                <strong>Next visit in:</strong>&nbsp;{treatment.time_gap}
+                              </div>
+                            )}
+                            {(treatment.cost !== undefined && treatment.cost !== null && parseFloat(String(treatment.cost)) > 0) && (
+                              <div className="flex items-center">
+                                <CreditCard className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                <strong>Cost:</strong>&nbsp;{formatCurrency(parseFloat(String(treatment.cost)))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-4 flex justify-end">
+                            {isBooked ? (
+                              <div className="flex items-center justify-center h-9 px-3 text-sm font-medium text-white bg-green-500 rounded-md">
+                                <Check className="w-3.5 h-3.5 mr-1.5" />
+                                Booked
+                              </div>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const visitDate = treatment.scheduled_date || treatment.estimatedVisitDate;
+                                  const patientId = plan.patient_id;
+                                  const treatmentContextId = treatment.id; // ID of the specific treatment/visit item
+                                  const visitTitle = treatment.type || treatment.title || 'New Appointment';
+
+                                  if (!visitDate) {
+                                    toast({
+                                      title: "Cannot Book Appointment",
+                                      description: "This visit does not have a scheduled or estimated date yet.",
+                                      variant: "destructive"
+                                    });
+                                    return;
+                                  }
+                                  
+                                  const queryParams = new URLSearchParams({
+                                    date: visitDate, // Assumes YYYY-MM-DD format
+                                    patientId: patientId,
+                                  });
+                                  if (treatmentContextId) {
+                                    queryParams.append('treatmentId', treatmentContextId);
+                                  }
+                                  if (visitTitle) {
+                                    queryParams.append('description', visitTitle);
+                                  }
+                                  
+                                  navigate(`/appointments?${queryParams.toString()}`);
+                                }}
+                                disabled={loading || isCreatingAiTreatments}
+                              >
+                                <CalendarIcon className="w-3.5 h-3.5 mr-1.5" />
+                                Book Appointment
+                              </Button>
+                            )}
                           </div>
                         </div>
-                      ))}
+                      );
+                    })}
                     </div>
                   ) : (
-                    <div className="text-center py-8">
-                      <CalendarIcon className="h-12 w-12 mx-auto text-gray-400 mb-3" />
-                      <p className="text-gray-500">No treatment visits to schedule.</p>
-                       {/* Optional: Link to add treatments if none exist and this tab is shown */}
+                    <div className="text-center py-8 border rounded-lg">
+                      <CalendarIcon className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                      <p className="text-muted-foreground">No scheduled visits for this plan yet.</p>
                     </div>
                   )}
                 </div>

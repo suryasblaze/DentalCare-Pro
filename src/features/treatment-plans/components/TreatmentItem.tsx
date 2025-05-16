@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'; // Import useEffect
-import { Check, Clock, Trash2, X, RotateCcw, Calendar as CalendarIcon } from 'lucide-react'; 
+import { Check, Clock, Trash2, X, RotateCcw, Calendar as CalendarIcon, Pencil } from 'lucide-react'; 
 import { Button } from '@/components/ui/button'; 
 import { Loader2 } from 'lucide-react';
 import { formatDistanceStrict, differenceInSeconds } from 'date-fns'; // Import date-fns functions
@@ -21,16 +21,16 @@ interface TreatmentItemProps {
   treatment: any;
   onStatusChange: (id: string, status: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onEdit: () => void; // New prop for handling edit action
   loading?: boolean;
-  estimatedVisitDate?: string | null; // New prop for estimated visit date
 }
 
 export function TreatmentItem({ 
   treatment, 
   onStatusChange, 
   onDelete,
+  onEdit, // Destructure new prop
   loading = false,
-  estimatedVisitDate, // Destructure the new prop
 }: TreatmentItemProps) {
   // State for delete confirmation dialog
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -205,7 +205,7 @@ export function TreatmentItem({
   }
 
   const handleBookAppointment = () => {
-    console.log(`Book appointment for treatment ID: ${treatment.id}, Estimated Date: ${estimatedVisitDate}`);
+    console.log(`Book appointment for treatment ID: ${treatment.id}`);
     // TODO: Implement actual navigation to appointment booking page/modal
   };
 
@@ -213,6 +213,9 @@ export function TreatmentItem({
   const costString = String(treatment.cost || '0'); // Ensure treatment.cost is converted to string, default to '0'
   const costAsNumber = parseFloat(costString);
   const displayCost = isNaN(costAsNumber) ? 0 : costAsNumber;
+
+  // Determine the date to display: use scheduled_date if available, otherwise estimatedVisitDate
+  const visitDateToDisplay = treatment.scheduled_date || treatment.estimatedVisitDate;
 
   return (
     <div className="bg-white shadow-md rounded-lg mb-3 transition-all hover:shadow-lg">
@@ -225,16 +228,28 @@ export function TreatmentItem({
           <div className="flex items-center space-x-2 shrink-0 ml-4">
             {renderStatusBadge(treatment.status)}
             {treatment.priority && renderPriorityBadge(treatment.priority)}
+            
+            {/* Edit Button */}
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={onEdit} 
+              disabled={loading} 
+              className="h-7 w-7 text-gray-500 hover:text-blue-600"
+              title="Edit Treatment"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
           </div>
         </div>
         <div className="flex items-center text-xs text-gray-500 mt-3 pt-3 border-t border-gray-200">
-          {/* Display Estimated Visit Date */}
-          {estimatedVisitDate && (
+          {/* Display Visit Date */}
+          {visitDateToDisplay && (
             <>
               <CalendarIcon className="mr-1.5 h-3.5 w-3.5 text-gray-400" />
-              <span className="font-medium">Est. Visit:</span>
-              <span className="ml-1">{estimatedVisitDate}</span>
-              <span className="mx-2 text-gray-300">|</span>
+              <span className="font-medium">Visit Date:</span>
+              <span className="ml-1">{visitDateToDisplay}</span>
+              <span className="mx-2 text-gray-300">|</span> {/* Separator */}
             </>
           )}
           <Clock className="mr-1.5 h-3.5 w-3.5 text-gray-400" />
@@ -310,42 +325,6 @@ export function TreatmentItem({
                 Reopen
               </Button>
             )}
-            
-            {/* Delete Button with Confirmation Dialog */}
-            {/* Keep Delete always available unless loading */}
-            <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="text-xs"
-                  title="Delete this treatment permanently"
-                  disabled={loading} // Only disable based on general loading, not dialog state
-                >
-                  {/* Show loader specifically if delete is in progress? Requires more state */}
-                  <Trash2 className="h-3 w-3" /> 
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This action cannot be undone. This will permanently delete the treatment: "{treatment.type}".
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-                  <AlertDialogAction 
-                    onClick={() => onDelete(treatment.id)} 
-                    disabled={loading}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                     {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                     Yes, delete treatment
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
           </div>
         </div>
       </div>

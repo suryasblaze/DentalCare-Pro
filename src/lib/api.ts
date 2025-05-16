@@ -6,6 +6,7 @@ import { executeTransaction, TransactionResult } from './utils/db-transaction';
 import { globalCache } from './utils/cache-manager';
 // Import the type needed for the return value
 import { PatientDentalHistoryTooth } from '@/features/patients/components/PatientDetailsView'; 
+import type { TreatmentVisit } from '@/features/treatment-plans/components/TreatmentPlanDetails'; // Added import for TreatmentVisit
 
 // Define specific types based on generated types from database.types.ts
 type PatientRow = Database['public']['Tables']['patients']['Row'];
@@ -39,6 +40,8 @@ type DiagnosticImageRow = any;
 // type FinancialPlanRow = any;
 // type FinancialPlanInsert = any;
 
+// Define a slim type for appointments when only treatment_id and status are needed
+type AppointmentSlim = Pick<AppointmentRow, 'treatment_id' | 'status'>;
 
 /**
  * Subscribe to real-time changes for a specific table
@@ -899,7 +902,7 @@ export const api = {
       }
 
       const { data, error } = await supabase
-        .from('patient_dental_history_teeth' as any) // <<< Use type assertion
+        .from('patient_dental_history_teeth') // Removed 'as any'
         .select('tooth_id, conditions') // Select both tooth_id and conditions
         .eq('patient_id', patientId);
 
@@ -908,8 +911,13 @@ export const api = {
         throw error;
       }
 
-      // Data should already be in the format [{ tooth_id: number }, ...]
-      const result = data || [];
+      // Data should already be in the format [{ tooth_id: number, conditions: string[] }, ...]
+      const result = (data || []).map(item => ({
+        tooth_id: item.tooth_id,
+        // Ensure conditions is always an array of strings, even if null/undefined from DB
+        conditions: Array.isArray(item.conditions) ? item.conditions.filter(c => typeof c === 'string') : [] 
+      })) as PatientDentalHistoryTooth[];
+
       globalCache.set(cacheKey, result, 60 * 1000); // Cache for 1 minute
       console.log(`Fetched dental history teeth list for patient ${patientId}:`, JSON.stringify(result));
       return result;
@@ -930,7 +938,7 @@ export const api = {
 
        // 2. Delete entries for this patient that are NOT in the current map
        const deleteQuery = supabase
-         .from('patient_dental_history_teeth' as any) // <<< Use type assertion
+         .from('patient_dental_history_teeth') // Removed 'as any'
          .delete()
          .eq('patient_id', patientId);
 
@@ -957,7 +965,7 @@ export const api = {
 
          // 4. Upsert the data
          const { error: upsertError } = await supabase
-           .from('patient_dental_history_teeth' as any) // <<< Use type assertion
+           .from('patient_dental_history_teeth') // Removed 'as any'
            .upsert(upsertData, { onConflict: 'patient_id, tooth_id' }); // Use constraint columns
 
          if (upsertError) {
@@ -989,7 +997,7 @@ export const api = {
       // }
 
       const { data, error } = await supabase
-        .from('patient_dental_history_teeth' as any) // <<< Use type assertion
+        .from('patient_dental_history_teeth') // Removed 'as any'
         .select('tooth_id, conditions') // Select both fields
         .eq('patient_id', patientId);
 
@@ -1156,6 +1164,46 @@ export const api = {
       }
 
       return { data: planData, error: null };
+    },
+
+    async getVisitsByPlanId(planId: string): Promise<{ id: string }[]> {
+      if (!planId) {
+        console.warn('[api.patients.getVisitsByPlanId] planId is required, exiting.');
+        return [];
+      }
+      console.log(`[api.patients.getVisitsByPlanId] Attempting for planId: ${planId} (Querying 'treatments' table)`); // Updated log
+      const cacheKey = `treatments_as_visits:plan:${planId}`; // Modified cache key
+      const cachedData = globalCache.get<{ id: string }[]>(cacheKey);
+      if (cachedData) {
+        console.log(`[api.patients.getVisitsByPlanId] Cache hit for planId: ${planId}`, cachedData);
+        return cachedData;
+      }
+      console.log(`[api.patients.getVisitsByPlanId] Cache miss for planId: ${planId}`);
+
+      console.log(`[api.patients.getVisitsByPlanId] PRE-SUPABASE call for planId: ${planId} (Targeting 'treatments')`);
+      let data, error;
+      try {
+        const response = await supabase
+          .from('treatments') // Changed from 'treatment_visits'
+          .select('id') 
+          .eq('plan_id', planId); // Changed from 'treatment_plan_id'
+        data = response.data;
+        error = response.error;
+        console.log(`[api.patients.getVisitsByPlanId] POST-SUPABASE call for planId: ${planId}. Response data from 'treatments':`, data, "Response error:", error);
+      } catch (e) {
+        console.error(`[api.patients.getVisitsByPlanId] NATIVE ERROR during Supabase call for planId ${planId} (Targeting 'treatments'):`, e);
+        throw e; 
+      }
+
+      if (error) {
+        console.error(`[api.patients.getVisitsByPlanId] Supabase returned error for plan ${planId} (Targeting 'treatments'):`, error);
+        throw error; 
+      }
+      
+      const result = data || [];
+      console.log(`[api.patients.getVisitsByPlanId] Result for planId ${planId} from 'treatments' before caching and returning:`, result);
+      globalCache.set(cacheKey, result);
+      return result;
     },
 
     async createTreatmentPlanMetadata(metadata: {
@@ -1497,7 +1545,89 @@ export const api = {
         console.error('Error removing document:', error);
         throw error;
       }
-    }
+    },
+
+    async getTreatmentVisitById(visitId: string): Promise<TreatmentVisit | null> {
+      const cacheKey = `treatment_visit:${visitId}`;
+      const cachedData = globalCache.get<TreatmentVisit>(cacheKey);
+      if (cachedData) {
+        return cachedData;
+      }
+
+      const { data, error } = await supabase
+        .from('treatment_visits') 
+        .select('*')
+        .eq('id', visitId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116: Row not found is okay
+        console.error('Error fetching treatment visit by ID:', error);
+        throw error;
+      }
+
+      if (data) {
+        globalCache.set(cacheKey, data as TreatmentVisit);
+      }
+      return data as TreatmentVisit | null;
+    },
+
+    // --- Patient Dental History Teeth (Advanced Map for ToothSelector) ---
+    async savePatientDentalHistoryTeethWithConditions(patientId: string, teethMap: import('@/features/treatment-plans/components/ToothSelector').ToothConditionsMap) {
+       if (!patientId) {
+         throw new Error("Patient ID is required to save dental history teeth with conditions.");
+       }
+
+       console.log(`Saving dental history teeth map (with conditions) for patient ${patientId}:`, JSON.stringify(teethMap));
+
+       // 1. Get IDs of teeth currently in the map
+       const teethIdsInMap = Object.keys(teethMap).map(Number);
+
+       // 2. Delete entries for this patient that are NOT in the current map
+       const deleteQuery = supabase
+         .from('patient_dental_history_teeth') // Removed 'as any'
+         .delete()
+         .eq('patient_id', patientId);
+
+       if (teethIdsInMap.length > 0) {
+         deleteQuery.not('tooth_id', 'in', `(${teethIdsInMap.join(',')})`);
+       }
+       // Else (if teethIdsInMap is empty), delete all rows for the patient
+
+       const { error: deleteError } = await deleteQuery;
+       if (deleteError) {
+         console.error(`Error deleting old dental history teeth (with conditions) for patient ${patientId}:`, deleteError);
+         throw deleteError;
+       }
+       console.log(`Deleted stale dental history teeth (with conditions) for patient ${patientId}.`);
+
+       // 3. Prepare data for upsert (only if there are teeth in the map)
+       if (teethIdsInMap.length > 0) {
+         const upsertData = teethIdsInMap.map(id => ({
+           patient_id: patientId,
+           tooth_id: id,
+           // Ensure conditions is always an array, default to ['healthy']
+           conditions: (teethMap[id]?.conditions && Array.isArray(teethMap[id].conditions)) ? teethMap[id].conditions : ['healthy'],
+         }));
+
+         // 4. Upsert the data
+         const { error: upsertError } = await supabase
+           .from('patient_dental_history_teeth') // Removed 'as any'
+           .upsert(upsertData, { onConflict: 'patient_id, tooth_id' }); // Use constraint columns
+
+         if (upsertError) {
+           console.error(`Error upserting dental history teeth (with conditions) for patient ${patientId}:`, upsertError);
+           throw upsertError;
+         }
+         console.log(`Upserted dental history teeth (with conditions) for patient ${patientId}.`);
+       } else {
+          console.log(`No dental history teeth in map for patient ${patientId}, only performed delete (with conditions).`);
+       }
+
+       // Invalidate the simple list cache on save
+       globalCache.invalidate(`patient_dental_history_teeth:${patientId}`);
+       return { success: true };
+    },
+    // --- END Patient Dental History Teeth (Advanced Map for ToothSelector) ---
   },
 
   // --- Inventory API ---
@@ -1888,6 +2018,23 @@ export const api = {
       // Invalidate cache
       globalCache.invalidatePattern(/^appointments/);
       return data;
+    },
+
+    // New function to fetch appointments by a list of treatment_ids
+    async getAppointmentsByTreatmentIds(treatmentIds: string[]): Promise<AppointmentSlim[]> { 
+      if (!treatmentIds || treatmentIds.length === 0) {
+        return [];
+      }
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('treatment_id, status') // Only select necessary fields
+        .in('treatment_id', treatmentIds);
+
+      if (error) {
+        console.error('Error fetching appointments by treatment IDs:', error);
+        throw error;
+      }
+      return (data as AppointmentSlim[]) || []; // Cast to AppointmentSlim[]
     }
   },
 
@@ -2062,6 +2209,122 @@ export const api = {
       console.error(`Error fetching matrix details for ${domain}/${condition}:`, error);
       // Return null on error to prevent breaking the UI
       return null;
+    }
+  },
+
+  // New function to fetch visit IDs for a specific treatment plan
+  async getVisitsByPlanId(planId: string): Promise<{ id: string }[]> {
+    if (!planId) {
+      return [];
+    }
+    const { data, error } = await supabase
+      .from('treatment_visits')
+      .select('id')
+      .eq('treatment_plan_id', planId);
+
+    if (error) {
+      console.error(`Error fetching visits for plan ${planId}:`, error);
+      throw error;
+    }
+    return data || [];
+  },
+
+  // New API to upload profile photo
+  async uploadProfilePhoto(file: File, patientId: string) {
+    try {
+      const fileData = await api.storage.uploadFile(file, patientId);
+
+      // Update the patient record with the new profile photo URL
+      // Cast to any as a workaround for persistent type error
+      await api.patients.update(patientId, {
+        profile_photo_url: fileData.url
+      } as any); 
+
+      return fileData;
+    } catch (error) {
+      console.error('Error uploading profile photo:', error);
+      throw error;
+    }
+  },
+
+  // New API to upload patient signature
+  async uploadSignature(file: File, patientId: string) {
+    try {
+      const fileData = await api.storage.uploadFile(file, patientId);
+
+      // Update the patient record with the new signature URL
+       // Cast to any as a workaround for persistent type error
+      await api.patients.update(patientId, {
+        signature_url: fileData.url
+      } as any);
+
+      return fileData;
+    } catch (error) {
+      console.error('Error uploading signature:', error);
+      throw error;
+    }
+  },
+
+  // New API to add a document to the patient's documents array
+  async addDocument(file: File, patientId: string, docType: string, notes: string = '') {
+    try {
+      const fileData = await api.storage.uploadFile(file, patientId);
+
+      // Get the current patient data
+      const patient = await api.patients.getById(patientId);
+
+      if (!patient) {
+        throw new Error('Patient not found');
+      }
+
+      // Add the new document to the documents array
+      // Ensure patient.documents is treated as an array
+      const documents: any[] = Array.isArray(patient.documents) ? patient.documents : [];
+      documents.push({
+        ...fileData,
+        docType,
+        notes,
+        dateAdded: new Date().toISOString()
+      });
+
+      // Update the patient record
+       // Cast to any as a workaround for persistent type error
+      await api.patients.update(patientId, { documents: documents } as any);
+
+      return fileData;
+    } catch (error) {
+      console.error('Error adding document:', error);
+      throw error;
+    }
+  },
+
+  // New API to remove a document from the patient's documents array
+  async removeDocument(patientId: string, documentPath: string) {
+    try {
+      // Get the current patient data
+      const patient = await api.patients.getById(patientId);
+
+      if (!patient) {
+        throw new Error('Patient not found');
+      }
+
+      // Remove the document from the documents array
+      // Ensure patient.documents is treated as an array before filtering
+      const documents = (Array.isArray(patient.documents) ? patient.documents : []).filter(
+        (doc: any) => doc.path !== documentPath
+      );
+
+      // Update the patient record
+       // Cast to any as a workaround for persistent type error
+      await api.patients.update(patientId, { documents: documents } as any);
+
+      // Delete the file from storage
+      await api.storage.deleteFile(documentPath, 'medical-records'); // Specify bucket
+
+      return true;
+    } catch (error) {
+      console.error('Error removing document:', error);
+      throw error;
     }
   }
 };

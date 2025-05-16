@@ -9,8 +9,8 @@ import { useTreatmentPlans } from '../hooks/useTreatmentPlans';
 import { TreatmentPlanCard } from '../components/TreatmentPlanCard';
 import { TreatmentPlanForm } from '../components/TreatmentPlanForm';
 import { TreatmentForm } from '../components/TreatmentForm';
-import { TreatmentPlanDetails } from '../components/TreatmentPlanDetails';
-import { AITreatmentGenerator } from '@/components/AITreatmentGenerator'; // Added AI Generator import
+import { TreatmentPlanDetails, type TreatmentVisit } from '../components/TreatmentPlanDetails';
+import { AITreatmentGenerator } from '@/components/AITreatmentGenerator';
 // Assuming status enums are defined in database types
 import type { Database } from '@/lib/database.types';
 type TreatmentPlanStatus = Database['public']['Enums']['treatment_plan_status'];
@@ -20,6 +20,10 @@ import { Plus } from 'lucide-react';
 import { Search } from 'lucide-react';
 import { Stethoscope } from 'lucide-react';
 import { Wand2 } from 'lucide-react'; // Added Wand2 icon
+import { z } from 'zod';
+
+// Import the actual function from the hook
+import { getAppointmentTreatmentIdsForPlan } from '../hooks/useTreatmentPlans';
 
 export function TreatmentPlansPage() {
   const navigate = useNavigate();
@@ -40,7 +44,8 @@ export function TreatmentPlansPage() {
     handleUpdateTreatmentStatus,
     handleUpdatePlanStatus,
     deleteTreatment,
-    deletePlan
+    deletePlan,
+    updateTreatmentDetails,
   } = useTreatmentPlans();
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,6 +56,11 @@ export function TreatmentPlansPage() {
   const [showAddTreatmentDialog, setShowAddTreatmentDialog] = useState(false);
   const [showAIGeneratorDialog, setShowAIGeneratorDialog] = useState(false); // Added state for AI dialog
   const [currentAiSuggestionForDetails, setCurrentAiSuggestionForDetails] = useState<AISuggestion | null>(null); // New state
+  const [bookedVisitIds, setBookedVisitIds] = useState<string[]>([]); // New state for booked visit IDs
+  
+  // State for editing a treatment/visit
+  const [editingTreatment, setEditingTreatment] = useState<TreatmentVisit | null>(null);
+  const [showEditTreatmentDialog, setShowEditTreatmentDialog] = useState(false);
   
   // Handle creating a new treatment plan
   // Update signature to accept toothIds
@@ -107,15 +117,59 @@ export function TreatmentPlansPage() {
       // Reverted: Pass original data, assuming createTreatment handles mapping or expects this structure
       await createTreatment(treatmentData); 
       setShowAddTreatmentDialog(false);
+      await refreshSelectedPlan(); // Refresh plan details after adding
     } catch (error) {
       console.error('Error adding treatment:', error);
     }
   };
   
+  // New handler for updating a treatment/visit
+  const handleUpdateTreatment = async (formData: Partial<z.infer<typeof treatmentSchema>>) => {
+    if (!editingTreatment || !editingTreatment.id) {
+      toast({ title: "Error", description: "No treatment selected for update.", variant: "destructive" });
+      return;
+    }
+    try {
+      // Ensure plan_id is part of the formData, or add it from editingTreatment
+      // The form should include plan_id as it's part of treatmentSchema and populated by initialData
+      const dataToUpdate: Partial<z.infer<typeof treatmentSchema>> = {
+        ...formData,
+        plan_id: formData.plan_id || editingTreatment.plan_id, // Ensure plan_id is present
+      };
+
+      await updateTreatmentDetails(editingTreatment.id, dataToUpdate);
+      
+      // Toast for success is now handled within updateTreatmentDetails hook
+      setShowEditTreatmentDialog(false);
+      setEditingTreatment(null);
+      // refreshSelectedPlan is also called within the hook
+    } catch (error) {
+      console.error('Error updating treatment:', error);
+      // Toast for error is also handled within updateTreatmentDetails hook,
+      // but we can add a specific one here if needed, or let the hook handle it.
+      // For now, assume hook's toast is sufficient.
+    }
+  };
+  
+  // Handle opening the edit treatment dialog
+  const handleOpenEditTreatmentDialog = (treatment: TreatmentVisit) => {
+    setEditingTreatment(treatment);
+    setShowEditTreatmentDialog(true);
+  };
+  
   // Handle viewing a plan's details
-  const handleViewPlanDetails = (plan: any) => {
+  const handleViewPlanDetails = async (plan: any) => {
     setSelectedPlan(plan);
-    setShowPlanDetailsDialog(true);
+    setShowPlanDetailsDialog(true); // Show dialog immediately
+
+    // Asynchronously fetch and set booked visit IDs
+    try {
+      const ids = await getAppointmentTreatmentIdsForPlan(plan.id);
+      setBookedVisitIds(ids);
+    } catch (error) {
+      console.error('Error fetching booked visit IDs:', error);
+      setBookedVisitIds([]); // Fallback to empty array on error
+    }
   };
   
   // Handle opening the add treatment dialog
@@ -257,9 +311,37 @@ export function TreatmentPlansPage() {
           open={showPlanDetailsDialog}
           onOpenChange={(isOpen) => {
             setShowPlanDetailsDialog(isOpen);
+            if (!isOpen) {
+              setBookedVisitIds([]); // Clear IDs when dialog closes
+            } else if (isOpen && selectedPlan) { 
+              const fetchIds = async () => {
+                try {
+                  console.log(`[TreatmentPlansPage] fetchIds: About to call getAppointmentTreatmentIdsForPlan with planId: ${selectedPlan.id}`); // New log
+                  const ids = await getAppointmentTreatmentIdsForPlan(selectedPlan.id);
+                  console.log(`[TreatmentPlansPage] fetchIds: Received ids:`, ids); // New log
+                  setBookedVisitIds(ids);
+                } catch (error) {
+                  console.error('[TreatmentPlansPage] fetchIds: Error fetching booked visit IDs on dialog open:', error);
+                  setBookedVisitIds([]); 
+                }
+              };
+              fetchIds();
+            }
           }}
           plan={selectedPlan}
-          onRefresh={refreshSelectedPlan}
+          onRefresh={async () => {
+            await refreshSelectedPlan();
+            // Re-fetch booked visit IDs if the plan is refreshed while the dialog is open
+            if (selectedPlan) {
+              try {
+                const ids = await getAppointmentTreatmentIdsForPlan(selectedPlan.id);
+                setBookedVisitIds(ids);
+              } catch (error) {
+                console.error('Error fetching booked visit IDs after refresh:', error);
+                setBookedVisitIds([]);
+              }
+            }
+          }}
           onAddTreatment={handleOpenAddTreatmentDialog}
           onStatusChange={handlePlanStatusChangeWrapper}
           onDeletePlan={async (planId) => { // Make onDeletePlan async
@@ -268,9 +350,11 @@ export function TreatmentPlansPage() {
           }}
           onTreatmentStatusChange={handleTreatmentStatusChangeWrapper} 
           onDeleteTreatment={deleteTreatment}
+          onEditTreatment={handleOpenEditTreatmentDialog}
           loading={loading || updatingPlanStatus || updatingTreatmentStatus}
           navigateToPatient={navigateToPatient}
-          aiInitialSuggestion={currentAiSuggestionForDetails} // Pass the suggestion here
+          aiInitialSuggestion={currentAiSuggestionForDetails} // Pass the AI suggestion
+          bookedVisitIds={bookedVisitIds} // Pass the booked visit IDs
         />
       )}
       
@@ -282,6 +366,24 @@ export function TreatmentPlansPage() {
           onSubmit={handleAddTreatment}
           planId={selectedPlan.id}
           loading={loading}
+        />
+      )}
+
+      {/* Edit Treatment Dialog - Reusing TreatmentForm */}
+      {selectedPlan && editingTreatment && (
+        <TreatmentForm
+          open={showEditTreatmentDialog}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) {
+              setEditingTreatment(null); // Clear editing state when dialog is closed
+            }
+            setShowEditTreatmentDialog(isOpen);
+          }}
+          onSubmit={handleUpdateTreatment} // Use the update handler
+          planId={selectedPlan.id} // Still need planId for context if form needs it
+          initialData={editingTreatment} // Pass the treatment data to pre-fill
+          loading={loading} // Or a specific loading state for update
+          isEditMode={true} // Add a prop to signify edit mode
         />
       )}
 
