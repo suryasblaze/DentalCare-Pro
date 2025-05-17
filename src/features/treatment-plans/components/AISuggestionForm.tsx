@@ -108,7 +108,12 @@ export function AISuggestionForm({
       const signal = controller.signal;
       signal.throwIfAborted(); // Check before the call
 
-      const response = await fetch('https://n8n1.kol.tel/webhook/2169736a-368b-49b5-b93f-ffc215203d99', {
+      const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL_AI_SUGGESTION;
+      if (!webhookUrl) {
+        throw new Error("VITE_N8N_WEBHOOK_URL_AI_SUGGESTION environment variable is not set.");
+      }
+
+      const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

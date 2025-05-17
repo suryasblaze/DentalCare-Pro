@@ -11,72 +11,75 @@ import { format } from 'date-fns';
 import type { Database } from 'supabase_types'; // Ensure Database type is imported
 import type { AISuggestion } from '../components/AISuggestionForm'; // Added import
 
+// Define the detailed appointment type based on API response
+export type StaffSlim = Pick<Database['public']['Tables']['staff']['Row'], 'id' | 'first_name' | 'last_name' | 'role' | 'specialization'>;
+export type BookedAppointmentDetail = Database['public']['Tables']['appointments']['Row'] & {
+  staff: StaffSlim | null;
+};
+
 // Define TreatmentPlanUpdate for explicit casting if needed
 type TreatmentPlanUpdate = Database['public']['Tables']['treatment_plans']['Update'];
 
-// New function to get treatment IDs for visits that have a booked (non-cancelled) appointment
-export const getAppointmentTreatmentIdsForPlan = async (planId: string): Promise<string[]> => {
+// Function to get booked appointment details for a plan
+export const getBookedAppointmentDetailsForPlan = async (planId: string): Promise<BookedAppointmentDetail[]> => { // Renamed function and updated return type
   if (!planId) {
-    console.log('[getAppointmentTreatmentIdsForPlan] No planId provided, exiting.');
+    console.log('[getBookedAppointmentDetailsForPlan] No planId provided, exiting.');
     return [];
   }
-  console.log(`[getAppointmentTreatmentIdsForPlan] Attempting to fetch for planId: ${planId}`);
+  console.log(`[getBookedAppointmentDetailsForPlan] Attempting to fetch for planId: ${planId}`);
 
   let visits = null;
   try {
-    console.log(`[getAppointmentTreatmentIdsForPlan] ENTERING TRY BLOCK for planId: ${planId}`);
+    console.log(`[getBookedAppointmentDetailsForPlan] ENTERING TRY BLOCK for planId: ${planId}`);
 
-    console.log(`[getAppointmentTreatmentIdsForPlan] PRE: Calling treatmentService.getVisitsByPlanId for planId: ${planId}`);
+    console.log(`[getBookedAppointmentDetailsForPlan] PRE: Calling treatmentService.getVisitsByPlanId for planId: ${planId}`);
     visits = await treatmentService.getVisitsByPlanId(planId);
-    console.log(`[getAppointmentTreatmentIdsForPlan] POST: treatmentService.getVisitsByPlanId returned for planId ${planId}. Result:`, visits);
+    console.log(`[getBookedAppointmentDetailsForPlan] POST: treatmentService.getVisitsByPlanId returned for planId ${planId}. Result:`, visits);
 
     if (!visits) {
-      console.log(`[getAppointmentTreatmentIdsForPlan] Visits data is null or undefined for plan ${planId}.`);
+      console.log(`[getBookedAppointmentDetailsForPlan] Visits data is null or undefined for plan ${planId}.`);
       return [];
     }
     if (visits.length === 0) {
-      console.log(`[getAppointmentTreatmentIdsForPlan] No visits found (empty array) for plan ${planId}`);
+      console.log(`[getBookedAppointmentDetailsForPlan] No visits found (empty array) for plan ${planId}`);
       return [];
     }
 
     const visitIds = visits.map(visit => visit.id);
-    console.log(`[getAppointmentTreatmentIdsForPlan] Visit IDs for plan ${planId}:`, visitIds);
+    console.log(`[getBookedAppointmentDetailsForPlan] Visit IDs for plan ${planId}:`, visitIds);
     if (visitIds.length === 0) {
-        console.log(`[getAppointmentTreatmentIdsForPlan] No visit IDs extracted (map result empty) for plan ${planId}`);
+        console.log(`[getBookedAppointmentDetailsForPlan] No visit IDs extracted (map result empty) for plan ${planId}`);
         return [];
     }
 
-    console.log(`[getAppointmentTreatmentIdsForPlan] PRE: Calling api.appointments.getAppointmentsByTreatmentIds with visitIds:`, visitIds);
+    console.log(`[getBookedAppointmentDetailsForPlan] PRE: Calling api.appointments.getAppointmentsByTreatmentIds with visitIds:`, visitIds);
     const appointments = await api.appointments.getAppointmentsByTreatmentIds(visitIds);
-    console.log(`[getAppointmentTreatmentIdsForPlan] POST: api.appointments.getAppointmentsByTreatmentIds returned. Appointments for visit IDs (${visitIds.join(', ')}):`, appointments);
+    console.log(`[getBookedAppointmentDetailsForPlan] POST: api.appointments.getAppointmentsByTreatmentIds returned. Appointments for visit IDs (${visitIds.join(', ')}):`, appointments);
     
     if (!appointments) {
-      console.log(`[getAppointmentTreatmentIdsForPlan] Appointments data is null or undefined for the given visit IDs.`);
+      console.log(`[getBookedAppointmentDetailsForPlan] Appointments data is null or undefined for the given visit IDs.`);
       return [];
     }
     if (appointments.length === 0) {
-      console.log(`[getAppointmentTreatmentIdsForPlan] No appointments found (empty array) for visit IDs`);
+      console.log(`[getBookedAppointmentDetailsForPlan] No appointments found (empty array) for visit IDs`);
       return [];
     }
 
-    const bookedTreatmentIds = appointments
+    const bookedAppointments = appointments
       .filter(appt => {
         const isBooked = appt.status !== 'cancelled' && appt.treatment_id;
         return isBooked;
       })
-      .map(appt => appt.treatment_id as string);
-    console.log(`[getAppointmentTreatmentIdsForPlan] Filtered Booked Treatment IDs for plan ${planId}:`, bookedTreatmentIds);
-      
-    const uniqueBookedTreatmentIds = [...new Set(bookedTreatmentIds)];
-    console.log(`[getAppointmentTreatmentIdsForPlan] Unique Booked Treatment IDs for plan ${planId} before returning:`, uniqueBookedTreatmentIds);
-    return uniqueBookedTreatmentIds;
+      .map(appt => appt as BookedAppointmentDetail); // Ensure casting if necessary, though structure should match
+    console.log(`[getBookedAppointmentDetailsForPlan] Filtered Booked Appointments for plan ${planId}:`, bookedAppointments);
+    return bookedAppointments;
 
   } catch (error) {
-    console.error(`[getAppointmentTreatmentIdsForPlan] CRITICAL ERROR in getAppointmentTreatmentIdsForPlan for planId ${planId}. Error:`, error);
+    console.error(`[getBookedAppointmentDetailsForPlan] CRITICAL ERROR in getBookedAppointmentDetailsForPlan for planId ${planId}. Error:`, error);
     if (visits !== null) {
-      console.error(`[getAppointmentTreatmentIdsForPlan] State of 'visits' when error occurred:`, visits);
+      console.error(`[getBookedAppointmentDetailsForPlan] State of 'visits' when error occurred:`, visits);
     } else {
-      console.error(`[getAppointmentTreatmentIdsForPlan] 'visits' was null when error occurred (error likely in getVisitsByPlanId itself).`);
+      console.error(`[getBookedAppointmentDetailsForPlan] 'visits' was null when error occurred (error likely in getVisitsByPlanId itself).`);
     }
     return [];
   }

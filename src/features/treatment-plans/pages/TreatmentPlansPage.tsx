@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { useTreatmentPlans } from '../hooks/useTreatmentPlans';
+import { useTreatmentPlans, getBookedAppointmentDetailsForPlan, type BookedAppointmentDetail } from '../hooks/useTreatmentPlans';
 import { TreatmentPlanCard } from '../components/TreatmentPlanCard';
 import { TreatmentPlanForm } from '../components/TreatmentPlanForm';
 import { TreatmentForm } from '../components/TreatmentForm';
@@ -22,8 +22,8 @@ import { Stethoscope } from 'lucide-react';
 import { Wand2 } from 'lucide-react'; // Added Wand2 icon
 import { z } from 'zod';
 
-// Import the actual function from the hook
-import { getAppointmentTreatmentIdsForPlan } from '../hooks/useTreatmentPlans';
+// Import the renamed function and the new type from the hook
+import { createTreatmentPlan, createTreatment, refreshSelectedPlan, deletePlan, deleteTreatment, handleUpdatePlanStatus, handleUpdateTreatmentStatus, updateTreatmentDetails, treatmentPlansSubscribed, updatingTreatmentStatus, updatingPlanStatus, filterPlans } from '../hooks/useTreatmentPlans';
 
 export function TreatmentPlansPage() {
   const navigate = useNavigate();
@@ -56,7 +56,7 @@ export function TreatmentPlansPage() {
   const [showAddTreatmentDialog, setShowAddTreatmentDialog] = useState(false);
   const [showAIGeneratorDialog, setShowAIGeneratorDialog] = useState(false); // Added state for AI dialog
   const [currentAiSuggestionForDetails, setCurrentAiSuggestionForDetails] = useState<AISuggestion | null>(null); // New state
-  const [bookedVisitIds, setBookedVisitIds] = useState<string[]>([]); // New state for booked visit IDs
+  const [bookedAppointmentDetails, setBookedAppointmentDetails] = useState<BookedAppointmentDetail[]>([]); // Type updated
   
   // State for editing a treatment/visit
   const [editingTreatment, setEditingTreatment] = useState<TreatmentVisit | null>(null);
@@ -160,15 +160,13 @@ export function TreatmentPlansPage() {
   // Handle viewing a plan's details
   const handleViewPlanDetails = async (plan: any) => {
     setSelectedPlan(plan);
-    setShowPlanDetailsDialog(true); // Show dialog immediately
-
-    // Asynchronously fetch and set booked visit IDs
+    setShowPlanDetailsDialog(true);
     try {
-      const ids = await getAppointmentTreatmentIdsForPlan(plan.id);
-      setBookedVisitIds(ids);
+      const details = await getBookedAppointmentDetailsForPlan(plan.id); // Use renamed function
+      setBookedAppointmentDetails(details);
     } catch (error) {
-      console.error('Error fetching booked visit IDs:', error);
-      setBookedVisitIds([]); // Fallback to empty array on error
+      console.error('Error fetching booked appointment details:', error);
+      setBookedAppointmentDetails([]);
     }
   };
   
@@ -312,49 +310,43 @@ export function TreatmentPlansPage() {
           onOpenChange={(isOpen) => {
             setShowPlanDetailsDialog(isOpen);
             if (!isOpen) {
-              setBookedVisitIds([]); // Clear IDs when dialog closes
+              setBookedAppointmentDetails([]);
             } else if (isOpen && selectedPlan) { 
-              const fetchIds = async () => {
+              const fetchDetails = async () => {
                 try {
-                  console.log(`[TreatmentPlansPage] fetchIds: About to call getAppointmentTreatmentIdsForPlan with planId: ${selectedPlan.id}`); // New log
-                  const ids = await getAppointmentTreatmentIdsForPlan(selectedPlan.id);
-                  console.log(`[TreatmentPlansPage] fetchIds: Received ids:`, ids); // New log
-                  setBookedVisitIds(ids);
+                  const details = await getBookedAppointmentDetailsForPlan(selectedPlan.id);
+                  setBookedAppointmentDetails(details);
                 } catch (error) {
-                  console.error('[TreatmentPlansPage] fetchIds: Error fetching booked visit IDs on dialog open:', error);
-                  setBookedVisitIds([]); 
+                  console.error('[TreatmentPlansPage] fetchDetails: Error fetching booked appointment details on dialog open:', error);
+                  setBookedAppointmentDetails([]); 
                 }
               };
-              fetchIds();
+              fetchDetails();
             }
           }}
           plan={selectedPlan}
           onRefresh={async () => {
             await refreshSelectedPlan();
-            // Re-fetch booked visit IDs if the plan is refreshed while the dialog is open
             if (selectedPlan) {
               try {
-                const ids = await getAppointmentTreatmentIdsForPlan(selectedPlan.id);
-                setBookedVisitIds(ids);
+                const details = await getBookedAppointmentDetailsForPlan(selectedPlan.id);
+                setBookedAppointmentDetails(details);
               } catch (error) {
-                console.error('Error fetching booked visit IDs after refresh:', error);
-                setBookedVisitIds([]);
+                console.error('Error fetching booked appointment details after refresh:', error);
+                setBookedAppointmentDetails([]);
               }
             }
           }}
           onAddTreatment={handleOpenAddTreatmentDialog}
           onStatusChange={handlePlanStatusChangeWrapper}
-          onDeletePlan={async (planId) => { // Make onDeletePlan async
-            await deletePlan(planId); // Ensure deletePlan is awaited
-            setShowPlanDetailsDialog(false); // Close dialog after deletion
-          }}
-          onTreatmentStatusChange={handleTreatmentStatusChangeWrapper} 
+          onDeletePlan={async (planId) => { await deletePlan(planId); setShowPlanDetailsDialog(false); }}
+          onTreatmentStatusChange={handleTreatmentStatusChangeWrapper}
           onDeleteTreatment={deleteTreatment}
           onEditTreatment={handleOpenEditTreatmentDialog}
           loading={loading || updatingPlanStatus || updatingTreatmentStatus}
           navigateToPatient={navigateToPatient}
-          aiInitialSuggestion={currentAiSuggestionForDetails} // Pass the AI suggestion
-          bookedVisitIds={bookedVisitIds} // Pass the booked visit IDs
+          aiInitialSuggestion={currentAiSuggestionForDetails}
+          bookedAppointments={bookedAppointmentDetails}
         />
       )}
       

@@ -2021,20 +2021,30 @@ export const api = {
     },
 
     // New function to fetch appointments by a list of treatment_ids
-    async getAppointmentsByTreatmentIds(treatmentIds: string[]): Promise<AppointmentSlim[]> { 
+    async getAppointmentsByTreatmentIds(treatmentIds: string[]): Promise<AppointmentRow[]> { // Changed return type
       if (!treatmentIds || treatmentIds.length === 0) {
         return [];
       }
       const { data, error } = await supabase
         .from('appointments')
-        .select('treatment_id, status') // Only select necessary fields
+        // Select all appointment fields and related staff details
+        .select(`
+          *,
+          staff:staff_id (
+            id,
+            first_name,
+            last_name,
+            role,
+            specialization
+          )
+        `)
         .in('treatment_id', treatmentIds);
 
       if (error) {
         console.error('Error fetching appointments by treatment IDs:', error);
         throw error;
       }
-      return (data as AppointmentSlim[]) || []; // Cast to AppointmentSlim[]
+      return (data as AppointmentRow[]) || []; // Cast to AppointmentRow[] or a more specific type if created
     }
   },
 

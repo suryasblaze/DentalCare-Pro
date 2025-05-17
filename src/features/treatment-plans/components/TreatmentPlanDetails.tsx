@@ -44,6 +44,9 @@ import {
   Smile, // Added Smile icon
   BrainCog, // Added BrainCog icon
   Pencil, // Added Pencil icon for Edit
+  Download, // Added Download icon
+  UserCircle, // Added UserCircle for doctor icon
+  CalendarDays, // Added CalendarDays for date icon
 } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils/validation'; // Assuming formatCurrency exists
@@ -52,10 +55,16 @@ import TreatmentProgressBar from './TreatmentProgressBar'; // Import the new com
 import { useToast } from '@/components/ui/use-toast'; // Re-add useToast if it was removed
 import { treatmentService } from '../services/treatmentService'; // Import treatmentService
 
+// Import jsPDF and autoTable for PDF generation
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
 // Import status type (only TreatmentStatus is needed)
 import type { TreatmentStatus } from '@/types'; // Ensure path is correct
 // Import AISuggestion type if it's used for the new prop
 import type { AISuggestion } from './AISuggestionForm';
+// Remove import type { Database } from 'supabase_types'; // Import the Database type
+import type { BookedAppointmentDetail } from '../hooks/useTreatmentPlans'; // Import BookedAppointmentDetail
 
 // Helper function to parse timeGap string (e.g., "2 weeks", "1 month") and add to a date
 const calculateEstimatedDate = (baseDateStr: string, timeGapStr: string | null | undefined): string => {
@@ -187,7 +196,7 @@ interface TreatmentPlanDetailsProps {
   navigateToPatient?: (patientId: string) => void;
   aiInitialSuggestion?: AISuggestion | null; // New prop for initial AI suggestion
   onEditTreatment: (treatment: TreatmentVisit) => void; // New prop for editing a treatment/visit
-  bookedVisitIds?: string[]; // New prop for booked visit IDs
+  bookedAppointments?: BookedAppointmentDetail[]; // Use BookedAppointmentDetail[]
 }
 
 export function TreatmentPlanDetails({
@@ -204,7 +213,7 @@ export function TreatmentPlanDetails({
   navigateToPatient,
   aiInitialSuggestion, // Destructure new prop
   onEditTreatment, // Destructure new prop
-  bookedVisitIds = [], // Destructure new prop with default value
+  bookedAppointments = [], // Destructure, default to empty array
 }: TreatmentPlanDetailsProps) {
   const { toast } = useToast(); // Initialize toast for feedback
   const navigate = useNavigate(); // Initialize navigate
@@ -307,6 +316,344 @@ export function TreatmentPlanDetails({
     return Math.ceil(plan.treatments.length / ITEMS_PER_PAGE);
   }, [plan?.treatments]);
   // --- End Pagination State ---
+
+  // --- PDF Generation Handler ---
+  const handleDownloadPdf = async () => { // Made async for potential image loading
+    if (!plan) return;
+
+    const doc = new jsPDF();
+    const pageHeight = doc.internal.pageSize.height;
+    const pageWidth = doc.internal.pageSize.width;
+    const pdfMargin = 14; // Standard margin for PDF content
+    let currentY = 20; // Initial Y position
+
+    // Set a base font for the document
+    doc.setFont('helvetica', 'normal');
+
+    // Helper to add horizontal line
+    const addSectionLine = (y: number) => {
+      doc.setDrawColor(200, 200, 200); // Light gray line
+      doc.line(pdfMargin, y, pageWidth - pdfMargin, y);
+    };
+
+    // --- Document Header with Logo ---
+    try {
+      // Attempt to load logo
+      const logoResponse = await fetch('https://i.postimg.cc/j2qGSXwJ/facetslogo.png'); // Use the provided URL
+      if (!logoResponse.ok) {
+        throw new Error(`Failed to fetch logo: ${logoResponse.status} ${logoResponse.statusText}`);
+      }
+      const blob = await logoResponse.blob();
+      if (blob.size === 0) {
+        throw new Error('Fetched logo blob is empty.');
+      }
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => {
+          if (reader.result) {
+            resolve(reader.result as string);
+          } else {
+            reject(new Error('FileReader failed to read blob.'));
+          }
+        };
+        reader.onerror = (error) => reject(error);
+        reader.readAsDataURL(blob);
+      });
+      
+      if (!dataUrl.startsWith('data:image')) {
+        throw new Error('Generated Data URL is not an image.');
+      }
+
+      const imgProps = doc.getImageProperties(dataUrl);
+      const logoHeight = 12; // Adjusted logo height
+      const logoWidth = (imgProps.width * logoHeight) / imgProps.height;
+      const logoX = pdfMargin;
+      const logoY = currentY - 7; // Position logo slightly above the title line
+
+      doc.addImage(dataUrl, imgProps.fileType.toUpperCase(), logoX, logoY, logoWidth, logoHeight);
+      
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      const titleX = logoX + logoWidth + 10; // Position title next to logo
+      const titleY = logoY + logoHeight / 2; // Vertically align title with logo center
+      doc.text('Treatment Plan Report', titleX, titleY, { baseline: 'middle' });
+      doc.setFont('helvetica', 'normal'); // Reset font
+      currentY += Math.max(logoHeight, 10) + 10; // Increased spacing after header
+
+    } catch (error) {
+      console.error("Error loading logo:", error);
+      // Fallback if logo fails: Center title
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Treatment Plan Report', pageWidth / 2, currentY, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      currentY += 18; // Increased spacing
+    }
+    
+    addSectionLine(currentY);
+    currentY += 12; // Increased spacing
+
+    // --- Patient and Plan Information ---
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Patient & Plan Details', pdfMargin, currentY);
+    doc.setFont('helvetica', 'normal');
+    currentY += 10; // Increased spacing
+
+    const patientPlanDetailsRows = [
+      ["Patient Name:", plan.patientName],
+      ["Plan Title:", plan.title],
+      ["Plan Description:", plan.description || 'N/A'],
+      ["Plan Dates:", `${format(new Date(plan.start_date), 'MMM d, yyyy')}${plan.end_date ? ` to ${format(new Date(plan.end_date), 'MMM d, yyyy')}` : ''}`],
+      ["Priority:", plan.priority ? plan.priority.charAt(0).toUpperCase() + plan.priority.slice(1) : 'N/A'],
+      ["Status:", plan.status ? plan.status.replace('_', ' ').charAt(0).toUpperCase() + plan.status.replace('_', ' ').slice(1) : 'N/A'],
+    ];
+
+    autoTable(doc, {
+        body: patientPlanDetailsRows,
+        startY: currentY,
+        theme: 'plain',
+        styles: { 
+            fontSize: 8, 
+            cellPadding: 1.5, 
+            font: 'helvetica',
+            valign: 'middle',
+        },
+        columnStyles: {
+            0: { fontStyle: 'bold', cellWidth: 45 }, 
+            1: { cellWidth: 'auto' },
+        },
+        didDrawPage: (data) => {
+            const pageCount = doc.getNumberOfPages();
+            doc.setFontSize(8);
+            doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, pageHeight - 10);
+        }
+    });
+    currentY = (doc as any).lastAutoTable.finalY + 10; // Increased spacing
+    addSectionLine(currentY);
+    currentY += 12; // Increased spacing
+    
+    // --- Treatments/Visits Table ---
+    if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20; } // Check space
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Treatments / Visits', pdfMargin, currentY);
+    doc.setFont('helvetica', 'normal');
+    currentY += 10; // Increased spacing
+
+    const tableColumn = ["#", "Treatment / Visit", "Procedures", "Status", "Date", "Cost"];
+    const tableRows: (string | number)[][] = [];
+
+    // Adjusted column widths for better text fitting
+    const treatmentVisitColWidth = 70; // Increased from 60
+    const proceduresColWidth = 43; // Decreased from 53
+    const cellPaddingVal = 1.5; // Matching autoTable style
+    const cellHorizontalPadding = cellPaddingVal * 2; 
+    
+    const maxTreatmentVisitTextWidth = treatmentVisitColWidth - cellHorizontalPadding;
+    const maxProcedureTextWidth = proceduresColWidth - cellHorizontalPadding;
+
+    (plan.treatments || []).forEach((treatment, index) => {
+      const visitDate = treatment.scheduled_date 
+        ? format(new Date(treatment.scheduled_date), 'MMM d, yyyy') 
+        : (treatment.completed_date 
+            ? format(new Date(treatment.completed_date), 'MMM d, yyyy') 
+            : (treatmentsWithEstimatedDates.find(t => t.id === treatment.id)?.estimatedVisitDate 
+                ? format(new Date(treatmentsWithEstimatedDates.find(t => t.id === treatment.id)!.estimatedVisitDate!),'MMM d, yyyy')
+                : 'N/A'));
+      const cost = treatment.cost ? formatCurrency(parseFloat(String(treatment.cost))) : 'N/A';
+      
+      const rawTreatmentVisitText = treatment.type || treatment.title || 'N/A';
+      const treatmentVisitTextLines = doc.splitTextToSize(rawTreatmentVisitText, maxTreatmentVisitTextWidth);
+      const formattedTreatmentVisitText = treatmentVisitTextLines.join('\n');
+
+      const rawProcedureText = treatment.description || treatment.procedures || 'N/A';
+      const procedureTextLines = doc.splitTextToSize(rawProcedureText, maxProcedureTextWidth);
+      const formattedProcedureText = procedureTextLines.join('\n');
+
+      const treatmentData = [
+        treatment.visit_number || (index + 1),
+        formattedTreatmentVisitText,
+        formattedProcedureText,
+        treatment.status ? treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1) : 'N/A',
+        visitDate,
+        cost,
+      ];
+      tableRows.push(treatmentData);
+    });
+    
+    if (tableRows.length === 0) {
+        doc.setFontSize(9); // Adjusted font size
+        doc.text("No treatments or visits recorded for this plan.", pdfMargin, currentY);
+        currentY += 10;
+    } else {
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: currentY,
+            theme: 'grid',
+            headStyles: { 
+                fillColor: [0, 96, 223], // Brighter blue from theme #0060df
+                textColor: 255, 
+                fontStyle: 'bold', 
+                font: 'helvetica', 
+                fontSize: 9,
+                valign: 'middle',
+            },
+            styles: { 
+                fontSize: 7, // Reduced from 8 for better text fit
+                cellPadding: cellPaddingVal, 
+                font: 'helvetica',
+                valign: 'middle',
+            },
+            columnStyles: {
+                0: { cellWidth: 6, halign: 'center' },    
+                1: { cellWidth: treatmentVisitColWidth }, // Now 70
+                2: { cellWidth: proceduresColWidth }, // Now 43
+                3: { cellWidth: 22, halign: 'center' }, // Status
+                4: { cellWidth: 16, halign: 'center' }, // Date
+                5: { cellWidth: 25, halign: 'right', cellPadding: {top: cellPaddingVal, bottom: cellPaddingVal, left:cellPaddingVal, right: 2} }, // Cost
+            },
+            didDrawPage: (data) => { 
+                const pageCount = doc.getNumberOfPages();
+                doc.setFontSize(8);
+                doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, pageHeight - 10);
+            }
+        });
+        currentY = (doc as any).lastAutoTable.finalY + 15;
+    }
+    addSectionLine(currentY);
+    currentY += 12; // Increased spacing
+
+    // --- Financial Summary ---
+    if (currentY > pageHeight - 75) { doc.addPage(); currentY = 20; } // Check space
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Financial Summary', pdfMargin, currentY);
+    doc.setFont('helvetica', 'normal');
+    currentY += 10; // Increased spacing
+    
+    const financialTableColumn = ["Item", "Amount"];
+    const financialTableRows = [
+        ["Total Treatment Cost:", formatCurrency(plan.totalCost || 0)],
+        ["Insurance Coverage (Est.):", formatCurrency(plan.insurance_coverage || 0)], // Assuming INR is handled by formatCurrency
+        ["Patient Responsibility:", formatCurrency((plan.totalCost || 0) - (plan.insurance_coverage || 0))],
+    ];
+
+    const financialItemColWidth = pageWidth - (pdfMargin * 2) - 50; // 50 for Amount column
+    autoTable(doc, {
+        head: [financialTableColumn],
+        body: financialTableRows,
+        startY: currentY,
+        theme: 'grid',
+        headStyles: { 
+            fillColor: [0, 96, 223], // Brighter blue from theme #0060df
+            textColor: 255, 
+            fontStyle: 'bold', 
+            halign: 'center', 
+            font: 'helvetica',
+            fontSize: 9,
+            valign: 'middle',
+        },
+        styles: { 
+            fontSize: 8, 
+            cellPadding: 2, 
+            font: 'helvetica',
+            valign: 'middle',
+        },
+        columnStyles: {
+            0: { cellWidth: financialItemColWidth, fontStyle: 'bold' }, 
+            1: { cellWidth: 50, halign: 'right', cellPadding: {top: 2, bottom: 2, left:2, right: 3} },
+        },
+        didDrawPage: (data) => {
+            const pageCount = doc.getNumberOfPages();
+            doc.setFontSize(8);
+            doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, pageHeight - 10);
+        }
+    });
+    currentY = (doc as any).lastAutoTable.finalY + 15;
+    addSectionLine(currentY);
+    currentY += 12; // Increased spacing
+
+    // --- Clinical Information ---
+    if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20; }
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Clinical Information', pdfMargin, currentY);
+    doc.setFont('helvetica', 'normal');
+    currentY += 10; // Increased spacing
+    doc.setFontSize(9); // Content font size for clinical info
+
+    if (plan.metadata && plan.metadata.length > 0) {
+        const meta = plan.metadata[0];
+        const clinicalFields = [
+            { label: 'Clinical Considerations:', value: meta.clinical_considerations },
+            { label: 'Key Materials:', value: meta.key_materials },
+            { label: 'Post-Treatment Care:', value: meta.post_treatment_care },
+        ];
+
+        clinicalFields.forEach(field => {
+            if (currentY > pageHeight - 25) { doc.addPage(); currentY = 20; } // Check space for label + one line
+            doc.setFont('helvetica', 'bold');
+            doc.text(field.label, pdfMargin, currentY);
+            currentY += 6; // Space after label
+            doc.setFont('helvetica', 'normal');
+            const textContent = field.value || 'Not Specified';
+            const lines = doc.splitTextToSize(textContent, pageWidth - (pdfMargin * 2));
+            doc.text(lines, pdfMargin, currentY);
+            currentY += (lines.length * 4.5) + 5; // Adjusted line height and spacing
+        });
+    } else {
+        doc.text('No additional clinical information available.', pdfMargin, currentY);
+        currentY += 7;
+    }
+    currentY += 8; // Increased spacing
+    addSectionLine(currentY);
+    currentY += 12; // Increased spacing
+    
+    // --- Signatures ---
+    const signatureSectionHeight = 50; // Estimated height for signature section
+    if (pageHeight - currentY < signatureSectionHeight) { 
+        doc.addPage(); 
+        currentY = pdfMargin; // Reset Y for new page, signatures will be placed from bottom
+    }
+    
+    const signatureLineLength = (pageWidth / 2) - pdfMargin - 35; // Adjusted length
+    const signatureYPos = pageHeight - 35; // Position higher from bottom
+
+    doc.setFontSize(9); // Font size for signature labels
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text('Doctor Signature:', pdfMargin, signatureYPos);
+    doc.line(pdfMargin + doc.getTextWidth('Doctor Signature:') + 5, signatureYPos + 1, pdfMargin + doc.getTextWidth('Doctor Signature:') + 5 + signatureLineLength, signatureYPos + 1);
+
+    const patientSigX = pageWidth / 2 + 15; // Adjusted X for patient signature
+    doc.text('Patient Signature:', patientSigX, signatureYPos);
+    doc.line(patientSigX + doc.getTextWidth('Patient Signature:') + 5, signatureYPos + 1, patientSigX + doc.getTextWidth('Patient Signature:') + 5 + signatureLineLength, signatureYPos + 1);
+    
+    // Final check for page numbers on all pages
+    const totalPdfPages = doc.getNumberOfPages();
+    for (let i = 1; i <= totalPdfPages; i++) {
+        doc.setPage(i);
+        // Check if autoTable might have already added page number for this page
+        // This is a fallback; autoTable's didDrawPage should handle most cases.
+        // This is a simplification.
+        if ( (doc as any).lastAutoTable && i <= (doc as any).lastAutoTable.pageCount) {
+             // Potentially drawn by autoTable, check near bottom
+        } else {
+             // Add if not likely drawn by autoTable
+             doc.setFontSize(8);
+             doc.text(`Page ${i} of ${totalPdfPages}`, pdfMargin, pageHeight - 10);
+        }
+    }
+
+    doc.save(`Treatment_Plan_${plan.patientName.replace(/[^a-zA-Z0-9]/g, '_')}_${plan.id.substring(0,8)}.pdf`);
+    toast({
+      title: "PDF Downloaded",
+      description: "The treatment plan PDF has been generated and downloaded with an updated design.",
+    });
+  };
+  // --- End PDF Generation Handler ---
 
   // Helper function to prepare visit data for editing
   const prepareVisitForEditing = (treatmentData: any, currentPlanId: string, visitIndex?: number): TreatmentVisit => {
@@ -775,100 +1122,153 @@ export function TreatmentPlanDetails({
                   {treatmentsWithEstimatedDates && treatmentsWithEstimatedDates.length > 0 ? (
                     <div className="space-y-3">
                       {treatmentsWithEstimatedDates.map((treatment: any, index: number) => {
-                        const isBooked = bookedVisitIds.includes(treatment.id);
-                        console.log(`[Scheduled Visit Item] Visit ID: ${treatment.id}, Treatment Type: ${treatment.type}, Is Booked: ${isBooked}, All Booked IDs:`, bookedVisitIds);
+                        // Ensure bookedAppointments is an array before calling .find()
+                        const currentBookedAppointments = bookedAppointments || [];
+                        const bookedAppointment = currentBookedAppointments.find(appt => appt.treatment_id === treatment.id && appt.status !== 'cancelled');
+                        const isBooked = !!bookedAppointment;
+                        
+                        let bookedInfo = null;
+                        if (isBooked && bookedAppointment) {
+                          let displayDate = 'N/A';
+                          let displayTime = 'N/A';
+                          
+                          // Ensure staff object and its properties exist before accessing
+                          const doctorName = (bookedAppointment.staff && bookedAppointment.staff.first_name && bookedAppointment.staff.last_name)
+                            ? `${bookedAppointment.staff.first_name} ${bookedAppointment.staff.last_name}`
+                            : 'N/A';
+
+                          if (bookedAppointment.start_time && typeof bookedAppointment.start_time === 'string') {
+                            try {
+                              const parsedStartTime = parseISO(bookedAppointment.start_time);
+                              displayDate = format(parsedStartTime, 'MMM dd, yyyy');
+                              displayTime = format(parsedStartTime, 'p');
+                            } catch (e) {
+                              console.error(`[TreatmentPlanDetails] Error parsing start_time for booked appointment: ${bookedAppointment.start_time}`, e);
+                              // displayDate and displayTime remain 'N/A'
+                            }
+                          } else {
+                            console.warn('[TreatmentPlanDetails] Booked appointment start_time is missing or not a string.');
+                          }
+
+                          bookedInfo = {
+                            bookedDate: displayDate,
+                            bookedTime: displayTime,
+                            doctorName: doctorName,
+                          };
+                        }
 
                         return (
-                        <div key={treatment.id || index} className="border rounded-md p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h5 className="font-medium text-gray-800">{treatment.type || treatment.title || `Visit ${index + 1}`}</h5>
-                              <p className="text-xs text-gray-500 mt-0.5 truncate max-w-md">{treatment.description || treatment.procedures || 'No description'}</p>
+                          <div key={treatment.id || index} className="border rounded-md p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h5 className="font-medium text-gray-800">{treatment.type || treatment.title || `Visit ${index + 1}`}</h5>
+                                <p className="text-xs text-gray-500 mt-0.5 truncate max-w-md">{treatment.description || treatment.procedures || 'No description'}</p>
+                              </div>
+                              {treatment.status && (
+                                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                                      treatment.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                      treatment.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                                      'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1)}
+                                  </span>
+                              )}
                             </div>
-                            {treatment.status && (
-                                <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                                    treatment.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                    treatment.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-                                    'bg-blue-100 text-blue-700'
-                                }`}>
-                                  {treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1)}
-                                </span>
-                            )}
-                          </div>
-                          
-                          <div className="mt-3 space-y-2 text-xs text-gray-600">
-                            <div className="flex items-center">
-                              <CalendarIcon className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
-                              <strong>Est. Visit:</strong>&nbsp;{treatment.scheduled_date || treatment.estimatedVisitDate || 'Not set'}
+                            
+                            <div className="mt-3 space-y-2 text-xs text-gray-600">
+                              <div className="flex items-center">
+                                <CalendarIcon className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                <strong>Est. Visit:</strong>&nbsp;{treatment.scheduled_date || treatment.estimatedVisitDate || 'Not set'}
+                              </div>
+                              {treatment.estimated_duration && (
+                                <div className="flex items-center">
+                                  <Clock className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                  <strong>Duration:</strong>&nbsp;{treatment.estimated_duration}
+                                </div>
+                              )}
+                              {treatment.time_gap && (
+                                <div className="flex items-center">
+                                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                  <strong>Next visit in:</strong>&nbsp;{treatment.time_gap}
+                                </div>
+                              )}
+                              {(treatment.cost !== undefined && treatment.cost !== null && parseFloat(String(treatment.cost)) > 0) && (
+                                <div className="flex items-center">
+                                  <CreditCard className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                  <strong>Cost:</strong>&nbsp;{formatCurrency(parseFloat(String(treatment.cost)))}
+                                </div>
+                              )}
                             </div>
-                            {treatment.estimated_duration && (
-                              <div className="flex items-center">
-                                <Clock className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
-                                <strong>Duration:</strong>&nbsp;{treatment.estimated_duration}
-                              </div>
-                            )}
-                            {treatment.time_gap && (
-                              <div className="flex items-center">
-                                <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
-                                <strong>Next visit in:</strong>&nbsp;{treatment.time_gap}
-                              </div>
-                            )}
-                            {(treatment.cost !== undefined && treatment.cost !== null && parseFloat(String(treatment.cost)) > 0) && (
-                              <div className="flex items-center">
-                                <CreditCard className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
-                                <strong>Cost:</strong>&nbsp;{formatCurrency(parseFloat(String(treatment.cost)))}
-                              </div>
-                            )}
-                          </div>
 
-                          <div className="mt-4 flex justify-end">
-                            {isBooked ? (
-                              <div className="flex items-center justify-center h-9 px-3 text-sm font-medium text-white bg-green-500 rounded-md">
-                                <Check className="w-3.5 h-3.5 mr-1.5" />
-                                Booked
-                              </div>
-                            ) : (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  const visitDate = treatment.scheduled_date || treatment.estimatedVisitDate;
-                                  const patientId = plan.patient_id;
-                                  const treatmentContextId = treatment.id; // ID of the specific treatment/visit item
-                                  const visitTitle = treatment.type || treatment.title || 'New Appointment';
+                            <div className="mt-4 flex justify-end items-center">
+                              {isBooked ? (
+                                <div className="flex items-center gap-4">
+                                  <div className="flex items-center justify-center h-9 px-3 text-sm font-medium text-white bg-green-500 rounded-md">
+                                    <Check className="w-3.5 h-3.5 mr-1.5" />
+                                    Booked
+                                  </div>
+                                  {bookedInfo && (
+                                  <div className="ml-4 p-3 bg-gray-50 rounded-md border border-blue-600 space-y-2 shadow-sm">
+                                    <div className="flex items-center space-x-2">
+                                      <CalendarDays className="h-4 w-4 text-gray-500" />
+                                      <span className="text-xs text-gray-600 font-medium">Date:</span>
+                                      <span className="text-xs text-green-600 font-semibold">{bookedInfo.bookedDate}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <Clock className="h-4 w-4 text-gray-500" />
+                                      <span className="text-xs text-gray-600 font-medium">Time:</span>
+                                      <span className="text-xs text-gray-800">{bookedInfo.bookedTime}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <UserCircle className="h-4 w-4 text-gray-500" />
+                                      <span className="text-xs text-gray-600 font-medium">Doctor:</span>
+                                      <span className="text-xs text-gray-800">{bookedInfo.doctorName}</span>
+                                    </div>
+                                  </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    const visitDate = treatment.scheduled_date || treatment.estimatedVisitDate;
+                                    const patientId = plan.patient_id;
+                                    const treatmentContextId = treatment.id; // ID of the specific treatment/visit item
+                                    const visitTitle = treatment.type || treatment.title || 'New Appointment';
 
-                                  if (!visitDate) {
-                                    toast({
-                                      title: "Cannot Book Appointment",
-                                      description: "This visit does not have a scheduled or estimated date yet.",
-                                      variant: "destructive"
+                                    if (!visitDate) {
+                                      toast({
+                                        title: "Cannot Book Appointment",
+                                        description: "This visit does not have a scheduled or estimated date yet.",
+                                        variant: "destructive"
+                                      });
+                                      return;
+                                    }
+                                    
+                                    const queryParams = new URLSearchParams({
+                                      date: visitDate, // Assumes YYYY-MM-DD format
+                                      patientId: patientId,
                                     });
-                                    return;
-                                  }
-                                  
-                                  const queryParams = new URLSearchParams({
-                                    date: visitDate, // Assumes YYYY-MM-DD format
-                                    patientId: patientId,
-                                  });
-                                  if (treatmentContextId) {
-                                    queryParams.append('treatmentId', treatmentContextId);
-                                  }
-                                  if (visitTitle) {
-                                    queryParams.append('description', visitTitle);
-                                  }
-                                  
-                                  navigate(`/appointments?${queryParams.toString()}`);
-                                }}
-                                disabled={loading || isCreatingAiTreatments}
-                              >
-                                <CalendarIcon className="w-3.5 h-3.5 mr-1.5" />
-                                Book Appointment
-                              </Button>
-                            )}
+                                    if (treatmentContextId) {
+                                      queryParams.append('treatmentId', treatmentContextId);
+                                    }
+                                    if (visitTitle) {
+                                      queryParams.append('description', visitTitle);
+                                    }
+                                    
+                                    navigate(`/appointments?${queryParams.toString()}`);
+                                  }}
+                                  disabled={loading || isCreatingAiTreatments}
+                                >
+                                  <CalendarIcon className="w-3.5 h-3.5 mr-1.5" />
+                                  Book Appointment
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-8 border rounded-lg">
@@ -901,7 +1301,7 @@ export function TreatmentPlanDetails({
             </Tabs>
 
             {/* Action Buttons */}
-            <DialogFooter>
+            <DialogFooter className="pt-4 mt-auto"> {/* Added mt-auto to push footer to bottom */}
               <div className="flex gap-2 items-center">
                 {/* --- Refined Button Logic --- */}
 
@@ -1014,6 +1414,50 @@ export function TreatmentPlanDetails({
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+
+                {/* Conditionally render Reopen Plan button */}
+                {plan.status === 'completed' && (
+                    <Button 
+                        variant="outline" 
+                        onClick={() => onStatusChange(plan.id, 'in_progress' as TreatmentStatus)} // Assuming 'in_progress' is the status to reopen to
+                        disabled={loading}
+                        className="mr-auto" // Pushes this button to the far left
+                    >
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                        Reopen Plan
+                    </Button>
+                )}
+
+                {plan.status === 'completed' && (
+                    <Button 
+                        onClick={handleDownloadPdf} 
+                        variant="default" 
+                        disabled={loading} 
+                        className="pdf-download-button modern-pdf-download-button bg-[#0060df] hover:bg-[#0052c0] text-white"
+                    >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download PDF
+                    </Button>
+                )}
+
+                <Button 
+                    variant="outline" 
+                    onClick={() => onOpenChange(false)}
+                    disabled={loading}
+                >
+                    Close
+                </Button>
+
+                {plan.status !== 'completed' && plan.status !== 'cancelled' && (
+                    <Button 
+                        onClick={() => onStatusChange(plan.id, 'completed' as TreatmentStatus)} 
+                        disabled={loading || !plan.treatments || plan.treatments.length === 0}
+                        variant="default"
+                    >
+                        <Check className="h-4 w-4 mr-2" />
+                        Mark as Completed
+                    </Button>
+                )}
               </div>
             </DialogFooter>
           </div>

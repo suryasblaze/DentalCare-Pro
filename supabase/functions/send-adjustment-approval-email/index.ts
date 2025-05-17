@@ -8,7 +8,7 @@ const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
 // Get your app's frontend URL (for constructing links) - set this as a secret too!
 const APP_URL = Deno.env.get('APP_BASE_URL') || 'http://localhost:5173'; // Default for local dev, CHANGE THIS
 // Define the sender email address (must be a verified domain in Resend)
-const SENDER_EMAIL = Deno.env.get('SENDER_EMAIL') || 'Inventory System <noreply@yourverifieddomain.com>'; // CHANGE THIS
+const SENDER_EMAIL = Deno.env.get('SENDER_EMAIL') || 'Inventory System <alerts@1o1.im>'; // CHANGE THIS
 
 // --- Type Definition for Payload ---
 interface AdjustmentRequestPayload {
