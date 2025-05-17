@@ -167,126 +167,125 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
   return (
     <Form {...form}>
       {/* Use grid for horizontal layout, 2 columns on medium screens */}
-      <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-        {/* Asset Name */}
-        <FormField
-          control={control}
-          name="asset_name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Asset Name *</FormLabel>
-              <FormControl>
-                <Input placeholder="e.g., Dental Chair Unit X1" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        {/* Category */}
-         <FormField
-          control={control}
-          name="category"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Category *</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value ?? ''} defaultValue={field.value ?? ''}>
+      <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+        {/* Basic Information Section */}
+        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 rounded-md border p-4">
+          <h3 className="text-lg font-semibold md:col-span-2">Basic Information</h3>
+          <FormField
+            control={control}
+            name="asset_name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Asset Name *</FormLabel>
                 <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a category" />
-                  </SelectTrigger>
+                  <Input placeholder="e.g., Dental Chair Unit X1" {...field} />
                 </FormControl>
-                <SelectContent>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-        {/* Serial Number */}
-        <FormField
-          control={control}
-          name="serial_number"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Serial Number</FormLabel>
-              <FormControl>
-                <Input placeholder="Asset Serial Number" {...field} value={field.value ?? ''} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+          <FormField
+            control={control}
+            name="category"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Category *</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value ?? ''} defaultValue={field.value ?? ''}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-        {/* Location */}
-        <FormField
-          control={control}
-          name="location"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Location</FormLabel>
-              <FormControl>
-                <Input placeholder="e.g., Room 3, North Branch" {...field} value={field.value ?? ''} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        {/* Status */}
-        <FormField
-          control={control}
-          name="status"
-          render={({ field }) => (
-             <FormItem>
-              <FormLabel>Status *</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value ?? ''} defaultValue={field.value ?? ''}>
+          <FormField
+            control={control}
+            name="serial_number"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Serial Number</FormLabel>
                 <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select asset status" />
-                  </SelectTrigger>
+                  <Input placeholder="Asset Serial Number" {...field} value={field.value ?? ''} />
                 </FormControl>
-                <SelectContent>
-                  {statuses.map((stat) => (
-                    <SelectItem key={stat} value={stat}>
-                      {stat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-        {/* Warranty Expiry - Moved up to balance columns */}
-         <FormField
+          <FormField
+            control={control}
+            name="location"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Location</FormLabel>
+                <FormControl>
+                  <Input placeholder="e.g., Room 3, North Branch" {...field} value={field.value ?? ''} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* Status and Warranty Section */}
+        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 rounded-md border p-4">
+          <h3 className="text-lg font-semibold md:col-span-2">Status & Warranty</h3>
+          <FormField
+            control={control}
+            name="status"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Status *</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value ?? ''} defaultValue={field.value ?? ''}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select asset status" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {statuses.map((stat) => (
+                      <SelectItem key={stat} value={stat}>
+                        {stat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
             control={control}
             name="warranty_expiry_date"
             render={({ field }) => (
-             <FormItem>
+              <FormItem>
                 <FormLabel>Warranty Expiry</FormLabel>
                 <FormControl>
                   <Input type="date" {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
-            </FormItem>
+              </FormItem>
             )}
-        />
+          />
 
-        {/* Requires Maintenance Checkbox - Spans full width */}
-        <FormField
-          control={control}
-          name="requires_maintenance"
-          render={({ field }) => (
-            <FormItem className="md:col-span-2"> {/* Span both columns */}
-                {/* Keep the bordered box for visual grouping */}
+          <FormField
+            control={control}
+            name="requires_maintenance"
+            render={({ field }) => (
+              <FormItem className="md:col-span-2">
                 <div className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
                   <FormControl>
                     <Checkbox
@@ -303,146 +302,129 @@ const AssetForm: React.FC<AssetFormProps> = ({ assetToEdit, onSave, onCancel }) 
                     </FormDescription>
                   </div>
                 </div>
-                {/* No FormMessage needed for checkbox typically */}
-            </FormItem>
-          )}
-        />
-
-        {/* Purchase Details - Spans full width */}
-        <div className="md:col-span-2 space-y-2"> {/* Span both columns */}
-            <Label>Purchase Details</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-md border p-4"> {/* Nested grid */}
-                <FormField
-                    control={control}
-                    name="purchase_date"
-                    render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Date</FormLabel>
-                        <FormControl>
-                        <Input type="date" {...field} value={field.value ?? ''} />
-                        </FormControl>
-                        <FormMessage />
-                    </FormItem>
-                    )}
-                />
-                <FormField
-                    control={control}
-                    name="purchase_price"
-                    render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Price</FormLabel>
-                        <FormControl>
-                        <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} value={String(field.value ?? '')} />
-                        </FormControl>
-                        <FormMessage />
-                    </FormItem>
-                    )}
-                />
-            </div>
+              </FormItem>
+            )}
+          />
         </div>
 
-
-        {/* Maintenance Dates - Spans full width */}
-        <div className="md:col-span-2 space-y-2"> {/* Span both columns */}
-            <Label>Maintenance Details</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-md border p-4"> {/* Nested grid */}
-                <FormField
-                    control={control}
-                    name="last_serviced_date"
-                    render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Last Serviced</FormLabel>
-                        <FormControl>
-                        <Input type="date" {...field} value={field.value ?? ''} />
-                        </FormControl>
-                        <FormMessage />
-                    </FormItem>
-                    )}
-                />
-                <FormField
-                    control={control}
-                    name="next_maintenance_due_date"
-                    render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Next Due</FormLabel>
-                        <FormControl>
-                        <Input type="date" {...field} value={field.value ?? ''} />
-                        </FormControl>
-                        <FormMessage />
-                    </FormItem>
-                    )}
-                />
-            </div>
+        {/* Purchase Details Section */}
+        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 rounded-md border p-4">
+          <h3 className="text-lg font-semibold md:col-span-2">Purchase Details</h3>
+          <FormField
+            control={control}
+            name="purchase_date"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Date</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} value={field.value ?? ''} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name="purchase_price"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Price</FormLabel>
+                <FormControl>
+                  <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} value={String(field.value ?? '')} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         </div>
 
-        {/* Supplier Info - Spans full width */}
-        <FormField
-          control={control}
-          name="supplier_info"
-          render={({ field }) => (
-            <FormItem className="md:col-span-2"> {/* Span both columns */}
-              <FormLabel>Supplier Info</FormLabel>
-              <FormControl>
-                <Textarea placeholder="Supplier name, contact, notes..." {...field} value={field.value ?? ''} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {/* Maintenance Details Section */}
+        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 rounded-md border p-4">
+          <h3 className="text-lg font-semibold md:col-span-2">Maintenance Details</h3>
+          <FormField
+            control={control}
+            name="last_serviced_date"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Last Serviced</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} value={field.value ?? ''} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name="next_maintenance_due_date"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Next Due</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} value={field.value ?? ''} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
-        {/* Service Document URL */}
-        <FormField
+        {/* Additional Information Section */}
+        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 rounded-md border p-4">
+          <h3 className="text-lg font-semibold md:col-span-2">Additional Information</h3>
+          <FormField
+            control={control}
+            name="supplier_info"
+            render={({ field }) => (
+              <FormItem className="md:col-span-2">
+                <FormLabel>Supplier Info</FormLabel>
+                <FormControl>
+                  <Textarea placeholder="Supplier name, contact, notes..." {...field} value={field.value ?? ''} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
             control={control}
             name="service_document_url"
             render={({ field }) => (
-             <FormItem>
+              <FormItem>
                 <FormLabel>Service Doc URL</FormLabel>
                 <FormControl>
                   <Input type="url" placeholder="https://example.com/invoice.pdf" {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
-            </FormItem>
+              </FormItem>
             )}
-        />
+          />
 
-        {/* Barcode */}
-        <FormField
+          <FormField
             control={control}
             name="barcode_value"
             render={({ field }) => (
-             <FormItem>
+              <FormItem>
                 <FormLabel>Barcode/QR</FormLabel>
                 <FormControl>
                   <Input placeholder="Scan or enter code" {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
-            </FormItem>
+              </FormItem>
             )}
-        />
+          />
+        </div>
 
-        {/* Tags Management Placeholder - Spans full width */}
-        <div className="md:col-span-2 space-y-2 pt-2">
-          <Label>Tags</Label>
-          <div className="p-4 border rounded-md min-h-[60px] text-muted-foreground">
-            {/* 
-              Placeholder for Tag Management UI.
-              This would typically involve:
-              1. Fetching all existing tags.
-              2. A multi-select combobox (e.g., from Shadcn UI or a library like react-select).
-              3. Ability to create new tags on the fly.
-              4. Storing selected tag IDs in component state.
-              5. On form submit, after saving the asset, update the asset_tags junction table.
-                 - For new assets: insert into asset_tags.
-                 - For existing assets: delete old asset_tags, then insert new ones.
-                 This logic would likely reside in the assetService.ts or be handled here.
-            */}
+        {/* Tags Section */}
+        <div className="md:col-span-2 rounded-md border p-4">
+          <h3 className="text-lg font-semibold mb-4">Tags</h3>
+          <div className="min-h-[60px] text-muted-foreground">
             Tag management UI will be implemented here. (e.g., Multi-select combobox)
           </div>
         </div>
 
-
-        {/* Action Buttons - Spans full width */}
-        <div className="md:col-span-2 flex justify-end space-x-2 pt-4"> {/* Span both columns */}
+        {/* Action Buttons */}
+        <div className="md:col-span-2 flex justify-end space-x-2 pt-4">
           <Button type="button" variant="outline" onClick={onCancel}>
             Cancel
           </Button>

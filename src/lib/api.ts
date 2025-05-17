@@ -763,6 +763,14 @@ export const api = {
           visits:treatment_visits(*),
           teeth:treatment_plan_teeth(
             tooth_id
+          ),
+          patient:patients!treatment_plans_patient_id_fkey (
+            id,
+            first_name,
+            last_name,
+            gender,
+            age,
+            registration_number
           )
         `)
         .order('created_at', { ascending: false });
@@ -778,7 +786,18 @@ export const api = {
         throw error;
       }
 
-      return data;
+      // Process the data to move patient details to the right place
+      const processedData = data?.map(plan => ({
+        ...plan,
+        patient: plan.patient ? {
+          full_name: `${plan.patient.first_name} ${plan.patient.last_name}`,
+          age: plan.patient.age,
+          gender: plan.patient.gender,
+          registration_number: plan.patient.registration_number
+        } : undefined
+      }));
+
+      return processedData;
     },
 
     // Update createMedicalRecord to handle toothIds and map record_type

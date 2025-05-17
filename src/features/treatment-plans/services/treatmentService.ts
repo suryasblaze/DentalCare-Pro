@@ -243,14 +243,23 @@ export const treatmentService = {
       const planWithoutJunction = { ...plan };
       delete planWithoutJunction.treatment_plan_teeth;
 
+      // Keep the patient details from the API response if available, otherwise use the patientInfo
+      const patient = plan.patient || (patientInfo ? {
+        full_name: `${patientInfo.first_name} ${patientInfo.last_name}`,
+        age: patientInfo.age,
+        gender: patientInfo.gender,
+        registration_number: patientInfo.registration_number
+      } : undefined);
+
       return {
         ...planWithoutJunction, // Use the plan without the junction table data
-        patientName: patientInfo ? `${patientInfo.first_name} ${patientInfo.last_name}` : 'Unknown Patient',
+        patientName: patient?.full_name || 'Unknown Patient',
         totalCost,
         progress,
         completedTreatments,
         totalTreatments,
-        teeth // Add the processed teeth array
+        teeth, // Add the processed teeth array
+        patient // Add the patient details
       };
     });
   },

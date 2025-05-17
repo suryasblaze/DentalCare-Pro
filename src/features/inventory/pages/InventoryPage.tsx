@@ -90,10 +90,9 @@ const InventoryPage: React.FC = () => {
                    <PlusCircle className="mr-2 h-4 w-4" /> Add New Item
                  </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]"> {/* Adjust width as needed */}
+            <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                 <DialogTitle>{editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}</DialogTitle>
-                {/* Optional: <DialogDescription>...</DialogDescription> */}
                 </DialogHeader>
                 {/* Render form inside Dialog */}
                 <InventoryItemForm

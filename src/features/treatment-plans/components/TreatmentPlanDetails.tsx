@@ -47,6 +47,7 @@ import {
   Download, // Added Download icon
   UserCircle, // Added UserCircle for doctor icon
   CalendarDays, // Added CalendarDays for date icon
+  Printer, // Added Printer icon
 } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils/validation'; // Assuming formatCurrency exists
@@ -185,6 +186,12 @@ interface TreatmentPlanDetailsProps {
     created_at: string;
     totalCost: number;
     insurance_coverage: number;
+    patient?: {
+      full_name: string;
+      age: number;
+      gender: string;
+      registration_number: string;
+    };
   };
   onRefresh: () => Promise<void>;
   onAddTreatment: () => void;
@@ -198,6 +205,363 @@ interface TreatmentPlanDetailsProps {
   onEditTreatment: (treatment: TreatmentVisit) => void; // New prop for editing a treatment/visit
   bookedAppointments?: BookedAppointmentDetail[]; // Use BookedAppointmentDetail[]
 }
+
+// Add these type definitions at the top of the file after the imports
+interface PrintableContentProps {
+  plan: {
+    id: string;
+    patientName: string;
+    title: string;
+    status: string;
+    description?: string;
+    start_date: string;
+    end_date?: string;
+    priority?: string;
+    totalCost?: number;
+    insurance_coverage?: number;
+    metadata?: Array<{
+      clinical_considerations: string | null;
+      key_materials: string | null;
+      post_treatment_care: string | null;
+      total_visits?: number;
+      completed_visits?: number;
+    }> | null;
+    patient?: {
+      gender?: string;
+      age?: number;
+      registration_number?: string;
+      full_name?: string;
+    };
+  };
+  treatmentsWithEstimatedDates: Array<{
+    id?: string;
+    type?: string;
+    title?: string;
+    status: string;
+    description?: string;
+    procedures?: string;
+    scheduled_date?: string;
+    completed_date?: string;
+    estimatedVisitDate?: string;
+    cost?: number | string;
+  }>;
+}
+
+// Update the PrintableContent component with types
+const PrintableContent = ({ plan, treatmentsWithEstimatedDates }: PrintableContentProps) => {
+  if (!plan) return null;
+  
+  // Helper function to format patient details
+  const formatPatientDetail = (value: string | number | undefined, suffix?: string) => {
+    if (value === undefined || value === null || value === '') return 'Not specified';
+    return suffix ? `${value}${suffix}` : value;
+  };
+
+  return (
+    <div id="printable-content" className="print-only" style={{ 
+      display: 'none', 
+      padding: '40px', 
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      backgroundColor: 'white',
+      minHeight: '297mm'
+    }}>
+      <div style={{ 
+        maxWidth: '210mm', 
+        margin: '0 auto',
+        backgroundColor: 'white'
+      }}>
+        {/* Header */}
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'flex-start',
+          marginBottom: '30px',
+          borderBottom: '1px solid #0060df'
+        }}>
+          <img 
+            src="https://i.postimg.cc/j2qGSXwJ/facetslogo.png" 
+            alt="Facets Logo" 
+            style={{ height: '40px' }}
+          />
+          <div style={{ textAlign: 'right' }}>
+            <h1 style={{ 
+              fontSize: '24px', 
+              margin: '0', 
+              color: '#0060df',
+              fontWeight: '500'
+            }}>Treatment Plan</h1>
+            <p style={{ 
+              margin: '5px 0 10px', 
+              color: '#666', 
+              fontSize: '14px' 
+            }}>
+              Generated on: {format(new Date(), 'MMMM d, yyyy')}
+            </p>
+          </div>
+        </div>
+
+        {/* Patient Information */}
+        <div style={{ marginBottom: '30px' }}>
+          <h2 style={{ 
+            fontSize: '16px', 
+            color: '#0060df', 
+            marginBottom: '20px',
+            fontWeight: '500'
+          }}>Patient Information</h2>
+
+          <div style={{ 
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '20px 40px',
+            fontSize: '14px'
+          }}>
+            {/* Left Column */}
+            <div>
+              <div style={{ marginBottom: '15px' }}>
+                <p style={{ margin: '0 0 5px', color: '#666' }}>Full Name</p>
+                <p style={{ margin: '0', fontWeight: '500' }}>
+                  {plan.patient?.full_name || plan.patientName || 'Not specified'}
+                </p>
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <p style={{ margin: '0 0 5px', color: '#666' }}>Registration Number</p>
+                <p style={{ margin: '0', fontWeight: '500' }}>
+                  {formatPatientDetail(plan.patient?.registration_number)}
+                </p>
+              </div>
+            </div>
+
+            {/* Right Column */}
+            <div>
+              <div style={{ marginBottom: '15px' }}>
+                <p style={{ margin: '0 0 5px', color: '#666' }}>Gender</p>
+                <p style={{ margin: '0', fontWeight: '500' }}>
+                  {plan.patient?.gender ? 
+                    plan.patient.gender.charAt(0).toUpperCase() + plan.patient.gender.slice(1) : 
+                    'Not specified'}
+                </p>
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <p style={{ margin: '0 0 5px', color: '#666' }}>Age</p>
+                <p style={{ margin: '0', fontWeight: '500' }}>
+                  {formatPatientDetail(plan.patient?.age, ' years')}
+                </p>
+              </div>
+            </div>
+
+            {/* Plan Details - Full Width */}
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ marginBottom: '15px' }}>
+                <p style={{ margin: '0 0 5px', color: '#666' }}>Plan Title</p>
+                <p style={{ margin: '0', fontWeight: '500' }}>{plan.title}</p>
+              </div>
+              <div style={{ 
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '15px'
+              }}>
+                <div>
+                  <p style={{ margin: '0 0 5px', color: '#666' }}>Status</p>
+                  <p style={{ margin: '0', fontWeight: '500' }}>
+                    {plan.status.charAt(0).toUpperCase() + plan.status.slice(1)}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 5px', color: '#666' }}>Priority</p>
+                  <p style={{ margin: '0', fontWeight: '500' }}>
+                    {plan.priority ? plan.priority.charAt(0).toUpperCase() + plan.priority.slice(1) : 'Not specified'}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 5px', color: '#666' }}>Start Date</p>
+                  <p style={{ margin: '0', fontWeight: '500' }}>
+                    {format(new Date(plan.start_date), 'MMMM d, yyyy')}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Description - Full Width */}
+            {plan.description && (
+              <div style={{ 
+                gridColumn: '1 / -1',
+                marginTop: '10px'
+              }}>
+                <p style={{ margin: '0 0 5px', color: '#666' }}>Description</p>
+                <p style={{ 
+                  margin: '0',
+                  lineHeight: '1.5',
+                  color: '#000',
+                  whiteSpace: 'pre-line'
+                }}>{plan.description}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Treatment Details */}
+        <div style={{ marginBottom: '30px' }}>
+          <h2 style={{ 
+            fontSize: '16px', 
+            color: '#0060df', 
+            marginBottom: '20px',
+            fontWeight: '500'
+          }}>Treatment Details</h2>
+          
+          <table style={{ 
+            width: '100%', 
+            borderCollapse: 'collapse',
+            fontSize: '14px'
+          }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #eee' }}>
+                <th style={{ 
+                  textAlign: 'left', 
+                  padding: '10px 15px 10px 0',
+                  fontWeight: '500',
+                  color: '#666'
+                }}>Treatment</th>
+                <th style={{ 
+                  textAlign: 'left', 
+                  padding: '10px 15px',
+                  fontWeight: '500',
+                  color: '#666'
+                }}>Description</th>
+                <th style={{ 
+                  textAlign: 'center', 
+                  padding: '10px 15px',
+                  fontWeight: '500',
+                  color: '#666'
+                }}>Status</th>
+                <th style={{ 
+                  textAlign: 'center', 
+                  padding: '10px 15px',
+                  fontWeight: '500',
+                  color: '#666'
+                }}>Date</th>
+                <th style={{ 
+                  textAlign: 'right', 
+                  padding: '10px 0 10px 15px',
+                  fontWeight: '500',
+                  color: '#666'
+                }}>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {treatmentsWithEstimatedDates.map((treatment, index) => (
+                <tr key={treatment.id || index} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '15px 15px 15px 0' }}>
+                    {treatment.type || treatment.title || 'N/A'}
+                  </td>
+                  <td style={{ padding: '15px' }}>
+                    {treatment.description || treatment.procedures || 'N/A'}
+                  </td>
+                  <td style={{ padding: '15px', textAlign: 'center' }}>
+                    {treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1)}
+                  </td>
+                  <td style={{ padding: '15px', textAlign: 'center' }}>
+                    {treatment.scheduled_date 
+                      ? format(new Date(treatment.scheduled_date), 'MMM d, yyyy')
+                      : (treatment.estimatedVisitDate 
+                          ? format(new Date(treatment.estimatedVisitDate), 'MMM d, yyyy')
+                          : 'Not scheduled')}
+                  </td>
+                  <td style={{ padding: '15px 0 15px 15px', textAlign: 'right' }}>
+                    {treatment.cost ? formatCurrency(parseFloat(String(treatment.cost))) : 'N/A'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Clinical Information */}
+        <div style={{ padding: '20px', borderBottom: '1px solid #eee' }}>
+          <h2 style={{ fontSize: '18px', color: '#0060df', marginBottom: '15px' }}>Clinical Information</h2>
+          {plan.metadata && plan.metadata.length > 0 ? (
+            <div style={{ display: 'grid', gap: '15px' }}>
+              {plan.metadata[0].clinical_considerations && (
+                <div style={{ padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
+                  <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#333' }}>Clinical Considerations</h3>
+                  <p style={{ margin: '0', whiteSpace: 'pre-line' }}>{plan.metadata[0].clinical_considerations}</p>
+                </div>
+              )}
+              {plan.metadata[0].key_materials && (
+                <div style={{ padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
+                  <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#333' }}>Key Materials</h3>
+                  <p style={{ margin: '0', whiteSpace: 'pre-line' }}>{plan.metadata[0].key_materials}</p>
+                </div>
+              )}
+              {plan.metadata[0].post_treatment_care && (
+                <div style={{ padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
+                  <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#333' }}>Post-Treatment Care</h3>
+                  <p style={{ margin: '0', whiteSpace: 'pre-line' }}>{plan.metadata[0].post_treatment_care}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p style={{ color: '#666' }}>No additional clinical information available.</p>
+          )}
+        </div>
+
+        {/* Financial Summary */}
+        <div style={{ padding: '20px', borderBottom: '1px solid #eee' }}>
+          <h2 style={{ fontSize: '18px', color: '#0060df', marginBottom: '15px' }}>Financial Summary</h2>
+          <div style={{ 
+            backgroundColor: '#f8f9fa', 
+            padding: '20px', 
+            borderRadius: '4px',
+            display: 'grid',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
+              <span>Total Treatment Cost:</span>
+              <strong>{formatCurrency(plan.totalCost || 0)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
+              <span>Insurance Coverage (Est.):</span>
+              <strong>{formatCurrency(plan.insurance_coverage || 0)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '5px' }}>
+              <span>Patient Responsibility:</span>
+              <strong>{formatCurrency((plan.totalCost || 0) - (plan.insurance_coverage || 0))}</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* Signatures Section */}
+        <div style={{ padding: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', marginTop: '30px' }}>
+            <div>
+              <div style={{ borderTop: '1px solid #000', paddingTop: '10px', marginTop: '40px' }}>
+                <p style={{ margin: '0', fontSize: '14px' }}><strong>Doctor's Signature</strong></p>
+                <p style={{ margin: '5px 0 0', fontSize: '12px', color: '#666' }}>Date: _________________</p>
+              </div>
+            </div>
+            <div>
+              <div style={{ borderTop: '1px solid #000', paddingTop: '10px', marginTop: '40px' }}>
+                <p style={{ margin: '0', fontSize: '14px' }}><strong>Patient's Signature</strong></p>
+                <p style={{ margin: '5px 0 0', fontSize: '12px', color: '#666' }}>Date: _________________</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ 
+          borderTop: '2px solid #0060df',
+          padding: '20px',
+          textAlign: 'center',
+          color: '#666',
+          fontSize: '12px'
+        }}>
+          <p style={{ margin: '0' }}>This treatment plan is valid for 6 months from the date of issue.</p>
+          <p style={{ margin: '5px 0 0' }}>For any queries, please contact your dental care provider.</p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export function TreatmentPlanDetails({
   open,
@@ -270,20 +634,56 @@ export function TreatmentPlanDetails({
   }
   console.log('[TreatmentPlanDetails] plan.treatments:', plan?.treatments);
 
+  // New memo to sort treatments by visit_number
+  const sortedAndUniqueTreatments = useMemo(() => {
+    if (!plan?.treatments || plan.treatments.length === 0) return [];
+
+    // De-duplicate by id (assuming id is the primary unique key from the database)
+    const uniqueByIdMap = new Map();
+    for (const treatment of plan.treatments) {
+      // Ensure treatment and treatment.id exist before adding to map
+      if (treatment && typeof treatment.id !== 'undefined') {
+        if (!uniqueByIdMap.has(treatment.id)) {
+          uniqueByIdMap.set(treatment.id, treatment);
+        }
+      } else {
+        // Log or handle treatments without an id if necessary, for now, we skip them for de-duplication
+        console.warn('[TreatmentPlanDetails] Encountered a treatment without an ID:', treatment);
+      }
+    }
+    const uniqueTreatments = Array.from(uniqueByIdMap.values());
+
+    // Sort by visit_number first, then by created_at if visit_number is the same
+    // If visit_number is missing, treat it as Infinity to put it at the end
+    return uniqueTreatments.sort((a, b) => {
+      const visitA = typeof a.visit_number === 'number' ? a.visit_number : Infinity;
+      const visitB = typeof b.visit_number === 'number' ? b.visit_number : Infinity;
+      
+      if (visitA !== visitB) {
+        return visitA - visitB;
+      }
+      
+      // If visit numbers are the same, maintain original order using created_at
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return dateA - dateB;
+    });
+  }, [plan?.treatments]);
+
   const paginatedTreatments = useMemo(() => {
-    if (!plan?.treatments) return [];
+    if (!sortedAndUniqueTreatments) return []; // Use sortedAndUniqueTreatments
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     const endIndex = startIndex + ITEMS_PER_PAGE;
-    return plan.treatments.slice(startIndex, endIndex);
-  }, [plan?.treatments, currentPage]);
+    return sortedAndUniqueTreatments.slice(startIndex, endIndex); // Use sortedAndUniqueTreatments
+  }, [sortedAndUniqueTreatments, currentPage]);
 
   // Calculate estimated dates for treatments
   const treatmentsWithEstimatedDates = useMemo(() => {
-    if (!plan?.treatments || plan.treatments.length === 0) return [];
+    if (!sortedAndUniqueTreatments || sortedAndUniqueTreatments.length === 0) return [];
 
     let runningDate = plan.start_date || plan.created_at; // Base date for the first treatment
 
-    return plan.treatments.map((treatment, index) => {
+    return sortedAndUniqueTreatments.map((treatment, index) => { // Use sortedAndUniqueTreatments
       let estimatedVisitDate;
       if (index === 0) {
         estimatedVisitDate = format(parseISO(runningDate), 'yyyy-MM-dd');
@@ -295,13 +695,13 @@ export function TreatmentPlanDetails({
         // Let's assume `treatment.time_gap` means "next visit in X time *after this current visit*".
         // So, to calculate date for treatment[i], we need time_gap of treatment[i-1].
         // The current data model seems to have time_gap on the *current* treatment, meaning "this visit occurs X time after the PREVIOUS one".
-        const previousTreatment = plan.treatments[index - 1];
+        const previousTreatment = sortedAndUniqueTreatments[index - 1]; // Use sortedAndUniqueTreatments
         runningDate = calculateEstimatedDate(runningDate, previousTreatment.time_gap);
         estimatedVisitDate = runningDate; // calculateEstimatedDate already formats it
       }
       return { ...treatment, estimatedVisitDate };
     });
-  }, [plan?.treatments, plan?.start_date, plan?.created_at]);
+  }, [sortedAndUniqueTreatments, plan?.start_date, plan?.created_at]); // Dependency on sortedAndUniqueTreatments
 
   // Use treatmentsWithEstimatedDates for pagination
   const paginatedTreatmentsWithDates = useMemo(() => {
@@ -312,9 +712,9 @@ export function TreatmentPlanDetails({
   }, [treatmentsWithEstimatedDates, currentPage]);
 
   const totalPages = useMemo(() => {
-    if (!plan?.treatments) return 1;
-    return Math.ceil(plan.treatments.length / ITEMS_PER_PAGE);
-  }, [plan?.treatments]);
+    if (!sortedAndUniqueTreatments) return 1; // Use sortedAndUniqueTreatments
+    return Math.ceil(sortedAndUniqueTreatments.length / ITEMS_PER_PAGE); // Use sortedAndUniqueTreatments
+  }, [sortedAndUniqueTreatments]);
   // --- End Pagination State ---
 
   // --- PDF Generation Handler ---
@@ -453,29 +853,31 @@ export function TreatmentPlanDetails({
     const maxTreatmentVisitTextWidth = treatmentVisitColWidth - cellHorizontalPadding;
     const maxProcedureTextWidth = proceduresColWidth - cellHorizontalPadding;
 
-    (plan.treatments || []).forEach((treatment, index) => {
-      const visitDate = treatment.scheduled_date 
-        ? format(new Date(treatment.scheduled_date), 'MMM d, yyyy') 
-        : (treatment.completed_date 
-            ? format(new Date(treatment.completed_date), 'MMM d, yyyy') 
-            : (treatmentsWithEstimatedDates.find(t => t.id === treatment.id)?.estimatedVisitDate 
-                ? format(new Date(treatmentsWithEstimatedDates.find(t => t.id === treatment.id)!.estimatedVisitDate!),'MMM d, yyyy')
+    (treatmentsWithEstimatedDates || []).forEach((treatmentWithDate, index) => { // Iterate the processed list
+      // treatmentWithDate object already contains properties from original treatment + estimatedVisitDate
+      const visitDate = treatmentWithDate.scheduled_date 
+        ? format(new Date(treatmentWithDate.scheduled_date), 'MMM d, yyyy') 
+        : (treatmentWithDate.completed_date 
+            ? format(new Date(treatmentWithDate.completed_date), 'MMM d, yyyy') 
+            : (treatmentWithDate.estimatedVisitDate // Directly use the property
+                ? format(new Date(treatmentWithDate.estimatedVisitDate),'MMM d, yyyy')
                 : 'N/A'));
-      const cost = treatment.cost ? formatCurrency(parseFloat(String(treatment.cost))) : 'N/A';
       
-      const rawTreatmentVisitText = treatment.type || treatment.title || 'N/A';
+      const cost = treatmentWithDate.cost ? formatCurrency(parseFloat(String(treatmentWithDate.cost))) : 'N/A';
+      
+      const rawTreatmentVisitText = treatmentWithDate.type || treatmentWithDate.title || 'N/A';
       const treatmentVisitTextLines = doc.splitTextToSize(rawTreatmentVisitText, maxTreatmentVisitTextWidth);
       const formattedTreatmentVisitText = treatmentVisitTextLines.join('\n');
 
-      const rawProcedureText = treatment.description || treatment.procedures || 'N/A';
+      const rawProcedureText = treatmentWithDate.description || treatmentWithDate.procedures || 'N/A';
       const procedureTextLines = doc.splitTextToSize(rawProcedureText, maxProcedureTextWidth);
       const formattedProcedureText = procedureTextLines.join('\n');
 
       const treatmentData = [
-        treatment.visit_number || (index + 1),
+        treatmentWithDate.visit_number || (index + 1), // visit_number from treatmentWithDate
         formattedTreatmentVisitText,
         formattedProcedureText,
-        treatment.status ? treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1) : 'N/A',
+        treatmentWithDate.status ? treatmentWithDate.status.charAt(0).toUpperCase() + treatmentWithDate.status.slice(1) : 'N/A',
         visitDate,
         cost,
       ];
@@ -655,6 +1057,65 @@ export function TreatmentPlanDetails({
   };
   // --- End PDF Generation Handler ---
 
+  // --- Direct Print Handler ---
+  const handleDirectPrint = () => {
+    // Create and append print styles
+    const printStyleId = 'print-styles';
+    let styleElement = document.getElementById(printStyleId);
+    if (!styleElement) {
+        styleElement = document.createElement('style');
+        styleElement.id = printStyleId;
+    }
+
+    styleElement.innerHTML = `
+        @media print {
+            /* Hide everything except print content */
+            body * {
+                visibility: hidden;
+            }
+            #printable-content,
+            #printable-content * {
+                visibility: visible;
+                color: black;
+            }
+            #printable-content {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                background: white;
+            }
+            @page {
+                size: auto;
+                margin: 20mm;
+            }
+        }
+    `;
+    document.head.appendChild(styleElement);
+
+    // Show print content
+    const printContent = document.getElementById('printable-content');
+    if (printContent) {
+        printContent.style.display = 'block';
+    }
+
+    // Print
+    window.print();
+
+    // Cleanup after print
+    const afterPrint = () => {
+        if (printContent) {
+            printContent.style.display = 'none';
+        }
+        if (styleElement && styleElement.parentNode) {
+            styleElement.parentNode.removeChild(styleElement);
+        }
+        window.removeEventListener('afterprint', afterPrint);
+    };
+    window.addEventListener('afterprint', afterPrint);
+};
+  // --- End Direct Print Handler ---
+
   // Helper function to prepare visit data for editing
   const prepareVisitForEditing = (treatmentData: any, currentPlanId: string, visitIndex?: number): TreatmentVisit => {
     const visitNumber = typeof visitIndex === 'number' ? visitIndex + 1 : treatmentData.visit_number;
@@ -707,29 +1168,25 @@ export function TreatmentPlanDetails({
     const totalSuggestions = aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails.length;
 
     try {
-      for (const sitting of aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails) {
-        // Add console.log to inspect the raw sitting object from AI
-        console.log("[TreatmentPlanDetails] [handleCreateAiSuggestedTreatments] Processing sitting:", sitting);
-
+      for (const [index, sitting] of aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails.entries()) {
         const treatmentDescription = sitting.procedures || 'No procedures detailed.';
-        // Create a more concise title, perhaps Visit Number + first few words of procedures
         const proceduresSummary = treatmentDescription.substring(0, 50) + (treatmentDescription.length > 50 ? '...' : '');
-        const treatmentTitle = `${sitting.visit || 'AI Suggested Visit'} - ${proceduresSummary}`;
+        const treatmentTitle = `${sitting.visit || `Visit ${index + 1}`} - ${proceduresSummary}`;
         
         const formattedDuration = parseAndFormatDurationForInterval(sitting.estimatedDuration);
 
         const treatmentData = {
-          type: treatmentTitle, // Use the new descriptive title
-          description: treatmentDescription, // Full procedures in description
-          status: 'pending' as TreatmentStatus,
-          priority: 'medium', // Default priority
-          cost: "0", // Default cost
-          estimated_duration: formattedDuration, // Use parsed and formatted duration
-          time_gap: sitting.timeGap || null, // Add time_gap here
-          plan_id: plan.id,
+          type: treatmentTitle,
+          description: treatmentDescription,
+          status: 'pending' as const,
+          priority: 'medium' as const,
+          cost: "0",
+          estimated_duration: formattedDuration,
+          time_gap: sitting.timeGap || null,
+          plan_id: plan.id
         };
 
-        await treatmentService.createTreatment(treatmentData as any);
+        await treatmentService.createTreatment(treatmentData);
         treatmentsCreatedCount++;
       }
 
@@ -737,7 +1194,7 @@ export function TreatmentPlanDetails({
         title: "Success",
         description: `${treatmentsCreatedCount} of ${totalSuggestions} AI suggested treatments created. Refreshing...`,
       });
-      await onRefresh(); // Refresh the plan to show new treatments
+      await onRefresh();
     } catch (error) {
       console.error("Error creating AI suggested treatments:", error);
       toast({
@@ -745,13 +1202,13 @@ export function TreatmentPlanDetails({
         description: `Failed to create some or all AI suggested treatments. ${treatmentsCreatedCount} created. ${(error as Error).message}`,
         variant: "destructive",
       });
-      if (treatmentsCreatedCount > 0) { // Still refresh if some were made
+      if (treatmentsCreatedCount > 0) {
         await onRefresh();
       }
     } finally {
       setIsCreatingAiTreatments(false);
     }
-  };
+};
 
   if (!plan) return null;
 
@@ -863,606 +1320,620 @@ export function TreatmentPlanDetails({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>Treatment Plan Details</DialogTitle>
-          <DialogDescription>
-            Created on {format(new Date(plan.created_at), 'MMMM d, yyyy')}
-          </DialogDescription>
-        </DialogHeader>
-        
-        {/* Added container for scrolling */}
-        <div className="pr-6 py-4 max-h-[70vh] overflow-y-auto"> 
-          <div className="space-y-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <h2 className="text-xl font-semibold">{plan.title}</h2>
-                <p className="text-sm text-muted-foreground">{plan.description}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {renderStatusBadge(plan.status)}
-                {plan.priority && renderPriorityBadge(plan.priority)}
-              </div>
-            </div>
-
-            {/* --- Add Treatment Progress Bar --- */}
-            {plan.status !== 'cancelled' && (
-               <div className="my-6">
-                 <TreatmentProgressBar
-                   steps={treatmentSteps}
-                   currentStepId={plan.status}
-                   completedStepIds={completedStepIds}
-                 />
-               </div>
-            )}
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-4">
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Treatment Plan Details</DialogTitle>
+            <DialogDescription>
+              Created on {format(new Date(plan.created_at), 'MMMM d, yyyy')}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {/* Added container for scrolling */}
+          <div className="pr-6 py-4 max-h-[70vh] overflow-y-auto"> 
+            <div className="space-y-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-xl font-semibold">{plan.title}</h2>
+                  <p className="text-sm text-muted-foreground">{plan.description}</p>
+                </div>
                 <div className="flex items-center gap-2">
-                  <User className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Patient</p>
-                    <p>{plan.patientName}</p>
-                  </div>
-                  {navigateToPatient && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="ml-auto"
-                      onClick={() => navigateToPatient(plan.patient_id)}
-                    >
-                      <ArrowUpRight className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Timeframe</p>
-                    <p>
-                      {format(new Date(plan.start_date), 'MMMM d, yyyy')}
-                      {plan.end_date && ` to ${format(new Date(plan.end_date), 'MMMM d, yyyy')}`}
-                    </p>
-                    {duration && (
-                       <p className="text-sm text-muted-foreground">Calculated Duration: {duration}</p>
-                    )}
-                    {/* Display AI Suggested Total Treatment Time */}
-                    {aiInitialSuggestion?.planDetails?.appointmentPlan?.totalTreatmentTime && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Suggested Total Plan Duration: {aiInitialSuggestion.planDetails.appointmentPlan.totalTreatmentTime}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Display Associated Teeth */}
-                {plan.teeth && plan.teeth.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <Smile className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium">Affected Teeth</p>
-                      <p className="text-sm text-muted-foreground">
-                        {plan.teeth.map(t => t.tooth_id).sort((a, b) => a - b).join(', ')}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Treatments Section */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-medium">Treatments</h3>
-                <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={onRefresh}
-                    disabled={loading}
-                  >
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    Refresh
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={onAddTreatment}
-                    disabled={loading}
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add Treatment
-                  </Button>
+                  {renderStatusBadge(plan.status)}
+                  {plan.priority && renderPriorityBadge(plan.priority)}
                 </div>
               </div>
+
+              {/* --- Add Treatment Progress Bar --- */}
+              {plan.status !== 'cancelled' && (
+                 <div className="my-6">
+                   <TreatmentProgressBar
+                     steps={treatmentSteps}
+                     currentStepId={plan.status}
+                     completedStepIds={completedStepIds}
+                   />
+                 </div>
+              )}
               
-              {plan.treatments && plan.treatments.length > 0 ? (
-                <>
-                  <div className="space-y-3">
-                    {paginatedTreatmentsWithDates.map((treatment: any, index: number) => (
-                      <TreatmentItem
-                        key={treatment.id}
-                        treatment={treatment}
-                        onStatusChange={onTreatmentStatusChange} 
-                        onDelete={onDeleteTreatment}
-                        onEdit={() => {
-                          const visitToEdit = prepareVisitForEditing(treatment, plan.id, index);
-                          onEditTreatment(visitToEdit);
-                        }}
-                        loading={loading} 
-                      />
-                    ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Patient</p>
+                      <p>{plan.patientName}</p>
+                    </div>
+                    {navigateToPatient && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto"
+                        onClick={() => navigateToPatient(plan.patient_id)}
+                      >
+                        <ArrowUpRight className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
-                  {/* Pagination Controls */}
-                  {totalPages > 1 && (
-                    <div className="flex justify-center items-center gap-2 mt-4">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                        disabled={currentPage === 1 || loading}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                        Previous
-                      </Button>
-                      <span className="text-sm text-muted-foreground">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                        disabled={currentPage === totalPages || loading}
-                      >
-                        Next
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
+                  
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Timeframe</p>
+                      <p>
+                        {format(new Date(plan.start_date), 'MMMM d, yyyy')}
+                        {plan.end_date && ` to ${format(new Date(plan.end_date), 'MMMM d, yyyy')}`}
+                      </p>
+                      {duration && (
+                         <p className="text-sm text-muted-foreground">Calculated Duration: {duration}</p>
+                      )}
+                      {/* Display AI Suggested Total Treatment Time */}
+                      {aiInitialSuggestion?.planDetails?.appointmentPlan?.totalTreatmentTime && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Suggested Total Plan Duration: {aiInitialSuggestion.planDetails.appointmentPlan.totalTreatmentTime}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Display Associated Teeth */}
+                  {plan.teeth && plan.teeth.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Smile className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">Affected Teeth</p>
+                        <p className="text-sm text-muted-foreground">
+                          {plan.teeth.map(t => t.tooth_id).sort((a, b) => a - b).join(', ')}
+                        </p>
+                      </div>
                     </div>
                   )}
-                </>
-              ) : (
-                // MODIFIED BLOCK: Check for AI suggestions if no actual treatments exist
-                aiInitialSuggestion?.planDetails?.appointmentPlan?.sittingDetails && aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails.length > 0 ? (
-                  // New: Shows a message and JUST the button to add AI visits
-                  <div className="text-center py-6 border rounded-lg">
-                    <BrainCog className="h-8 w-8 mx-auto text-primary mb-3" /> 
-                    <p className="text-muted-foreground mb-4">
-                      AI-generated treatment visits are available for this plan.
-                    </p>
-                    <Button
-                      onClick={handleCreateAiSuggestedTreatments}
-                      disabled={isCreatingAiTreatments || loading}
-                      size="sm" // Or default, matching other similar buttons
-                    >
-                      {isCreatingAiTreatments ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Plus className="mr-2 h-4 w-4" /> // Or BrainCog icon
-                      )}
-                      Add AI Suggested Visits
-                    </Button>
-                  </div>
-                ) : (
-                  // Original fallback if no treatments and no AI suggestions
-                  <div className="text-center py-6 border rounded-lg">
-                    <FileText className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-muted-foreground">No treatments added yet</p>
-                    <Button
-                      variant="outline"
+                </div>
+              </div>
+
+              {/* Treatments Section */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-medium">Treatments</h3>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
                       size="sm"
-                      className="mt-4"
+                      onClick={onRefresh}
+                      disabled={loading}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-1" />
+                      Refresh
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
                       onClick={onAddTreatment}
                       disabled={loading}
                     >
                       <Plus className="h-4 w-4 mr-1" />
-                      Add First Treatment
+                      Add Treatment
+                    </Button>
+                    {/* Moved and Renamed PDF Download Button to Print Plan with direct print */}
+                    <Button 
+                        onClick={handleDirectPrint} // Changed to direct print handler
+                        variant="outline" 
+                        size="sm" 
+                        disabled={loading} 
+                        title="Print this treatment plan"
+                    >
+                        <Printer className="h-4 w-4 mr-1" /> {/* Changed icon to Printer */}
+                        Print Plan
                     </Button>
                   </div>
-                )
-              )}
-            </div>
-
-            {/* Tabs for Additional Information */}
-            <Tabs defaultValue="additionalInfo" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="additionalInfo">Additional Information</TabsTrigger>
-                <TabsTrigger value="visits">Scheduled Visits</TabsTrigger>
-                <TabsTrigger value="financial">Financial Information</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="additionalInfo" className="space-y-4">
-                <div className="border rounded-lg p-4">
-                  <h4 className="font-medium">Clinical Information</h4>
-                  <div className="mt-4 space-y-4">
-                    {/* Access metadata from the first element of the array */}
-                    {plan.metadata && plan.metadata.length > 0 && plan.metadata[0].clinical_considerations && (
-                      <div>
-                        <h5 className="text-sm font-medium">Clinical Considerations</h5>
-                        <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line">
-                          {plan.metadata[0].clinical_considerations}
-                        </p>
-                      </div>
-                    )}
-                    {plan.metadata && plan.metadata.length > 0 && plan.metadata[0].key_materials && (
-                      <div>
-                        <h5 className="text-sm font-medium">Key Materials</h5>
-                        <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line">
-                          {plan.metadata[0].key_materials}
-                        </p>
-                      </div>
-                    )}
-                    {plan.metadata && plan.metadata.length > 0 && plan.metadata[0].post_treatment_care && (
-                      <div>
-                        <h5 className="text-sm font-medium">Post-Treatment Care</h5>
-                        <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line">
-                          {plan.metadata[0].post_treatment_care}
-                        </p>
-                      </div>
-                    )}
-                    {/* Fallback condition: if metadata array is empty or all relevant fields in the first item are null/empty */}
-                    {(!plan.metadata || plan.metadata.length === 0 || 
-                      (plan.metadata.length > 0 && 
-                       !plan.metadata[0].clinical_considerations && 
-                       !plan.metadata[0].key_materials && 
-                       !plan.metadata[0].post_treatment_care)) && (
-                      <p className="text-sm text-muted-foreground">No additional clinical information available.</p>
-                    )}
-                  </div>
                 </div>
-              </TabsContent>
-
-              <TabsContent value="visits" className="space-y-4">
-                <div className="border rounded-lg p-4">
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="font-medium">Scheduled Visits Overview</h4>
-                  </div>
-                  
-                  {treatmentsWithEstimatedDates && treatmentsWithEstimatedDates.length > 0 ? (
+                
+                {plan.treatments && plan.treatments.length > 0 ? (
+                  <>
                     <div className="space-y-3">
-                      {treatmentsWithEstimatedDates.map((treatment: any, index: number) => {
-                        // Ensure bookedAppointments is an array before calling .find()
-                        const currentBookedAppointments = bookedAppointments || [];
-                        const bookedAppointment = currentBookedAppointments.find(appt => appt.treatment_id === treatment.id && appt.status !== 'cancelled');
-                        const isBooked = !!bookedAppointment;
-                        
-                        let bookedInfo = null;
-                        if (isBooked && bookedAppointment) {
-                          let displayDate = 'N/A';
-                          let displayTime = 'N/A';
-                          
-                          // Ensure staff object and its properties exist before accessing
-                          const doctorName = (bookedAppointment.staff && bookedAppointment.staff.first_name && bookedAppointment.staff.last_name)
-                            ? `${bookedAppointment.staff.first_name} ${bookedAppointment.staff.last_name}`
-                            : 'N/A';
-
-                          if (bookedAppointment.start_time && typeof bookedAppointment.start_time === 'string') {
-                            try {
-                              const parsedStartTime = parseISO(bookedAppointment.start_time);
-                              displayDate = format(parsedStartTime, 'MMM dd, yyyy');
-                              displayTime = format(parsedStartTime, 'p');
-                            } catch (e) {
-                              console.error(`[TreatmentPlanDetails] Error parsing start_time for booked appointment: ${bookedAppointment.start_time}`, e);
-                              // displayDate and displayTime remain 'N/A'
-                            }
-                          } else {
-                            console.warn('[TreatmentPlanDetails] Booked appointment start_time is missing or not a string.');
-                          }
-
-                          bookedInfo = {
-                            bookedDate: displayDate,
-                            bookedTime: displayTime,
-                            doctorName: doctorName,
-                          };
-                        }
-
-                        return (
-                          <div key={treatment.id || index} className="border rounded-md p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <h5 className="font-medium text-gray-800">{treatment.type || treatment.title || `Visit ${index + 1}`}</h5>
-                                <p className="text-xs text-gray-500 mt-0.5 truncate max-w-md">{treatment.description || treatment.procedures || 'No description'}</p>
-                              </div>
-                              {treatment.status && (
-                                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                                      treatment.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                      treatment.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-                                      'bg-blue-100 text-blue-700'
-                                  }`}>
-                                    {treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1)}
-                                  </span>
-                              )}
-                            </div>
-                            
-                            <div className="mt-3 space-y-2 text-xs text-gray-600">
-                              <div className="flex items-center">
-                                <CalendarIcon className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
-                                <strong>Est. Visit:</strong>&nbsp;{treatment.scheduled_date || treatment.estimatedVisitDate || 'Not set'}
-                              </div>
-                              {treatment.estimated_duration && (
-                                <div className="flex items-center">
-                                  <Clock className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
-                                  <strong>Duration:</strong>&nbsp;{treatment.estimated_duration}
-                                </div>
-                              )}
-                              {treatment.time_gap && (
-                                <div className="flex items-center">
-                                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
-                                  <strong>Next visit in:</strong>&nbsp;{treatment.time_gap}
-                                </div>
-                              )}
-                              {(treatment.cost !== undefined && treatment.cost !== null && parseFloat(String(treatment.cost)) > 0) && (
-                                <div className="flex items-center">
-                                  <CreditCard className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
-                                  <strong>Cost:</strong>&nbsp;{formatCurrency(parseFloat(String(treatment.cost)))}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="mt-4 flex justify-end items-center">
-                              {isBooked ? (
-                                <div className="flex items-center gap-4">
-                                  <div className="flex items-center justify-center h-9 px-3 text-sm font-medium text-white bg-green-500 rounded-md">
-                                    <Check className="w-3.5 h-3.5 mr-1.5" />
-                                    Booked
-                                  </div>
-                                  {bookedInfo && (
-                                  <div className="ml-4 p-3 bg-gray-50 rounded-md border border-blue-600 space-y-2 shadow-sm">
-                                    <div className="flex items-center space-x-2">
-                                      <CalendarDays className="h-4 w-4 text-gray-500" />
-                                      <span className="text-xs text-gray-600 font-medium">Date:</span>
-                                      <span className="text-xs text-green-600 font-semibold">{bookedInfo.bookedDate}</span>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                      <Clock className="h-4 w-4 text-gray-500" />
-                                      <span className="text-xs text-gray-600 font-medium">Time:</span>
-                                      <span className="text-xs text-gray-800">{bookedInfo.bookedTime}</span>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                      <UserCircle className="h-4 w-4 text-gray-500" />
-                                      <span className="text-xs text-gray-600 font-medium">Doctor:</span>
-                                      <span className="text-xs text-gray-800">{bookedInfo.doctorName}</span>
-                                    </div>
-                                  </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    const visitDate = treatment.scheduled_date || treatment.estimatedVisitDate;
-                                    const patientId = plan.patient_id;
-                                    const treatmentContextId = treatment.id; // ID of the specific treatment/visit item
-                                    const visitTitle = treatment.type || treatment.title || 'New Appointment';
-
-                                    if (!visitDate) {
-                                      toast({
-                                        title: "Cannot Book Appointment",
-                                        description: "This visit does not have a scheduled or estimated date yet.",
-                                        variant: "destructive"
-                                      });
-                                      return;
-                                    }
-                                    
-                                    const queryParams = new URLSearchParams({
-                                      date: visitDate, // Assumes YYYY-MM-DD format
-                                      patientId: patientId,
-                                    });
-                                    if (treatmentContextId) {
-                                      queryParams.append('treatmentId', treatmentContextId);
-                                    }
-                                    if (visitTitle) {
-                                      queryParams.append('description', visitTitle);
-                                    }
-                                    
-                                    navigate(`/appointments?${queryParams.toString()}`);
-                                  }}
-                                  disabled={loading || isCreatingAiTreatments}
-                                >
-                                  <CalendarIcon className="w-3.5 h-3.5 mr-1.5" />
-                                  Book Appointment
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {paginatedTreatmentsWithDates.map((treatment: any, index: number) => (
+                        <TreatmentItem
+                          key={treatment.id}
+                          treatment={treatment}
+                          onStatusChange={onTreatmentStatusChange} 
+                          onDelete={onDeleteTreatment}
+                          onEdit={() => {
+                            const visitToEdit = prepareVisitForEditing(treatment, plan.id, index);
+                            onEditTreatment(visitToEdit);
+                          }}
+                          loading={loading} 
+                        />
+                      ))}
+                    </div>
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                      <div className="flex justify-center items-center gap-2 mt-4 pagination-controls-print-hide"> {/* Added pagination-controls-print-hide */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                          disabled={currentPage === 1 || loading}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                          Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                          disabled={currentPage === totalPages || loading}
+                        >
+                          Next
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  // MODIFIED BLOCK: Check for AI suggestions if no actual treatments exist
+                  aiInitialSuggestion?.planDetails?.appointmentPlan?.sittingDetails && aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails.length > 0 ? (
+                    // New: Shows a message and JUST the button to add AI visits
+                    <div className="text-center py-6 border rounded-lg">
+                      <BrainCog className="h-8 w-8 mx-auto text-primary mb-3" /> 
+                      <p className="text-muted-foreground mb-4">
+                        AI-generated treatment visits are available for this plan.
+                      </p>
+                      <Button
+                        onClick={handleCreateAiSuggestedTreatments}
+                        disabled={isCreatingAiTreatments || loading}
+                        size="sm" // Or default, matching other similar buttons
+                      >
+                        {isCreatingAiTreatments ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Plus className="mr-2 h-4 w-4" /> // Or BrainCog icon
+                        )}
+                        Add AI Suggested Visits
+                      </Button>
                     </div>
                   ) : (
-                    <div className="text-center py-8 border rounded-lg">
-                      <CalendarIcon className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-                      <p className="text-muted-foreground">No scheduled visits for this plan yet.</p>
+                    // Original fallback if no treatments and no AI suggestions
+                    <div className="text-center py-6 border rounded-lg">
+                      <FileText className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                      <p className="text-muted-foreground">No treatments added yet</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-4"
+                        onClick={onAddTreatment}
+                        disabled={loading}
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add First Treatment
+                      </Button>
                     </div>
-                  )}
-                </div>
-              </TabsContent>
+                  )
+                )}
+              </div>
 
-              <TabsContent value="financial" className="space-y-4">
-                <div className="border rounded-lg p-4">
-                  <h4 className="font-medium">Financial Summary</h4>
-                  <div className="mt-4 space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm">Total Treatment Cost:</span>
-                      <span className="font-medium">{formatCurrency(plan.totalCost || 0)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Insurance Coverage (Est.):</span>
-                      <span className="font-medium">{formatCurrency(plan.insurance_coverage || 0)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Patient Responsibility:</span>
-                      <span className="font-medium">{formatCurrency((plan.totalCost || 0) - (plan.insurance_coverage || 0))}</span>
+              {/* Tabs for Additional Information */}
+              <Tabs defaultValue="additionalInfo" className="w-full tabs-print-all-content"> {/* Added tabs-print-all-content */}
+                <TabsList className="grid w-full grid-cols-3 print-hide"> {/* Added print-hide */}
+                  <TabsTrigger value="additionalInfo">Additional Information</TabsTrigger>
+                  <TabsTrigger value="visits">Scheduled Visits</TabsTrigger>
+                  <TabsTrigger value="financial">Financial Information</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="additionalInfo" className="space-y-4">
+                  <div className="border rounded-lg p-4">
+                    <h4 className="font-medium">Clinical Information</h4>
+                    <div className="mt-4 space-y-4">
+                      {/* Access metadata from the first element of the array */}
+                      {plan.metadata && plan.metadata.length > 0 && plan.metadata[0].clinical_considerations && (
+                        <div>
+                          <h5 className="text-sm font-medium">Clinical Considerations</h5>
+                          <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line">
+                            {plan.metadata[0].clinical_considerations}
+                          </p>
+                        </div>
+                      )}
+                      {plan.metadata && plan.metadata.length > 0 && plan.metadata[0].key_materials && (
+                        <div>
+                          <h5 className="text-sm font-medium">Key Materials</h5>
+                          <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line">
+                            {plan.metadata[0].key_materials}
+                          </p>
+                        </div>
+                      )}
+                      {plan.metadata && plan.metadata.length > 0 && plan.metadata[0].post_treatment_care && (
+                        <div>
+                          <h5 className="text-sm font-medium">Post-Treatment Care</h5>
+                          <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line">
+                            {plan.metadata[0].post_treatment_care}
+                          </p>
+                        </div>
+                      )}
+                      {/* Fallback condition: if metadata array is empty or all relevant fields in the first item are null/empty */}
+                      {(!plan.metadata || plan.metadata.length === 0 || 
+                        (plan.metadata.length > 0 && 
+                         !plan.metadata[0].clinical_considerations && 
+                         !plan.metadata[0].key_materials && 
+                         !plan.metadata[0].post_treatment_care)) && (
+                        <p className="text-sm text-muted-foreground">No additional clinical information available.</p>
+                      )}
                     </div>
                   </div>
-                </div>
-              </TabsContent>
-            </Tabs>
+                </TabsContent>
 
-            {/* Action Buttons */}
-            <DialogFooter className="pt-4 mt-auto"> {/* Added mt-auto to push footer to bottom */}
-              <div className="flex gap-2 items-center">
-                {/* --- Refined Button Logic --- */}
+                <TabsContent value="visits" className="space-y-4">
+                  <div className="border rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="font-medium">Scheduled Visits Overview</h4>
+                    </div>
+                    
+                    {treatmentsWithEstimatedDates && treatmentsWithEstimatedDates.length > 0 ? (
+                      <div className="space-y-3">
+                        {treatmentsWithEstimatedDates.map((treatment: any, index: number) => {
+                          // Ensure bookedAppointments is an array before calling .find()
+                          const currentBookedAppointments = bookedAppointments || [];
+                          const bookedAppointment = currentBookedAppointments.find(appt => appt.treatment_id === treatment.id && appt.status !== 'cancelled');
+                          const isBooked = !!bookedAppointment;
+                          
+                          let bookedInfo = null;
+                          if (isBooked && bookedAppointment) {
+                            let displayDate = 'N/A';
+                            let displayTime = 'N/A';
+                            
+                            // Ensure staff object and its properties exist before accessing
+                            const doctorName = (bookedAppointment.staff && bookedAppointment.staff.first_name && bookedAppointment.staff.last_name)
+                              ? `${bookedAppointment.staff.first_name} ${bookedAppointment.staff.last_name}`
+                              : 'N/A';
 
-                {/* Start Treatment: Only show if status is 'planned' */}
-                {plan.status === 'planned' && (
-                  <Button
-                    variant="outline"
-                    onClick={() => onStatusChange(plan.id, 'in_progress')}
-                    disabled={loading}
-                    title="Start this treatment plan"
-                  >
-                    {loading && !showDeleteConfirm && !showCancelConfirm ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            if (bookedAppointment.start_time && typeof bookedAppointment.start_time === 'string') {
+                              try {
+                                const parsedStartTime = parseISO(bookedAppointment.start_time);
+                                displayDate = format(parsedStartTime, 'MMM dd, yyyy');
+                                displayTime = format(parsedStartTime, 'p');
+                              } catch (e) {
+                                console.error(`[TreatmentPlanDetails] Error parsing start_time for booked appointment: ${bookedAppointment.start_time}`, e);
+                                // displayDate and displayTime remain 'N/A'
+                              }
+                            } else {
+                              console.warn('[TreatmentPlanDetails] Booked appointment start_time is missing or not a string.');
+                            }
+
+                            bookedInfo = {
+                              bookedDate: displayDate,
+                              bookedTime: displayTime,
+                              doctorName: doctorName,
+                            };
+                          }
+
+                          return (
+                            <div key={treatment.id || index} className="border rounded-md p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <h5 className="font-medium text-gray-800">{treatment.type || treatment.title || `Visit ${index + 1}`}</h5>
+                                  <p className="text-xs text-gray-500 mt-0.5 truncate max-w-md">{treatment.description || treatment.procedures || 'No description'}</p>
+                                </div>
+                                {treatment.status && (
+                                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                                        treatment.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                        treatment.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                                        'bg-blue-100 text-blue-700'
+                                    }`}>
+                                      {treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1)}
+                                    </span>
+                                )}
+                              </div>
+                              
+                              <div className="mt-3 space-y-2 text-xs text-gray-600">
+                                <div className="flex items-center">
+                                  <CalendarIcon className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                  <strong>Est. Visit:</strong>&nbsp;{treatment.scheduled_date || treatment.estimatedVisitDate || 'Not set'}
+                                </div>
+                                {treatment.estimated_duration && (
+                                  <div className="flex items-center">
+                                    <Clock className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                    <strong>Duration:</strong>&nbsp;{treatment.estimated_duration}
+                                  </div>
+                                )}
+                                {treatment.time_gap && (
+                                  <div className="flex items-center">
+                                    <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                    <strong>Next visit in:</strong>&nbsp;{treatment.time_gap}
+                                  </div>
+                                )}
+                                {(treatment.cost !== undefined && treatment.cost !== null && parseFloat(String(treatment.cost)) > 0) && (
+                                  <div className="flex items-center">
+                                    <CreditCard className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+                                    <strong>Cost:</strong>&nbsp;{formatCurrency(parseFloat(String(treatment.cost)))}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="mt-4 flex justify-end items-center">
+                                {isBooked ? (
+                                  <div className="flex items-center gap-4">
+                                    <div className="flex items-center justify-center h-9 px-3 text-sm font-medium text-white bg-green-500 rounded-md">
+                                      <Check className="w-3.5 h-3.5 mr-1.5" />
+                                      Booked
+                                    </div>
+                                    {bookedInfo && (
+                                    <div className="ml-4 p-3 bg-gray-50 rounded-md border border-blue-600 space-y-2 shadow-sm">
+                                      <div className="flex items-center space-x-2">
+                                        <CalendarDays className="h-4 w-4 text-gray-500" />
+                                        <span className="text-xs text-gray-600 font-medium">Date:</span>
+                                        <span className="text-xs text-green-600 font-semibold">{bookedInfo.bookedDate}</span>
+                                      </div>
+                                      <div className="flex items-center space-x-2">
+                                        <Clock className="h-4 w-4 text-gray-500" />
+                                        <span className="text-xs text-gray-600 font-medium">Time:</span>
+                                        <span className="text-xs text-gray-800">{bookedInfo.bookedTime}</span>
+                                      </div>
+                                      <div className="flex items-center space-x-2">
+                                        <UserCircle className="h-4 w-4 text-gray-500" />
+                                        <span className="text-xs text-gray-600 font-medium">Doctor:</span>
+                                        <span className="text-xs text-gray-800">{bookedInfo.doctorName}</span>
+                                      </div>
+                                    </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      const visitDate = treatment.scheduled_date || treatment.estimatedVisitDate;
+                                      const patientId = plan.patient_id;
+                                      const treatmentContextId = treatment.id; // ID of the specific treatment/visit item
+                                      const visitTitle = treatment.type || treatment.title || 'New Appointment';
+
+                                      if (!visitDate) {
+                                        toast({
+                                          title: "Cannot Book Appointment",
+                                          description: "This visit does not have a scheduled or estimated date yet.",
+                                          variant: "destructive"
+                                        });
+                                        return;
+                                      }
+                                      
+                                      const queryParams = new URLSearchParams({
+                                        date: visitDate, // Assumes YYYY-MM-DD format
+                                        patientId: patientId,
+                                      });
+                                      if (treatmentContextId) {
+                                        queryParams.append('treatmentId', treatmentContextId);
+                                      }
+                                      if (visitTitle) {
+                                        queryParams.append('description', visitTitle);
+                                      }
+                                      
+                                      navigate(`/appointments?${queryParams.toString()}`);
+                                    }}
+                                    disabled={loading || isCreatingAiTreatments}
+                                  >
+                                    <CalendarIcon className="w-3.5 h-3.5 mr-1.5" />
+                                    Book Appointment
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     ) : (
-                      <Clock className="h-4 w-4 mr-1" />
+                      <div className="text-center py-8 border rounded-lg">
+                        <CalendarIcon className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                        <p className="text-muted-foreground">No scheduled visits for this plan yet.</p>
+                      </div>
                     )}
-                    Start Treatment
-                  </Button>
-                )}
+                  </div>
+                </TabsContent>
 
-                {/* Mark Completed: Only show if status is 'in_progress' */}
-                {plan.status === 'in_progress' && (
-                  <Button
-                    variant="outline"
-                    onClick={() => onStatusChange(plan.id, 'completed')}
-                    disabled={loading}
-                    title="Mark this plan as completed"
-                  >
-                    {loading && !showDeleteConfirm && !showCancelConfirm ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Check className="h-4 w-4 mr-1" />
-                    )}
-                    Mark Completed
-                  </Button>
-                )}
+                <TabsContent value="financial" className="space-y-4">
+                  <div className="border rounded-lg p-4">
+                    <h4 className="font-medium">Financial Summary</h4>
+                    <div className="mt-4 space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm">Total Treatment Cost:</span>
+                        <span className="font-medium">{formatCurrency(plan.totalCost || 0)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm">Insurance Coverage (Est.):</span>
+                        <span className="font-medium">{formatCurrency(plan.insurance_coverage || 0)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm">Patient Responsibility:</span>
+                        <span className="font-medium">{formatCurrency((plan.totalCost || 0) - (plan.insurance_coverage || 0))}</span>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
 
-                {/* Cancel Plan: Show if 'planned' or 'in_progress', triggers confirmation */}
-                {(plan.status === 'planned' || plan.status === 'in_progress') && (
-                  <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+              {/* Action Buttons */}
+              <DialogFooter className="pt-4 mt-auto dialog-footer-print-hide"> {/* Added dialog-footer-print-hide */}
+                <div className="flex gap-2 items-center">
+                  {/* --- Refined Button Logic --- */}
+
+                  {/* Start Treatment: Only show if status is 'planned' */}
+                  {plan.status === 'planned' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => onStatusChange(plan.id, 'in_progress')}
+                      disabled={loading}
+                      title="Start this treatment plan"
+                    >
+                      {loading && !showDeleteConfirm && !showCancelConfirm ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Clock className="h-4 w-4 mr-1" />
+                      )}
+                      Start Treatment
+                    </Button>
+                  )}
+
+                  {/* Mark Completed: Only show if status is 'in_progress' */}
+                  {plan.status === 'in_progress' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => onStatusChange(plan.id, 'completed')}
+                      disabled={loading}
+                      title="Mark this plan as completed"
+                    >
+                      {loading && !showDeleteConfirm && !showCancelConfirm ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Check className="h-4 w-4 mr-1" />
+                      )}
+                      Mark Completed
+                    </Button>
+                  )}
+
+                  {/* Cancel Plan: Show if 'planned' or 'in_progress', triggers confirmation */}
+                  {(plan.status === 'planned' || plan.status === 'in_progress') && (
+                    <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          disabled={loading}
+                          title="Cancel this treatment plan"
+                        >
+                          {loading && showCancelConfirm ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <X className="h-4 w-4 mr-1" />
+                          )}
+                          Cancel Plan
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Cancel Treatment Plan</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to cancel this treatment plan? This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>No, Keep Plan</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => {
+                              onStatusChange(plan.id, 'cancelled');
+                              setShowCancelConfirm(false);
+                            }}
+                          >
+                            Yes, Cancel Plan
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+
+                  {/* Delete Plan: Always show, triggers confirmation */}
+                  <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
                     <AlertDialogTrigger asChild>
                       <Button
                         variant="outline"
                         disabled={loading}
-                        title="Cancel this treatment plan"
+                        title="Delete this treatment plan"
                       >
-                        {loading && showCancelConfirm ? (
+                        {loading && showDeleteConfirm ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
-                          <X className="h-4 w-4 mr-1" />
+                          <Trash2 className="h-4 w-4 mr-1" />
                         )}
-                        Cancel Plan
+                        Delete Plan
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Cancel Treatment Plan</AlertDialogTitle>
+                        <AlertDialogTitle>Delete Treatment Plan</AlertDialogTitle>
                         <AlertDialogDescription>
-                          Are you sure you want to cancel this treatment plan? This action cannot be undone.
+                          Are you sure you want to delete this treatment plan? This action cannot be undone.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>No, Keep Plan</AlertDialogCancel>
                         <AlertDialogAction
                           onClick={() => {
-                            onStatusChange(plan.id, 'cancelled');
-                            setShowCancelConfirm(false);
+                            onDeletePlan(plan.id);
+                            setShowDeleteConfirm(false);
                           }}
                         >
-                          Yes, Cancel Plan
+                          Yes, Delete Plan
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
-                )}
 
-                {/* Delete Plan: Always show, triggers confirmation */}
-                <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      disabled={loading}
-                      title="Delete this treatment plan"
-                    >
-                      {loading && showDeleteConfirm ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4 mr-1" />
-                      )}
-                      Delete Plan
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Treatment Plan</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Are you sure you want to delete this treatment plan? This action cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>No, Keep Plan</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => {
-                          onDeletePlan(plan.id);
-                          setShowDeleteConfirm(false);
-                        }}
+                  {/* Conditionally render Reopen Plan button */}
+                  {plan.status === 'completed' && (
+                      <Button 
+                          variant="outline" 
+                          onClick={() => onStatusChange(plan.id, 'in_progress' as TreatmentStatus)} // Assuming 'in_progress' is the status to reopen to
+                          disabled={loading}
+                          className="mr-auto" // Pushes this button to the far left
                       >
-                        Yes, Delete Plan
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                          <RotateCcw className="h-4 w-4 mr-2" />
+                          Reopen Plan
+                      </Button>
+                  )}
 
-                {/* Conditionally render Reopen Plan button */}
-                {plan.status === 'completed' && (
-                    <Button 
-                        variant="outline" 
-                        onClick={() => onStatusChange(plan.id, 'in_progress' as TreatmentStatus)} // Assuming 'in_progress' is the status to reopen to
-                        disabled={loading}
-                        className="mr-auto" // Pushes this button to the far left
-                    >
-                        <RotateCcw className="h-4 w-4 mr-2" />
-                        Reopen Plan
-                    </Button>
-                )}
+                  <Button 
+                      variant="outline" 
+                      onClick={() => onOpenChange(false)}
+                      disabled={loading}
+                  >
+                      Close
+                  </Button>
 
-                {plan.status === 'completed' && (
-                    <Button 
-                        onClick={handleDownloadPdf} 
-                        variant="default" 
-                        disabled={loading} 
-                        className="pdf-download-button modern-pdf-download-button bg-[#0060df] hover:bg-[#0052c0] text-white"
-                    >
-                        <Download className="h-4 w-4 mr-2" />
-                        Download PDF
-                    </Button>
-                )}
-
-                <Button 
-                    variant="outline" 
-                    onClick={() => onOpenChange(false)}
-                    disabled={loading}
-                >
-                    Close
-                </Button>
-
-                {plan.status !== 'completed' && plan.status !== 'cancelled' && (
-                    <Button 
-                        onClick={() => onStatusChange(plan.id, 'completed' as TreatmentStatus)} 
-                        disabled={loading || !plan.treatments || plan.treatments.length === 0}
-                        variant="default"
-                    >
-                        <Check className="h-4 w-4 mr-2" />
-                        Mark as Completed
-                    </Button>
-                )}
-              </div>
-            </DialogFooter>
+                  {plan.status !== 'completed' && plan.status !== 'cancelled' && (
+                      <Button 
+                          onClick={() => onStatusChange(plan.id, 'completed' as TreatmentStatus)} 
+                          disabled={loading || !plan.treatments || plan.treatments.length === 0}
+                          variant="default"
+                      >
+                          <Check className="h-4 w-4 mr-2" />
+                          Mark as Completed
+                      </Button>
+                  )}
+                </div>
+              </DialogFooter>
+            </div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+      <PrintableContent 
+        plan={{
+          ...plan,
+          patient: {
+            full_name: plan.patientName,
+            age: plan.patient?.age || 0,
+            gender: plan.patient?.gender || '',
+            registration_number: plan.patient?.registration_number || '',
+            ...plan.patient
+          }
+        }} 
+        treatmentsWithEstimatedDates={treatmentsWithEstimatedDates} 
+      />
+    </>
   );
 }

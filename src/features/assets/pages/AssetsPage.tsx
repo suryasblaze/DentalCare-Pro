@@ -173,7 +173,7 @@ const AssetsPage: React.FC = () => {
                         <PlusCircle className="mr-2 h-4 w-4" /> Add New Asset
                     </Button>
                 </DialogTrigger>
-                <DialogContent className="sm:max-w-[600px]">
+                <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>{assetToEdit ? 'Edit Asset' : 'Add New Asset'}</DialogTitle>
                     </DialogHeader>

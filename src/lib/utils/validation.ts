@@ -62,16 +62,16 @@ export function safeNumberConversion(value: string, fallback?: number): number |
  */
 export function formatCurrency(value: number | string | undefined | null, decimals = 2): string {
   if (value === undefined || value === null) {
-    return 'INR 0.00';
+    return '₹ 0.00';
   }
   
   const number = typeof value === 'string' ? parseFloat(value) : value;
   
   if (isNaN(number)) {
-    return 'INR 0.00';
+    return '₹ 0.00';
   }
   
-  return `INR ${number.toFixed(decimals)}`;
+  return `₹ ${number.toFixed(decimals)}`;
 }
 
 /**

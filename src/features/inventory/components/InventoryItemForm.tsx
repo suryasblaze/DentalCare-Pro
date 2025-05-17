@@ -169,135 +169,134 @@ const InventoryItemForm: React.FC<InventoryItemFormProps> = ({ itemToEdit, onSav
 
   return (
     <Form {...form}>
-      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-full">
-        <ScrollArea className="flex-grow pr-6">
-          <div className="space-y-4">
-            <FormField
-              control={control} // Removed 'as any' cast
-              name="item_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Item Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g., Amoxicillin 500mg" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={control} // Removed 'as any' cast
-              name="category"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Category</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value ?? ''} defaultValue={field.value ?? ''}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a category" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {categories.map((cat) => (
-                        <SelectItem key={cat} value={cat}>
-                          {cat}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Removed Quantity Field */}
-
-            <FormField
-              control={control} // Removed 'as any' cast
-              name="low_stock_threshold"
-              // Removed className from FormField
-              render={({ field }) => (
-                // Apply width constraints to FormItem or Input if needed
-                <FormItem>
-                  <FormLabel>Low Stock Threshold</FormLabel>
-                  <FormControl>
-                    <Input type="number" min="0" placeholder="10" {...field} value={String(field.value ?? '')} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Row for Supplier Info and Item Code */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              <FormField
-                control={control} // Removed 'as any' cast
-                name="supplier_info"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Supplier Info (Optional)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Supplier Name, Contact" {...field} value={field.value ?? ''} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                  control={control} // Removed 'as any' cast
-                  name="item_code"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Item Code/SKU (Optional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., MED-001" {...field} value={field.value ?? ''} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-            </div>
-
-            {/* Improved File Upload Section - Only show when ADDING new item */}
-            {!isEditMode && (
-              <FormItem className="col-span-1 md:col-span-2"> {/* Span full width */}
-                <FormLabel>Attach Invoice (Optional)</FormLabel>
+      <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+        {/* Basic Information Section */}
+        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 rounded-md border p-4">
+          <h3 className="text-lg font-semibold md:col-span-2">Basic Information</h3>
+          <FormField
+            control={control}
+            name="item_name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Item Name *</FormLabel>
                 <FormControl>
-                  <div className="flex items-center justify-center w-full">
-                    <label
-                      htmlFor="invoice-upload"
-                      className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-card hover:bg-muted/50"
-                    >
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <UploadCloudIcon className="w-8 h-8 mb-4 text-muted-foreground" />
-                        <p className="mb-2 text-sm text-muted-foreground">
-                          <span className="font-semibold">Click to upload</span> or drag and drop
-                        </p>
-                        <p className="text-xs text-muted-foreground">PDF, DOCX, XLSX, PNG, JPG (MAX. 5MB)</p>
-                      </div>
-                      <Input
-                        id="invoice-upload"
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png"
-                        onChange={handleFileChange}
-                      />
-                    </label>
-                  </div>
+                  <Input placeholder="e.g., Amoxicillin 500mg" {...field} />
                 </FormControl>
-                {selectedInvoiceFile && (
-                  <p className="text-sm text-muted-foreground mt-2 text-center">Selected: {selectedInvoiceFile.name}</p>
-                )}
-                {/* No FormMessage needed unless you add specific validation */}
+                <FormMessage />
               </FormItem>
             )}
-            {/* End Improved File Upload Section */}
-          </div> {/* Close inner spacing div */}
-        </ScrollArea> {/* Close ScrollArea */}
+          />
 
-        {/* Buttons container - keep outside ScrollArea, prevent shrinking */}
-        <div className="flex justify-end space-x-2 pt-4 flex-shrink-0">
+          <FormField
+            control={control}
+            name="category"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Category *</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value ?? ''} defaultValue={field.value ?? ''}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={control}
+            name="item_code"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Item Code/SKU (Optional)</FormLabel>
+                <FormControl>
+                  <Input placeholder="e.g., MED-001" {...field} value={field.value ?? ''} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={control}
+            name="low_stock_threshold"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Low Stock Threshold</FormLabel>
+                <FormControl>
+                  <Input type="number" min="0" placeholder="10" {...field} value={String(field.value ?? '')} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* Supplier Information Section */}
+        <div className="md:col-span-2 grid grid-cols-1 gap-4 rounded-md border p-4">
+          <h3 className="text-lg font-semibold">Supplier Information</h3>
+          <FormField
+            control={control}
+            name="supplier_info"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Supplier Details (Optional)</FormLabel>
+                <FormControl>
+                  <Input placeholder="e.g., Supplier Name, Contact" {...field} value={field.value ?? ''} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* Invoice Upload Section */}
+        {!isEditMode && (
+          <div className="md:col-span-2 rounded-md border p-4">
+            <h3 className="text-lg font-semibold mb-4">Invoice Upload</h3>
+            <FormItem>
+              <FormLabel>Attach Invoice (Optional)</FormLabel>
+              <FormControl>
+                <div className="flex items-center justify-center w-full">
+                  <label
+                    htmlFor="invoice-upload"
+                    className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-card hover:bg-muted/50"
+                  >
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <UploadCloudIcon className="w-8 h-8 mb-4 text-muted-foreground" />
+                      <p className="mb-2 text-sm text-muted-foreground">
+                        <span className="font-semibold">Click to upload</span> or drag and drop
+                      </p>
+                      <p className="text-xs text-muted-foreground">PDF, DOCX, XLSX, PNG, JPG (MAX. 5MB)</p>
+                    </div>
+                    <Input
+                      id="invoice-upload"
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png"
+                      onChange={handleFileChange}
+                    />
+                  </label>
+                </div>
+              </FormControl>
+              {selectedInvoiceFile && (
+                <p className="text-sm text-muted-foreground mt-2 text-center">Selected: {selectedInvoiceFile.name}</p>
+              )}
+            </FormItem>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="md:col-span-2 flex justify-end space-x-2 pt-4">
           <Button type="button" variant="outline" onClick={() => { setSelectedInvoiceFile(null); onCancel(); }}>
             Cancel
           </Button>
