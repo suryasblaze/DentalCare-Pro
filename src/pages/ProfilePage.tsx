@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { useToast } from '@/components/ui/use-toast';
 import { PageHeader } from '@/components/ui/page-header';
 import { Separator } from '@/components/ui/separator'; // Import Separator
+import { UploadCloud, X } from 'lucide-react'; // Import UploadCloud and X icon
 
 // Define a type for the profile data from the 'profiles' table
 interface UserProfileData {
@@ -274,28 +275,72 @@ export function ProfilePage() {
 
             {/* Profile Picture Section */}
             <div className="flex flex-col items-center space-y-4">
-              <Avatar className="h-24 w-24">
-                {/* Show preview if available, otherwise show stored avatar or fallback */}
-                <AvatarImage src={avatarPreview || profileData?.avatar_url || undefined} alt="User Avatar" />
-                <AvatarFallback>
-                  {/* Display initials if available */}
-                  {profileData?.first_name?.[0]?.toUpperCase()}
-                  {profileData?.last_name?.[0]?.toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
+              {!isEditing && (
+                <Avatar className="h-24 w-24">
+                  {/* Show preview if available, otherwise show stored avatar or fallback */}
+                  <AvatarImage src={avatarPreview || profileData?.avatar_url || undefined} alt="User Avatar" />
+                  <AvatarFallback>
+                    {/* Display initials if available */}
+                    {profileData?.first_name?.[0]?.toUpperCase()}
+                    {profileData?.last_name?.[0]?.toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+              )}
               {isEditing && (
-                <div className="w-full max-w-xs">
-                  <Label htmlFor="avatarFile" className="sr-only">Upload Profile Picture</Label>
-                  <Input
-                    id="avatarFile"
-                    name="avatarFile"
-                    type="file"
-                    accept="image/png, image/jpeg, image/gif" // Accept common image types
-                    onChange={handleFileChange}
-                    disabled={isSaving}
-                    className="text-sm file:mr-4 file:pt-0 file:pb-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
-                  />
-                   <p className="text-xs text-muted-foreground mt-1 text-center">Upload a square picture (e.g., 100x100px). Max 2MB (JPG, PNG, GIF).</p> {/* Updated text */}
+                <div className="w-full max-w-xs flex flex-col items-center">
+                  <Label
+                    htmlFor="avatarFile"
+                    className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-card hover:bg-muted transition-colors"
+                  >
+                    {avatarPreview && !avatarFile ? ( // If there's a preview from DB but no new file selected yet
+                      <div className="relative group">
+                        <img src={avatarPreview} alt="Current avatar" className="h-28 w-28 object-cover rounded-lg" />
+                        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
+                          <UploadCloud className="w-8 h-8 text-white" />
+                        </div>
+                      </div>
+                    ) : avatarFile ? (
+                      <div className="text-center">
+                        <img src={avatarPreview || undefined} alt="Preview" className="h-16 w-16 object-cover rounded-lg mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground truncate max-w-[200px]">{avatarFile.name}</p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-1 text-destructive hover:text-destructive-foreground"
+                          onClick={(e) => {
+                            e.preventDefault(); // Prevent form submission or label click
+                            setAvatarFile(null);
+                            setAvatarPreview(profileData?.avatar_url || null); // Reset to original or null
+                            // Clear the file input visually if possible (difficult to do reliably)
+                            const input = document.getElementById('avatarFile') as HTMLInputElement;
+                            if (input) input.value = "";
+                          }}
+                        >
+                          <X className="w-4 h-4 mr-1" /> Remove
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <UploadCloud className="w-8 h-8 mb-2 text-muted-foreground" />
+                        <p className="mb-1 text-sm text-muted-foreground">
+                          <span className="font-semibold">Click to upload</span> or drag and drop
+                        </p>
+                        <p className="text-xs text-muted-foreground">SVG, PNG, JPG or GIF (MAX. 2MB)</p>
+                      </div>
+                    )}
+                    <Input
+                      id="avatarFile"
+                      name="avatarFile"
+                      type="file"
+                      accept="image/png, image/jpeg, image/gif, image/svg+xml"
+                      onChange={handleFileChange}
+                      disabled={isSaving}
+                      className="hidden" // Hide the default input
+                    />
+                  </Label>
+                  {!avatarFile && ( // Show this text only if no new file is selected
+                     <p className="text-xs text-muted-foreground mt-2 text-center">Upload a square picture (e.g., 100x100px). Max 2MB.</p>
+                  )}
                 </div>
               )}
             </div>

@@ -15,7 +15,7 @@ import InventoryList from '../components/InventoryList';
 import InventoryItemForm from '../components/InventoryItemForm';
 import InventoryAIInsights from '../components/InventoryAIInsights';
 import { InventoryItem, InventoryItemRow, InventoryItemCategory } from '../types'; 
-import { PlusCircle, Search, FileDown, Bot as IconAI } from 'lucide-react'; 
+import { PlusCircle, Search, FileDown, Bot as IconAI, BrainCog } from 'lucide-react'; 
 import { Input } from '@/components/ui/input'; 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; 
 import { exportToExcel, exportToPdf } from '../utils/exportUtils';
@@ -31,6 +31,7 @@ const InventoryPage: React.FC = () => {
   // State to trigger list refresh after save/delete
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [showAIInsights, setShowAIInsights] = useState(false); // State to manage AI Insights visibility
+  const [isFetchingInsights, setIsFetchingInsights] = useState(false); // State for insights loading
 
   const handleAddItemClick = () => {
     setEditingItem(null); // Ensure we are adding, not editing
@@ -54,6 +55,27 @@ const InventoryPage: React.FC = () => {
     setRefreshTrigger(prev => prev + 1); // Increment trigger to refresh list
   };
 
+  const handleToggleAIInsights = () => {
+    if (isFetchingInsights && !showAIInsights) return; // Prevent re-click if initiating fetch
+
+    if (!showAIInsights) {
+      setIsFetchingInsights(true); // Set loading true when starting to show
+      setShowAIInsights(true);
+    } else {
+      setShowAIInsights(false); // When hiding, also reset fetching state if it was from this button
+      setIsFetchingInsights(false);
+    }
+  };
+
+  const handleInsightsLoadingChange = (loading: boolean) => {
+    // This callback can be used if more granular control from child is needed beyond initial fetch.
+    // For now, onInitialFetchComplete handles resetting the button's loading state.
+  };
+
+  const handleInsightsInitialFetchComplete = () => {
+    setIsFetchingInsights(false); // Turn off button loading state after child's initial fetch
+  };
+
   return (
     <div className="container mx-auto p-4 md:p-6 space-y-6">
       {/* Use heading and text props for PageHeader */}
@@ -68,10 +90,9 @@ const InventoryPage: React.FC = () => {
                    <PlusCircle className="mr-2 h-4 w-4" /> Add New Item
                  </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]"> {/* Adjust width as needed */}
+            <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                 <DialogTitle>{editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}</DialogTitle>
-                {/* Optional: <DialogDescription>...</DialogDescription> */}
                 </DialogHeader>
                 {/* Render form inside Dialog */}
                 <InventoryItemForm
@@ -83,8 +104,24 @@ const InventoryPage: React.FC = () => {
             </DialogContent>
         </Dialog>
         {/* Add the custom class for styling */}
-        <Button variant="outline" onClick={() => setShowAIInsights(!showAIInsights)} className="ai-insights-button">
-          <IconAI className="mr-2 h-4 w-4" /> {showAIInsights ? 'Hide AI Insights' : 'Show AI Insights'}
+        <Button 
+          variant="outline" 
+          onClick={handleToggleAIInsights}
+          disabled={isFetchingInsights && !showAIInsights} // Disable button if it's in the process of initiating the fetch
+          className={`ai-insights-button ${isFetchingInsights && showAIInsights ? 'opacity-100 cursor-not-allowed' : ''}`}
+          style={isFetchingInsights && showAIInsights ? { opacity: 1 } : {}}
+        >
+          {isFetchingInsights && showAIInsights ? (
+            <>
+              <BrainCog className="mr-2 h-4 w-4 animate-spin" />
+              {"AI is thinking... (this may take up to 2 minutes)"}
+            </>
+          ) : (
+            <>
+              <IconAI className="mr-2 h-4 w-4" /> 
+              {showAIInsights ? 'Hide AI Insights' : 'Show AI Insights'}
+            </>
+          )}
         </Button>
       </PageHeader>
 
@@ -137,7 +174,12 @@ const InventoryPage: React.FC = () => {
 
       {/* AI Insights will be conditionally rendered here */}
 
-      {showAIInsights && <InventoryAIInsights />}
+      {showAIInsights && (
+        <InventoryAIInsights 
+          onLoadingChange={handleInsightsLoadingChange} 
+          onInitialFetchComplete={handleInsightsInitialFetchComplete}
+        />
+      )}
       <InventoryList
         onEditItem={handleEditItemClick}
         refreshTrigger={refreshTrigger}

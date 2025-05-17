@@ -14,7 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"; // Keep ScrollArea
 import type { Database } from '@/../supabase_types'; // Corrected import path to root supabase_types.ts
 import { supabase } from '@/lib/supabase'; // Import supabase client
 // Import ToothSelector instead of DentalChart
-import ToothSelector from '@/features/treatment-plans/components/ToothSelector';
+import ToothSelector, { type ToothConditionsMap } from '@/features/treatment-plans/components/ToothSelector';
 // Remove DentalChart import if no longer needed elsewhere in this file
 // import DentalChart, { type InitialToothState } from '@/features/treatment-plans/components/DentalChart';
 
@@ -66,7 +66,7 @@ export function AITreatmentGenerator({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedPlan, setGeneratedPlan] = useState<string | null>(null); // State to store the AI response
   // Remove teeth and fetchError state
-  const [selectedToothIds, setSelectedToothIds] = useState<number[]>([]); // State for selected teeth
+  const [selectedTeethData, setSelectedTeethData] = useState<ToothConditionsMap>({}); // Changed state for selected teeth
   const { toast } = useToast();
 
   // generateSuggestions function targeting correct fields (with logging)
@@ -257,7 +257,7 @@ export function AITreatmentGenerator({
     // Remove fetchTeeth logic
     // Reset selected teeth when dialog closes or patient changes
     if (!open || !selectedPatientId) {
-        setSelectedToothIds([]);
+        setSelectedTeethData({}); // Changed
     }
 
   }, [selectedPatientId, open]); // Run when selectedPatientId or open state changes
@@ -288,7 +288,7 @@ export function AITreatmentGenerator({
     setCurrentQuestion('');
     setSelectedSuggestionLabel(null); // Clear selected suggestion on patient change
     setGeneratedPlan(null); // Clear generated plan on patient change
-    setSelectedToothIds([]); // Clear selected teeth on patient change
+    setSelectedTeethData({}); // Changed: Clear selected teeth on patient change
     // Do NOT clear searchTerm here, only when selecting
   }, [selectedPatientId]);
 
@@ -325,7 +325,7 @@ export function AITreatmentGenerator({
       return;
     }
     // Add validation for tooth selection
-    if (selectedToothIds.length === 0) {
+    if (Object.keys(selectedTeethData).length === 0) { // Changed
       toast({
         title: "Teeth Required",
         description: "Please select at least one tooth.",
@@ -356,9 +356,18 @@ export function AITreatmentGenerator({
     setIsGenerating(true);
     setGeneratedPlan(null); // Clear previous plan before generating new one
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+      console.log("Fetch request timed out after 120 seconds");
+    }, 120000); // 120 seconds
+
     try {
       // n8n webhook URL
-      const webhookUrl = 'https://n8n1.kol.tel/webhook/33d4fdab-98eb-4cc4-8a69-2ab835e76511';
+      const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL_TREATMENT_GENERATOR;
+      if (!webhookUrl) {
+        throw new Error("VITE_N8N_WEBHOOK_URL_TREATMENT_GENERATOR environment variable is not set.");
+      }
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -368,26 +377,39 @@ export function AITreatmentGenerator({
         // Send patient ID and the issue description to the webhook
         body: JSON.stringify({
           patientId: selectedPatientId,
-          toothIds: selectedToothIds, // Include selected tooth IDs
+          toothIds: Object.keys(selectedTeethData).map(Number), // Changed: Extract IDs for webhook
           condition: currentCondition,
           question: currentQuestion,
           // Include the entire fetched patient record
           patientRecord: fetchedPatientDetails, // Send the full object or null
         }),
+        signal: controller.signal, // Add the abort signal
       });
+
+      clearTimeout(timeoutId); // Clear the timeout if the request completes
+
+      const responseText = await response.text(); // Read the entire response as text first
 
       if (!response.ok) {
         // Log the response body for more detailed error information
-        const errorBody = await response.text();
-        console.error('Error response from webhook:', response.status, errorBody);
-        throw new Error(`Webhook call failed with status: ${response.status}`);
+        console.error('Error response from webhook (not ok):', response.status, responseText);
+        throw new Error(`Webhook call failed with status: ${response.status}. Response: ${responseText.substring(0, 200)}...`);
       }
 
       // Parse the JSON response from the webhook
-      const responseData = await response.json();
-      console.log("Webhook response data:", responseData);
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (parseError: any) {
+        console.error("Failed to parse JSON response from webhook:", parseError);
+        console.error("Raw response text was:", responseText);
+        throw new Error(`Invalid JSON response from AI generator. Content: ${responseText.substring(0, 200)}...`);
+      }
 
       // Extract the 'output' object first
+      // console.log("Webhook response data:", responseData); // Original console.log
+      console.log("Successfully parsed webhook response data:", responseData); // More descriptive log
+
       const outputObject = responseData?.[0]?.output;
 
       // Check if the 'output' object exists
@@ -435,8 +457,9 @@ export function AITreatmentGenerator({
           const newAiPlanId = aiPlanData.id;
 
           // Step 2: Insert into the ai_treatment_plans_teeth junction table
-          if (selectedToothIds && selectedToothIds.length > 0) {
-            const teethLinks = selectedToothIds.map(toothId => ({
+          const currentSelectedToothIds = Object.keys(selectedTeethData).map(Number); // Changed
+          if (currentSelectedToothIds && currentSelectedToothIds.length > 0) { // Changed
+            const teethLinks = currentSelectedToothIds.map(toothId => ({ // Changed
               ai_treatment_plan_id: newAiPlanId,
               tooth_id: toothId,
             }));
@@ -473,6 +496,9 @@ export function AITreatmentGenerator({
       let errorMessage = 'Please check console for details.';
       if (error instanceof Error) {
         errorMessage = error.message;
+        if ((error as any).name === 'AbortError') {
+          errorMessage = 'The request timed out after 120 seconds.';
+        }
       }
       toast({
         title: "Generation Failed",
@@ -481,6 +507,7 @@ export function AITreatmentGenerator({
         duration: 5000 // Show longer for error
       });
     } finally {
+      clearTimeout(timeoutId); // Also clear timeout in finally block in case of early exit
       setIsGenerating(false); // Ensure loading state is reset
     }
   };
@@ -488,7 +515,7 @@ export function AITreatmentGenerator({
   // Reset state when dialog closes (or when triggered externally)
   const handleDialogClose = () => {
     setGeneratedPlan(null); // Clear generated plan on dialog close
-    setSelectedToothIds([]); // Clear selected teeth on dialog close
+    setSelectedTeethData({}); // Clear selected teeth on dialog close
     setSelectedPatientId(''); // Clear selected patient ID
     setSelectedPatientName(''); // Clear selected patient name
     setSearchTerm(''); // Clear search term
@@ -586,8 +613,8 @@ export function AITreatmentGenerator({
             <Label>Teeth *</Label>
             {selectedPatientId ? (
               <ToothSelector
-                value={selectedToothIds} // Use the existing state for selected IDs
-                onChange={setSelectedToothIds} // Use the existing state setter
+                value={selectedTeethData} // Use the existing state for selected IDs - Changed
+                onChange={setSelectedTeethData} // Use the existing state setter - Changed
                 placeholder="Select Affected Teeth..."
                 disabled={!selectedPatientId} // Disable if no patient selected
               />
@@ -838,21 +865,22 @@ export function AITreatmentGenerator({
           <Button
             onClick={handleGenerateTreatmentPlan}
             disabled={
-              isGenerating ||
               !selectedPatientId ||
-              selectedToothIds.length === 0 || // Add check for selected teeth
+              Object.keys(selectedTeethData).length === 0 || // Changed
               !currentCondition.trim() ||
               !currentQuestion.trim()
             }
+            className={`ai-insights-button ${isGenerating ? 'opacity-100 cursor-not-allowed' : ''}`}
+            style={isGenerating ? { opacity: 1 } : {}}
           >
             {isGenerating ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Generating...
+                <BrainCog className="mr-2 h-4 w-4 animate-spin" />
+                {"AI is thinking... (this may take up to 2 minutes)"}
               </>
             ) : (
               <>
-                <BrainCog className="mr-2 h-4 w-4" /> {/* Using BrainCog icon */}
+                <BrainCog className="mr-2 h-4 w-4" /> 
                 Generate Plan
               </>
             )}

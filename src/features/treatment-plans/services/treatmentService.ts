@@ -161,7 +161,7 @@ export const treatmentService = {
       if (key === 'cost' && treatmentData.cost !== undefined) {
         const costAsNumber = parseFloat(treatmentData.cost);
         updatePayload.cost = isNaN(costAsNumber) ? undefined : costAsNumber; // Assign number or undefined
-      } else if (key === 'status' && treatmentData.status !== undefined) { // Handle other fields like status
+      } else if (key === 'status' && treatmentData.status !== undefined) { 
         updatePayload.status = treatmentData.status;
       } else if (key === 'description' && treatmentData.description !== undefined) {
         updatePayload.description = treatmentData.description;
@@ -171,6 +171,12 @@ export const treatmentService = {
         updatePayload.priority = treatmentData.priority;
       } else if (key === 'plan_id' && treatmentData.plan_id !== undefined) {
         updatePayload.plan_id = treatmentData.plan_id;
+      } else if (key === 'scheduled_date' && treatmentData.scheduled_date !== undefined) {
+        // Ensure scheduled_date is either a valid date string or null
+        updatePayload.scheduled_date = treatmentData.scheduled_date ? treatmentData.scheduled_date : null;
+      } else if (key === 'time_gap' && treatmentData.time_gap !== undefined) {
+        // Include time_gap in the payload. Ensure it can be null.
+        updatePayload.time_gap = treatmentData.time_gap || null;
       }
       // Add other fields from treatmentSchema as needed
     }
@@ -237,18 +243,70 @@ export const treatmentService = {
       const planWithoutJunction = { ...plan };
       delete planWithoutJunction.treatment_plan_teeth;
 
+      // Keep the patient details from the API response if available, otherwise use the patientInfo
+      const patient = plan.patient || (patientInfo ? {
+        full_name: `${patientInfo.first_name} ${patientInfo.last_name}`,
+        age: patientInfo.age,
+        gender: patientInfo.gender,
+        registration_number: patientInfo.registration_number
+      } : undefined);
+
       return {
         ...planWithoutJunction, // Use the plan without the junction table data
-        patientName: patientInfo ? `${patientInfo.first_name} ${patientInfo.last_name}` : 'Unknown Patient',
+        patientName: patient?.full_name || 'Unknown Patient',
         totalCost,
         progress,
         completedTreatments,
         totalTreatments,
-        teeth // Add the processed teeth array
+        teeth, // Add the processed teeth array
+        patient // Add the patient details
       };
     });
   },
 
+  /**
+   * Get all visits for a specific treatment plan.
+   */
+  async getVisitsByPlanId(planId: string): Promise<{ id: string }[]> { 
+    if (!planId) {
+      console.warn('[treatmentService.getVisitsByPlanId] planId is required, exiting.');
+      return [];
+    }
+    console.log(`[treatmentService.getVisitsByPlanId] Attempting for planId: ${planId}`);
+    try {
+      console.log(`[treatmentService.getVisitsByPlanId] PRE-AWAIT for api.patients.getVisitsByPlanId with planId: ${planId}`);
+      const visitsData = await api.patients.getVisitsByPlanId(planId);
+      console.log(`[treatmentService.getVisitsByPlanId] POST-AWAIT for api.patients.getVisitsByPlanId. Result for planId ${planId}:`, visitsData);
+
+      if (!visitsData) {
+        console.warn(`[treatmentService.getVisitsByPlanId] visitsData is null/undefined for planId ${planId}.`);
+        return []; // Return empty array if visitsData is null or undefined
+      }
+      if (!Array.isArray(visitsData)) {
+        console.error(`[treatmentService.getVisitsByPlanId] visitsData is not an array for planId ${planId}. Received:`, visitsData);
+        return []; // Return empty array if not an array
+      }
+      if (visitsData.length === 0) {
+        console.log(`[treatmentService.getVisitsByPlanId] visitsData is an empty array for planId ${planId}.`);
+        // return []; // No need to return, map of empty will be empty
+      }
+      
+      const mappedVisits = visitsData.map((v: any, index: number) => {
+        if (typeof v !== 'object' || v === null || typeof v.id === 'undefined') {
+          console.warn(`[treatmentService.getVisitsByPlanId] Invalid visit object at index ${index} for planId ${planId}:`, v);
+          return { id: 'INVALID_VISIT_DATA' }; // Or filter out, or throw
+        }
+        return { id: v.id };
+      });
+      console.log(`[treatmentService.getVisitsByPlanId] Mapped visits for planId ${planId}:`, mappedVisits);
+      return mappedVisits;
+    } catch (error) {
+      console.error(`[treatmentService.getVisitsByPlanId] CRITICAL ERROR fetching visits for plan ${planId}:`, error);
+      throw error; 
+    }
+  },
+
+  // New function to create multiple visits for a plan based on AI suggestions
   async createMultipleVisits(planId: string, aiSittings: AISittingDetail[], planStartDateString: string) {
     if (!aiSittings || aiSittings.length === 0) {
       return { data: [], error: null }; // No sittings to create

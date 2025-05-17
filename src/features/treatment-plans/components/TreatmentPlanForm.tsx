@@ -35,7 +35,7 @@ import { AISuggestionForm, AISuggestion } from './AISuggestionForm';
 
 // Define schema for treatment plan form
 export const treatmentPlanSchema = z.object({
-  title: z.string().min(1, "Title is required"),
+  symptoms: z.string().min(1, "Symptoms are required"),
   description: z.string().min(1, "Description is required"),
   patient_id: z.string().min(1, "Patient is required"),
   domain: z.string().optional(),
@@ -141,7 +141,7 @@ export function TreatmentPlanForm({
   const form = useForm<TreatmentPlanFormValues>({
     resolver: zodResolver(treatmentPlanSchema),
     defaultValues: {
-      title: '',
+      symptoms: '',
       description: '',
       patient_id: '',
       domain: '',
@@ -173,11 +173,11 @@ export function TreatmentPlanForm({
       setDialogSelectedToothIds([]); // Reset temporary selection
     } else {
        form.reset({
-         title: '', 
-         description: '', 
+         symptoms: '',
+         description: '',
          patient_id: selectedPatientId || '',
-         domain: '', 
-         condition: '', 
+         domain: '',
+         condition: '',
          treatment: '',
          estimated_duration: '',
          total_visits: '',
@@ -490,6 +490,12 @@ export function TreatmentPlanForm({
 
     let dataForSubmit: any = { ...values };
 
+    // Map symptoms back to title for backend compatibility
+    if (dataForSubmit.symptoms) {
+      dataForSubmit.title = dataForSubmit.symptoms;
+      delete dataForSubmit.symptoms;
+    }
+
     // Remove fields not directly part of the main plan table or used for initial setup
     // but keep ones that might be used by metadata or other related tables if creating a new plan
     delete dataForSubmit.patient_name; // This is for display, patient_id is the fk
@@ -637,7 +643,7 @@ export function TreatmentPlanForm({
   // Function to apply a selected AI suggestion to the form
   const handleApplySuggestion = (suggestion: AISuggestion) => {
     setSelectedAISuggestionForSubmit(suggestion);
-    form.setValue('title', suggestion.title);
+    form.setValue('symptoms', suggestion.title);
     form.setValue('description', suggestion.description);
 
     if (suggestion.planDetails?.clinicalConsiderations) {
@@ -901,12 +907,12 @@ export function TreatmentPlanForm({
                       <div className="mt-4 pt-4 border-t space-y-4">
                         <FormField
                           control={form.control}
-                          name="title"
+                          name="symptoms"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Title *</FormLabel>
+                              <FormLabel>Symptoms *</FormLabel>
                               <FormControl>
-                                <Input placeholder="Treatment plan title" {...field} />
+                                <Input placeholder="Enter patient symptoms" {...field} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -936,17 +942,15 @@ export function TreatmentPlanForm({
                           <AISuggestionForm
                             patientId={selectedPatientId || ''}
                             toothIds={selectedToothIds}
-                            domain={selectedDomain || ''}
-                            condition={String(selectedCondition || '')}
+                            domain={form.watch('domain') || ''}
+                            condition={form.watch('condition') || ''}
                             matrixDetails={matrixDetails}
                             selectedTreatment={form.watch('treatment') || ''}
-                            title={form.watch('title') || ''}
+                            symptoms={form.watch('symptoms') || ''}
                             description={form.watch('description') || ''}
-                            onSuggestionApply={(suggestion) => {
-                              handleApplySuggestion(suggestion);
-                            }}
-                            disabled={!selectedPatientId || selectedToothIds.length === 0 || !form.watch('treatment') || !selectedPatientRecord || isLoadingPatientDetails || isGeneratingSuggestions}
                             patientRecord={selectedPatientRecord}
+                            onSuggestionApply={handleApplySuggestion}
+                            disabled={!selectedPatientId || selectedToothIds.length === 0 || !form.watch('treatment') || !selectedPatientRecord || isLoadingPatientDetails || isGeneratingSuggestions}
                           />
                         </div>
                       </div>

@@ -35,6 +35,7 @@ import { Loader2 } from 'lucide-react';
 
 import LoginPage from './pages/LoginPage'; // Import the new Login page
 import SignUpPage from './pages/SignUpPage'; // Import the new Sign Up page
+import { ActivityLogPage } from './pages/ActivityLogPage'; // Import the new Activity Log page
 
 
 // Component to handle routing based on auth state
@@ -72,6 +73,7 @@ function AppContent() {
           <Route path="settings" element={<Settings />} />
           <Route path="payments-subscription" element={<PaymentsSubscriptionPage />} />
           <Route path="patient-medical-records" element={<PatientMedicalRecordsPage />} />
+          <Route path="activity-log" element={<ActivityLogPage />} /> {/* Add Activity Log route */}
           {/* Admin Only Routes */}
           <Route element={<AdminRoute />}>
             <Route path="inventory" element={<InventoryPage />} />

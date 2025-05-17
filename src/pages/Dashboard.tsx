@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; // Import useNavigate
-import { Calendar, Users, Clock, Activity, ArrowUp, ArrowDown, ChevronRight, User } from 'lucide-react';
+import { Calendar, Users, ClockIcon as Clock, Activity, ArrowUp, ArrowDown, ChevronRight, User } from 'lucide-react'; // Renamed Clock to ClockIcon and aliased to Clock for less churn
 import { api, subscribeToChanges } from '@/lib/api';
 import { format, startOfDay, endOfDay, addDays, parseISO, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isWithinInterval, eachHourOfInterval } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import DashboardCharts, { ChartDataPoint, PieChartDataPoint, DashboardChartsProps } from '@/components/DashboardCharts'; // Import the new charts component and its types
+import { UpcomingAppointmentsModal } from '@/components/UpcomingAppointmentsModal'; // Import the modal
 // Import types from generated file (adjust path if needed)
 import type { Database } from '../../supabase_types'; // Corrected import path
 
@@ -32,13 +33,19 @@ interface UpcomingAppointment {
   date: string;
   type: string;
   status: string;
+  start_time?: string; // Added for modal formatting flexibility
 }
 
 interface RecentActivityItem {
-  type: 'appointment' | 'treatment' | 'record'; // More specific type
-  title: string;
-  time: Date;
+  id: string; // Add an ID for key prop
+  type: 'appointment' | 'treatment' | 'record';
+  title: string;           // E.g., "Appointment Completed", "Treatment Logged", "Record Added"
+  patientName?: string;    // "John Doe"
+  itemName?: string;       // E.g., "Consultation", "RCT - Step 2", "Dental X-Ray"
+  staffName?: string;      // "Dr. Emily Carter" (for appointments)
+  timestamp: Date; // Renamed from 'time' for clarity
   icon: React.ElementType;
+  details?: string; // Optional longer description or notes
 }
 
 export function Dashboard() {
@@ -54,6 +61,8 @@ export function Dashboard() {
     successRateChange: 0 // Will be set to 0, removing mock calc
   });
   const [upcomingAppointments, setUpcomingAppointments] = useState<UpcomingAppointment[]>([]); // Use interface type
+  const [allUpcomingAppointments, setAllUpcomingAppointments] = useState<UpcomingAppointment[]>([]); // For the modal
+  const [isAppointmentsModalOpen, setIsAppointmentsModalOpen] = useState(false); // Modal state
   const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]); // Use interface type
   const [loading, setLoading] = useState(true);
   // State for chart data
@@ -173,59 +182,77 @@ export function Dashboard() {
       });
       
       // Filter, sort, and format upcoming appointments from allAppointments using start_time
-      const upcomingFiltered = (allAppointments as AppointmentWithDetails[])
+      const allUpcomingFiltered = (allAppointments as AppointmentWithDetails[])
         .filter(apt => apt.status === 'scheduled' && apt.start_time && parseISO(apt.start_time) >= todayStart) // Use start_time
         .sort((a, b) => (a.start_time ? parseISO(a.start_time).getTime() : 0) - (b.start_time ? parseISO(b.start_time).getTime() : 0)) // Sort by start_time
-        .slice(0, 5) // Limit to 5 appointments
         .map((apt: AppointmentWithDetails) => ({ 
           id: apt.id,
           patient: apt.patients ? `${apt.patients.first_name} ${apt.patients.last_name}` : 'Unknown Patient',
-          // Use start_time for time and date
           time: apt.start_time ? format(parseISO(apt.start_time), 'h:mm a') : 'No time',
           date: apt.start_time ? format(parseISO(apt.start_time), 'MMM d') : 'No date',
           type: apt.type || 'Appointment', // Use the appointment's type field
-          status: apt.status
+          status: apt.status,
+          start_time: apt.start_time // Pass the original start_time for the modal
         }));
 
-      setUpcomingAppointments(upcomingFiltered); // Use the correct filtered variable
+      setAllUpcomingAppointments(allUpcomingFiltered);
+      setUpcomingAppointments(allUpcomingFiltered.slice(0, 5)); // For dashboard card
       
       // --- Get recent activity (completed appointments and treatments) ---
-      // Define activity arrays *before* combining them
+      const getPatientName = (patientId: string | null | undefined): string => {
+        if (!patientId) return 'Unknown Patient';
+        const patientDetails = (patients as PatientRow[]).find(p => p.id === patientId);
+        return patientDetails ? `${patientDetails.first_name} ${patientDetails.last_name}` : 'Unknown Patient';
+      };
+
       const recentCompletedAppointments: RecentActivityItem[] = (allAppointments as AppointmentWithDetails[]) 
-        .filter((apt: AppointmentWithDetails) => apt.status === 'completed')
+        .filter((apt: AppointmentWithDetails) => apt.status === 'completed' && apt.start_time)
         .map((apt: AppointmentWithDetails) => ({
+          id: apt.id,
           type: 'appointment' as const, 
-          // Use optional chaining and staff role for type
-          title: `Completed ${apt.staff?.role || 'Appointment'} for ${apt.patients ? `${apt.patients.first_name} ${apt.patients.last_name}` : 'Unknown Patient'}`,
-          // Use start_time or updated_at for time
-          time: apt.start_time ? parseISO(apt.start_time) : (apt.updated_at ? parseISO(apt.updated_at) : new Date()),
-          icon: Activity
+          title: `Appointment ${apt.type || ''} Completed`,
+          patientName: apt.patients ? `${apt.patients.first_name} ${apt.patients.last_name}` : 'Unknown Patient',
+          itemName: apt.type || 'Appointment',
+          staffName: apt.staff ? `${apt.staff.first_name} ${apt.staff.last_name}` : undefined,
+          timestamp: parseISO(apt.start_time!),
+          icon: User, 
+          details: `Notes: ${apt.notes || 'N/A'}`
         }));
 
       const recentCompletedTreatments: RecentActivityItem[] = (treatmentPlans as TreatmentPlanWithTreatments[])
-        .flatMap((plan: TreatmentPlanWithTreatments) => plan.treatments || [])
-        .filter((treatment): treatment is Database['public']['Tables']['treatments']['Row'] => !!treatment && !!treatment.updated_at) // Filter by existence and updated_at
-        .map((treatment: Database['public']['Tables']['treatments']['Row']) => ({
-          type: 'treatment' as const,
-          title: `Updated ${treatment.type} treatment`, // Use type instead of name
-          time: treatment.updated_at ? parseISO(treatment.updated_at) : (treatment.created_at ? parseISO(treatment.created_at) : new Date()),
-          icon: Calendar
-        }));
+        .flatMap((plan: TreatmentPlanWithTreatments) => {
+          const patientNameForPlan = getPatientName(plan.patient_id);
+          return (plan.treatments || [])
+            .filter(treatment => treatment.status === 'completed' && treatment.updated_at)
+            .map((treatment: Database['public']['Tables']['treatments']['Row']) => ({
+              id: treatment.id,
+              type: 'treatment' as const,
+              title: `Treatment Completed`,
+              patientName: patientNameForPlan,
+              itemName: treatment.type || 'Treatment',
+              timestamp: parseISO(treatment.updated_at!),
+              icon: Activity,
+              details: `Notes: ${treatment.notes || 'N/A'}`
+            }));
+        });
 
       const recentRecords: RecentActivityItem[] = (medicalRecords as MedicalRecordRow[])
+        .filter(record => record.created_at)
         .map((record: MedicalRecordRow) => ({
+          id: record.id,
           type: 'record' as const,
-          title: `Added Medical Record`, // Generic title
-          time: record.created_at ? parseISO(record.created_at) : new Date(),
-          icon: Clock
+          title: `Medical Record Added`,
+          patientName: getPatientName(record.patient_id),
+          itemName: record.record_type || 'Medical Record',
+          timestamp: parseISO(record.created_at!),
+          icon: Clock,
+          details: `Summary: ${record.summary || 'N/A'}`
         }));
 
-      // Combine and sort activity *after* defining individual arrays
-      const allActivity = [...recentCompletedAppointments, ...recentCompletedTreatments, ...recentRecords] 
-        .sort((a, b) => b.time.getTime() - a.time.getTime())
-        .slice(0, 5);
+      const combinedActivity = [...recentCompletedAppointments, ...recentCompletedTreatments, ...recentRecords] 
+        .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()); // Sort all activities first
 
-      setRecentActivity(allActivity);
+      setRecentActivity(combinedActivity.slice(0, 3)); // Then slice for the dashboard display (e.g., top 3)
 
       // --- Process data for charts ---
 
@@ -641,7 +668,7 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
               <CardTitle>Upcoming Appointments</CardTitle>
               {/* Add onClick handler */}
-              <Button variant="ghost" size="sm" className="text-sm" onClick={() => navigate('/appointments')}>
+              <Button variant="ghost" size="sm" className="text-sm" onClick={() => setIsAppointmentsModalOpen(true)}>
                 View all
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
@@ -689,7 +716,7 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
               <CardTitle>Recent Activity</CardTitle>
               {/* Add onClick handler */}
-              <Button variant="ghost" size="sm" className="text-sm" onClick={() => navigate('/appointments')}>
+              <Button variant="ghost" size="sm" className="text-sm" onClick={() => navigate('/activity-log')}>
                 View all
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
@@ -717,10 +744,14 @@ export function Dashboard() {
                           activity.type === 'treatment' ? 'text-blue-600' : 'text-purple-600'
                         }`} />
                       </div>
-                      <div className="ml-4">
-                        <p className="text-sm">{activity.title}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {format(activity.time, 'MMM d, h:mm a')}
+                      <div className="ml-4 flex-1">
+                        <p className="text-sm font-medium">{activity.title}</p>
+                        {activity.patientName && <p className="text-xs text-muted-foreground">Patient: {activity.patientName}</p>}
+                        {activity.itemName && <p className="text-xs text-muted-foreground">Item: {activity.itemName}</p>}
+                        {activity.staffName && <p className="text-xs text-muted-foreground">Staff: {activity.staffName}</p>}
+                        {activity.details && <p className="text-xs text-muted-foreground italic">{activity.details}</p>}
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {format(activity.timestamp, 'MMM d, h:mm a')}
                         </p>
                       </div>
                     </div>
@@ -761,6 +792,11 @@ export function Dashboard() {
       </div>
       {/* End Dashboard Charts Section */}
 
+      <UpcomingAppointmentsModal
+        isOpen={isAppointmentsModalOpen}
+        onClose={() => setIsAppointmentsModalOpen(false)}
+        appointments={allUpcomingAppointments}
+      />
     </div>
   );
 }

@@ -46,6 +46,7 @@ const useNotifications = () => {
         .from('notifications') // Changed table name
         .select('*')
         .eq('user_id', user.id)
+        .eq('is_read', false) // Only fetch unread notifications
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -237,33 +238,52 @@ const useNotifications = () => {
 
   // Function to clear/delete a notification
   const clearNotification = async (notificationId: string) => {
-    // Optimistically update UI first for better perceived performance
+    // Optimistically update UI by marking as read (or filtering, depending on desired behavior)
+    // For "don't show again", marking as read and filtering is the goal.
     setNotifications((prevNotifications) =>
-      prevNotifications.filter((notification) => notification.id !== notificationId)
+      prevNotifications.map((notification) =>
+        notification.id === notificationId ? { ...notification, is_read: true } : notification
+      ).filter(notification => !(notification.id === notificationId && notification.is_read)) // Immediately hide it
     );
 
-    // Then, attempt to delete from the database
+    // Then, attempt to mark as read in the database
     const { error } = await supabase
       .from('notifications') // Changed table name
-      .delete()
-      .eq('id', notificationId);
+      .update({ is_read: true }) // Mark as read
+      .eq('id', notificationId)
+      .eq('user_id', user?.id); // Ensure user can only update their own
 
     if (error) {
-      console.error('Error deleting notification:', error);
+      console.error('Error marking notification as read (clearing):', error);
+      // Revert optimistic update if db update fails
+      // This requires fetching the original state or simply re-fetching all notifications
+      // For simplicity here, we'll log and the user might see it reappear on next full fetch if error persists
+      // A more robust solution would be to revert the specific notification's is_read status locally.
       toast({
         title: "Error",
-        description: "Could not clear notification. Please try again.",
+        description: "Could not clear notification. It may reappear.",
         variant: "destructive",
       });
-      // Optional: Revert UI change if deletion fails (fetch notifications again or add back)
-      // For simplicity, we'll leave the UI optimistic for now.
+      // Attempt to refetch or revert
+      // For now, we will filter it out locally, but if the DB call failed, it will come back on refresh
+      // A proper revert would be:
+      // setNotifications((prevNotifications) =>
+      //   prevNotifications.map((notification) =>
+      //     notification.id === notificationId ? { ...notification, is_read: false } : notification // Revert
+      //   )
+      // );
     } else {
-      console.log('Notification cleared successfully:', notificationId);
-      // Optionally show a success toast
-      // toast({ title: "Notification Cleared" });
+      // Successfully marked as read in DB.
+      // The local state is already updated to hide it.
+      // If we want to keep it in the list but styled as "read", the filter in setNotifications would be removed.
+      // Since the goal is to "not show again", filtering it out after marking as read is appropriate.
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
     }
   };
 
+  const deleteNotificationPermanently = async (notificationId: string) => {
+    // ... existing code ...
+  };
 
   return { notifications, markAsRead, createNotification, clearNotification }; // Return the new function
 };
