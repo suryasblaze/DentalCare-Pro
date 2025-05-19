@@ -300,12 +300,12 @@ Post-Treatment Care:`, `  ${suggestion.postTreatmentCare}`);
           type="button"
           onClick={handleGenerateClick}
           disabled={disabled || !selectedTreatment}
-          className={`ai-insights-button ${isGenerating ? 'opacity-100 cursor-not-allowed' : ''}`}
+          className={`ai-insights-button w-full flex items-center justify-center py-2 px-4 rounded-lg bg-[#1B56FD] text-white hover:bg-[#0118D8] ${isGenerating ? 'opacity-100 cursor-not-allowed' : ''}`}
           style={isGenerating ? { opacity: 1 } : {}}
         >
           {isGenerating ? (
             <>
-              <BrainCog className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               {"AI is thinking... (this may take up to 2 minutes)"}
             </>
           ) : (
@@ -348,7 +348,9 @@ Post-Treatment Care:`, `  ${suggestion.postTreatmentCare}`);
                         </div>
                       )}
                     </div>
-                    {suggestion.planDetails.isPatientSelected && (
+                    {(suggestion.planDetails.isPatientSelected || 
+                      suggestion.title.toLowerCase().includes('patient selected') ||
+                      suggestion.title.toLowerCase().includes('patient-selected')) && (
                       <Button
                         type="button"
                         variant="outline"

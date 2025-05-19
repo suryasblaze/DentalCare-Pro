@@ -649,7 +649,7 @@ export function TreatmentPlanForm({
         toothIds: selectedToothIds,
         domain: selectedDomain,
         details: matrixDetails, 
-        treatment: form.getValues('treatment'), 
+        treatment: form.getValues('treatment') || '', 
         patientRecord: selectedPatientRecord, 
       };
       console.log("Sending payload to n8n:", payload);
@@ -689,7 +689,7 @@ export function TreatmentPlanForm({
       const parsedSuggestions: AISuggestion[] = output.treatmentPlans.map((plan: any) => {
         const planNameOriginal = plan.planName;
         const planNameLower = planNameOriginal?.toLowerCase();
-        const patientSelectedTreatmentForm = form.getValues('treatment');
+        const patientSelectedTreatmentForm = form.getValues('treatment') || '';
         const patientSelectedTreatmentLower = patientSelectedTreatmentForm?.toLowerCase();
 
         let isPatientSelected = false;
@@ -952,10 +952,54 @@ export function TreatmentPlanForm({
                 </FormItem>
               )}
 
-              {/* AI Powered Suggestions - Now shown only after patient, domain, teeth, AND a treatment is selected from matrix details */}
-              {selectedPatientId && selectedDomain && selectedToothIds.length > 0 && matrixDetails && form.watch('treatment') && (
-                <div className="mt-4 pt-4 border-t space-y-4">
-                  {/* Title and Description Fields */}
+              {/* Restored section for displaying Matrix Details (Urgency, Severity, Treatment Options) */}
+              {isLoadingDetails && <div className="flex justify-center items-center p-4"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> <span className="ml-2 text-muted-foreground">Loading details...</span></div>}
+              {!isLoadingDetails && matrixDetails && selectedDomain && conditionAppliedInChart && (
+                <div className="my-4 p-4 border rounded-lg bg-secondary/10 space-y-2 text-sm">
+                  <h4 className="font-semibold text-base mb-2">Details for {selectedDomain} / {conditionAppliedInChart}</h4>
+                  {matrixDetails.urgency && <p><strong>Urgency:</strong> {matrixDetails.urgency}</p>}
+                  {matrixDetails.severity && <p><strong>Severity:</strong> {matrixDetails.severity}</p>}
+                  {matrixDetails.risk_impact && <p><strong>Risk/Impact:</strong> {matrixDetails.risk_impact}</p>}
+                  {matrixDetails.recommended_investigations && matrixDetails.recommended_investigations.length > 0 && (
+                    <p><strong>Investigations:</strong> {matrixDetails.recommended_investigations.join(', ')}</p>
+                  )}
+                  
+                  {matrixDetails.treatment_options && matrixDetails.treatment_options.length > 0 && (
+                    <div className="mt-3">
+                      <p className="font-semibold mb-1">Select Treatment:</p>
+                      <FormField
+                        control={form.control}
+                        name="treatment"
+                        render={({ field }) => (
+                          <div className="space-y-1 ml-1">
+                            {matrixDetails.treatment_options.map((option: string) => (
+                              <label key={option} className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  value={option}
+                                  checked={field.value === option}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      field.onChange(option);
+                                    }
+                                  }}
+                                  className="form-radio h-4 w-4 text-primary focus:ring-primary border-muted-foreground"
+                                />
+                                <span>{option}</span>
+                              </label>
+                            ))}
+                            <FormMessage />
+                          </div>
+                        )}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Title and Description Fields */}
+              {matrixDetails && form.watch('treatment') && (
+                <div className="space-y-4">
                   <FormField
                     control={form.control}
                     name="symptoms"
@@ -987,89 +1031,28 @@ export function TreatmentPlanForm({
                       </FormItem>
                     )}
                   />
-
-                  {/* Add the simplified AI Suggestion Form */}
-                  <div className="mt-4">
-                    <AISuggestionForm
-                      patientId={selectedPatientId || ''}
-                      toothIds={selectedToothIds}
-                      domain={form.watch('domain') || ''}
-                      condition={form.watch('condition') || ''}
-                      matrixDetails={matrixDetails}
-                      selectedTreatment={form.watch('treatment') || ''}
-                      symptoms={form.watch('symptoms') || ''}
-                      description={form.watch('description') || ''}
-                      patientRecord={selectedPatientRecord}
-                      onSuggestionApply={handleApplySuggestion}
-                      disabled={!selectedPatientId || selectedToothIds.length === 0 || !form.watch('treatment') || !selectedPatientRecord || isLoadingPatientDetails || isGeneratingSuggestions}
-                    />
-                  </div>
                 </div>
               )}
 
-              {/* Restored section for displaying Matrix Details (Urgency, Severity, Treatment Options) */}
-              {isLoadingDetails && <div className="flex justify-center items-center p-4"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> <span className="ml-2 text-muted-foreground">Loading details...</span></div>}
-              {!isLoadingDetails && matrixDetails && selectedDomain && conditionAppliedInChart && (
-                  <div className="my-4 p-4 border rounded-lg bg-secondary/10 space-y-2 text-sm">
-                    <h4 className="font-semibold text-base mb-2">Details for {selectedDomain} / {conditionAppliedInChart}</h4>
-                      {matrixDetails.urgency && <p><strong>Urgency:</strong> {matrixDetails.urgency}</p>}
-                      {matrixDetails.severity && <p><strong>Severity:</strong> {matrixDetails.severity}</p>}
-                      {matrixDetails.risk_impact && <p><strong>Risk/Impact:</strong> {matrixDetails.risk_impact}</p>}
-                      {matrixDetails.recommended_investigations && matrixDetails.recommended_investigations.length > 0 && (
-                        <p><strong>Investigations:</strong> {matrixDetails.recommended_investigations.join(', ')}</p>
-                      )}
-                      
-                      {matrixDetails.treatment_options && matrixDetails.treatment_options.length > 0 && (
-                        <div className="mt-3">
-                          <p className="font-semibold mb-1">Select Treatment:</p>
-                          <FormField
-                            control={form.control}
-                            name="treatment"
-                            render={({ field }) => (
-                              <div className="space-y-1 ml-1">
-                                {matrixDetails.treatment_options.map((option: string) => (
-                                <label key={option} className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                      type="radio"
-                                      value={option}
-                                      checked={field.value === option}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          field.onChange(option);
-                                        }
-                                      }}
-                                    className="form-radio h-4 w-4 text-primary focus:ring-primary border-muted-foreground"
-                                    />
-                                    <span>{option}</span>
-                                  </label>
-                                ))}
-                                <FormMessage />
-                              </div>
-                            )}
-                          />
-                        </div>
-                      )}
-                  </div>
-              )}
-              {/* End Restored Matrix Details Section */}
-
-              {/* AI Powered Suggestions - Now shown only after patient, domain, teeth, AND a treatment is selected from matrix details */}
+              {/* AI Powered Suggestions - Now shown only after patient, domain, teeth, AND a treatment is selected */}
               {selectedPatientId && selectedDomain && selectedToothIds.length > 0 && matrixDetails && form.watch('treatment') && (
                 <div className="my-4 p-4 border rounded-lg bg-muted/30">
-                  <h3 className="text-lg font-semibold mb-2 flex items-center"><BrainCog className="mr-2 h-5 w-5 text-primary"/>AI Powered Suggestions</h3>
-                  <Button 
-                      type="button" 
-                      onClick={handleGetAISuggestions} 
-                      disabled={isGeneratingSuggestions || !selectedPatientId || selectedToothIds.length === 0 || !selectedDomain || isLoadingPatientDetails || !form.watch('treatment')}
-                      className={`ai-insights-button w-full flex items-center justify-center py-2 px-4 rounded-lg shadow-md font-semibold text-white transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50 ${isGeneratingSuggestions ? 'opacity-100 cursor-not-allowed' : ''}`}
-                      style={isGeneratingSuggestions ? { opacity: 1 } : {}}
-                  >
-                      {isGeneratingSuggestions ? (
-                          <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> AI is thinking... (this may take up to 2 minutes)</>
-                      ) : (
-                          <><BrainCog className="mr-2 h-5 w-5"/> Generate AI Suggestions</>
-                      )}
-                  </Button>
+                  <h3 className="text-lg font-semibold mb-2 flex items-center">
+                    <BrainCog className="mr-2 h-5 w-5 text-primary"/>AI Treatment Suggestions
+                  </h3>
+                  <AISuggestionForm
+                    patientId={selectedPatientId}
+                    toothIds={selectedToothIds}
+                    domain={selectedDomain}
+                    condition={conditionAppliedInChart || ''}
+                    matrixDetails={matrixDetails}
+                    selectedTreatment={form.watch('treatment') || ''}
+                    symptoms={form.watch('symptoms')}
+                    description={form.watch('description')}
+                    patientRecord={selectedPatientRecord}
+                    onSuggestionApply={handleApplySuggestion}
+                    disabled={isGeneratingSuggestions || !selectedPatientId || selectedToothIds.length === 0 || !selectedDomain || isLoadingPatientDetails || !form.watch('treatment')}
+                  />
                 </div>
               )}
 
