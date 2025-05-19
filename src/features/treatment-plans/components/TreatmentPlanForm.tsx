@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/accordion";
 import { cn } from '@/lib/utils'; // cn might already be imported
 import { Clock, Calendar } from 'lucide-react'; // Icons for accordion
+import { useNavigate } from 'react-router-dom';
 
 // Define schema for treatment plan form
 export const treatmentPlanSchema = z.object({
@@ -57,14 +58,12 @@ export const treatmentPlanSchema = z.object({
   materials: z.string().optional(),
   clinical_considerations: z.string().optional(),
   post_treatment_care: z.string().optional(),
-  // Add missing fields that are part of the database table and used in services
-  status: z.string().optional(), 
-  start_date: z.string().optional(), // Should be date, but keeping string to align with form and service layer default logic
-  priority: z.string().optional(),
+  status: z.enum(['planned', 'in_progress', 'completed', 'cancelled']).optional(),
+  start_date: z.string().optional(),
+  priority: z.enum(['low', 'medium', 'high']).optional(),
   ai_generated: z.boolean().optional(),
-  // Add fields to carry AI-generated treatments and the original suggestion
   initialTreatments: z.array(z.any()).optional(),
-  originalAISuggestion: z.any().optional(),
+  originalAISuggestion: z.any().optional()
 });
 
 export type TreatmentPlanFormValues = z.infer<typeof treatmentPlanSchema>;
@@ -72,10 +71,10 @@ export type TreatmentPlanFormValues = z.infer<typeof treatmentPlanSchema>;
 interface TreatmentPlanFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: TreatmentPlanFormValues, toothIds: number[]) => Promise<any>; // Changed Promise<void> to Promise<any> to get createdPlan
+  onSubmit: (data: TreatmentPlanFormValues, toothIds: number[]) => Promise<any>;
   patients: any[];
   loading?: boolean;
-  initialData?: TreatmentPlanFormValues; // Make initialData an optional prop
+  initialData?: TreatmentPlanFormValues;
 }
 
 interface ToothConditionData {
@@ -146,13 +145,23 @@ export interface AISuggestion {
   postTreatmentCare: string;
 }
 
+interface BookedAppointment {
+  treatment_id: string;
+  status: string;
+  start_time: string;
+  staff?: {
+    first_name?: string;
+    last_name?: string;
+  };
+}
+
 export function TreatmentPlanForm({
   open,
   onOpenChange,
   onSubmit,
   patients,
   loading = false,
-  initialData, // Destructure initialData here
+  initialData,
 }: TreatmentPlanFormProps) {
   // State for patient search
   const [searchTerm, setSearchTerm] = useState('');
@@ -192,21 +201,29 @@ export function TreatmentPlanForm({
 
   const { toast } = useToast(); // Initialize toast
   const dentalChartRef = useRef<DentalChartHandle>(null); // Ref for DentalChart component
+  const navigate = useNavigate();
 
   const form = useForm<TreatmentPlanFormValues>({
     resolver: zodResolver(treatmentPlanSchema),
-    defaultValues: {
+    defaultValues: initialData || {
       symptoms: '',
       description: '',
       patient_id: '',
       domain: '',
+      condition: '',
       treatment: '',
       estimated_duration: '',
       total_visits: '',
       materials: '',
       clinical_considerations: '',
       post_treatment_care: '',
-    },
+      status: 'planned',
+      start_date: format(new Date(), 'yyyy-MM-dd'),
+      priority: 'medium',
+      ai_generated: false,
+      initialTreatments: [],
+      originalAISuggestion: null
+    }
   });
 
   // Reset form and selected teeth when main dialog closes/opens
@@ -231,6 +248,7 @@ export function TreatmentPlanForm({
          description: '',
          patient_id: selectedPatientId || '',
          domain: '',
+         condition: '',
          treatment: '',
          estimated_duration: '',
          total_visits: '',
@@ -934,39 +952,60 @@ export function TreatmentPlanForm({
                 </FormItem>
               )}
 
-              {/* Symptoms */}
+              {/* AI Powered Suggestions - Now shown only after patient, domain, teeth, AND a treatment is selected from matrix details */}
+              {selectedPatientId && selectedDomain && selectedToothIds.length > 0 && matrixDetails && form.watch('treatment') && (
+                <div className="mt-4 pt-4 border-t space-y-4">
+                  {/* Title and Description Fields */}
                   <FormField
                     control={form.control}
-                name="symptoms"
+                    name="symptoms"
                     render={({ field }) => (
                       <FormItem>
-                    <FormLabel>Symptoms *</FormLabel>
-                          <FormControl>
-                      <Input placeholder="Enter patient symptoms" {...field} />
-                          </FormControl>
+                        <FormLabel>Symptoms *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter patient symptoms" {...field} />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
 
-              {/* Description */}
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description *</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Detailed description of the treatment plan"
-                        {...field}
-                        rows={3}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Description *</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="Detailed description of the treatment plan"
+                            {...field}
+                            rows={3}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Add the simplified AI Suggestion Form */}
+                  <div className="mt-4">
+                    <AISuggestionForm
+                      patientId={selectedPatientId || ''}
+                      toothIds={selectedToothIds}
+                      domain={form.watch('domain') || ''}
+                      condition={form.watch('condition') || ''}
+                      matrixDetails={matrixDetails}
+                      selectedTreatment={form.watch('treatment') || ''}
+                      symptoms={form.watch('symptoms') || ''}
+                      description={form.watch('description') || ''}
+                      patientRecord={selectedPatientRecord}
+                      onSuggestionApply={handleApplySuggestion}
+                      disabled={!selectedPatientId || selectedToothIds.length === 0 || !form.watch('treatment') || !selectedPatientRecord || isLoadingPatientDetails || isGeneratingSuggestions}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Restored section for displaying Matrix Details (Urgency, Severity, Treatment Options) */}
               {isLoadingDetails && <div className="flex justify-center items-center p-4"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> <span className="ml-2 text-muted-foreground">Loading details...</span></div>}

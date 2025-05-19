@@ -901,26 +901,24 @@ export function Appointments() {
             <div className="space-y-2">
               <Label htmlFor="manual-time-input">Time</Label>
               <div 
-                className={`flex items-stretch border rounded-md overflow-hidden transition-all focus-within:ring-1 focus-within:ring-ring
-                            ${!manualTime ? 'border-red-500' : 'border-input'}`}
+                className={`flex items-stretch border rounded-md overflow-hidden transition-all focus-within:ring-1 focus-within:ring-ring ${!manualTime ? 'border-red-500' : 'border-input'}`}
               >
                 <Input
                   id="manual-time-input"
-                  type="text" // Changed from "time" to "text"
-                  value={manualTime} // Stores hh:mm
+                  type="text"
+                  value={manualTime}
                   onChange={(e) => {
-                    let val = e.target.value.replace(/[^0-9]/g, ''); // Keep only digits initially
+                    let val = e.target.value.replace(/[^0-9]/g, '');
                     if (manualTime.length > val.length && manualTime.endsWith(':')) {
-                        // Handle backspace over the colon
                         val = val.slice(0, -1);
                     }
-                    if (val.length > 2) {
+                    if (val.length > 2 && !val.includes(':')) {
                       val = val.slice(0, 2) + ':' + val.slice(2);
                     }
-                    setManualTime(val.slice(0, 5)); // Ensure max length hh:mm (5 chars)
+                    setManualTime(val.slice(0, 5));
                   }}
                   placeholder="hh:mm"
-                  className="border-none focus:ring-0 outline-none flex-grow p-2 min-w-[70px] text-sm" // Adjusted styling
+                  className="border-none focus:ring-0 outline-none flex-grow p-2 min-w-[70px] text-sm"
                   required 
                 />
                 <Select
@@ -928,7 +926,7 @@ export function Appointments() {
                   onValueChange={(value: 'AM' | 'PM') => setManualAmPm(value)}
                 >
                   <SelectTrigger 
-                    className="border-l border-none focus:ring-0 outline-none h-full bg-transparent px-3 text-sm" // Adjusted styling for seamless look
+                    className="border-l border-input focus:ring-0 outline-none h-full bg-transparent px-3 text-sm rounded-l-none"
                     aria-label="Select AM or PM"
                   >
                     <SelectValue />
