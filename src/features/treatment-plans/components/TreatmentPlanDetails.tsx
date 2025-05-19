@@ -245,318 +245,395 @@ interface PrintableContentProps {
     estimatedVisitDate?: string;
     cost?: number | string;
   }>;
+  printViewType?: 'patient' | 'doctor'; // New prop
 }
 
 // Update the PrintableContent component with types
-const PrintableContent = ({ plan, treatmentsWithEstimatedDates }: PrintableContentProps) => {
+const PrintableContent = ({ plan, treatmentsWithEstimatedDates, printViewType = 'patient' }: PrintableContentProps) => {
   if (!plan) return null;
   
-  // Helper function to format patient details
+  const isDoctorView = printViewType === 'doctor';
+  const actualMetadata = plan.metadata && plan.metadata.length > 0 ? plan.metadata[0] : null;
+
+  // Prepare content blocks for Clinical/Additional Information
+  const clinicalConsiderationsBlock = isDoctorView && actualMetadata?.clinical_considerations ? (
+    <div style={{ padding: '15px', backgroundColor: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
+      <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#1f2937', fontWeight: '600' }}>Clinical Considerations</h3>
+      <p style={{ margin: '0', whiteSpace: 'pre-line', color: '#4b5563', lineHeight: '1.6' }}>{actualMetadata.clinical_considerations}</p>
+    </div>
+  ) : null;
+
+  const keyMaterialsBlock = isDoctorView && actualMetadata?.key_materials ? (
+    <div style={{ padding: '15px', backgroundColor: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
+      <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#1f2937', fontWeight: '600' }}>Key Materials</h3>
+      <p style={{ margin: '0', whiteSpace: 'pre-line', color: '#4b5563', lineHeight: '1.6' }}>{actualMetadata.key_materials}</p>
+    </div>
+  ) : null;
+
+  const postTreatmentCareBlock = actualMetadata?.post_treatment_care ? (
+    <div style={{ padding: '15px', backgroundColor: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
+      <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#1f2937', fontWeight: '600' }}>Post-Treatment Care</h3>
+      <p style={{ margin: '0', whiteSpace: 'pre-line', color: '#4b5563', lineHeight: '1.6' }}>{actualMetadata.post_treatment_care}</p>
+    </div>
+  ) : null;
+
+  const noInfoMessageText = isDoctorView ? "No clinical information available." : "No additional information available.";
+  const noInfoMessage = <p style={{ color: '#6b7280', fontSize: '14px', paddingTop: '10px' }}>{noInfoMessageText}</p>;
+
+  let hasRenderedContentForInfoSection = false;
+  if (isDoctorView) {
+    if (clinicalConsiderationsBlock || keyMaterialsBlock || postTreatmentCareBlock) {
+      hasRenderedContentForInfoSection = true;
+    }
+  } else {
+    if (postTreatmentCareBlock) {
+      hasRenderedContentForInfoSection = true;
+    }
+  }
+
   const formatPatientDetail = (value: string | number | undefined, suffix?: string) => {
     if (value === undefined || value === null || value === '') return 'Not specified';
     return suffix ? `${value}${suffix}` : value;
   };
 
+  // Create a reusable header component with two variants
+  const PageHeader = ({ isFirstPage = false }: { isFirstPage?: boolean }) => (
+    <div style={{ 
+      marginBottom: isFirstPage ? '30px' : '15px', 
+      paddingBottom: isFirstPage ? '20px' : '10px', 
+      borderBottom: '2px solid #0060df',
+      pageBreakInside: 'avoid'
+    }}>
+      {isFirstPage ? (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+            <img 
+              src="https://i.postimg.cc/j2qGSXwJ/facetslogo.png" 
+              alt="Facets Logo" 
+              style={{ height: '45px' }}
+            />
+            <div style={{ textAlign: 'right' }}>
+              <h1 style={{ 
+                fontSize: '28px',
+                margin: '0', 
+                color: '#0060df',
+                fontWeight: '700',
+                letterSpacing: '-0.5px'
+              }}>Treatment Plan</h1>
+              <p style={{ 
+                margin: '8px 0 0',
+                color: '#6b7280',
+                fontSize: '14px'
+              }}>
+                Generated on: {format(new Date(), 'MMMM d, yyyy')}
+              </p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: '15px', color: '#1f2937' }}>
+                <span style={{ fontWeight: '600' }}>Patient: </span>
+                {plan.patient?.full_name || plan.patientName || 'Not specified'}
+              </p>
+              <p style={{ margin: '0', fontSize: '15px', color: '#1f2937' }}>
+                <span style={{ fontWeight: '600' }}>Reg. No: </span>
+                {formatPatientDetail(plan.patient?.registration_number)}
+              </p>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div style={{ 
+          paddingTop: '10px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div>
+            <p style={{ margin: '0 0 2px', fontSize: '13px', color: '#1f2937' }}>
+              <span style={{ fontWeight: '600' }}>Patient: </span>
+              {plan.patient?.full_name || plan.patientName || 'Not specified'}
+            </p>
+            <p style={{ margin: '0', fontSize: '13px', color: '#1f2937' }}>
+              <span style={{ fontWeight: '600' }}>Reg. No: </span>
+              {formatPatientDetail(plan.patient?.registration_number)}
+            </p>
+          </div>
+          <p style={{ 
+            margin: '0',
+            fontSize: '12px',
+            color: '#6b7280'
+          }}>
+            Page {/* Page number will be added by the print system */}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div id="printable-content" className="print-only" style={{ 
       display: 'none', 
-      padding: '40px', 
-      fontFamily: 'system-ui, -apple-system, sans-serif',
+      padding: '30px',
+      fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
       backgroundColor: 'white',
-      minHeight: '297mm'
+      minHeight: '297mm',
+      color: '#374151'
     }}>
       <div style={{ 
-        maxWidth: '210mm', 
+        maxWidth: '200mm',
         margin: '0 auto',
         backgroundColor: 'white'
       }}>
-        {/* Header */}
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'flex-start',
-          marginBottom: '30px',
-          borderBottom: '1px solid #0060df'
-        }}>
-          <img 
-            src="https://i.postimg.cc/j2qGSXwJ/facetslogo.png" 
-            alt="Facets Logo" 
-            style={{ height: '40px' }}
-          />
-          <div style={{ textAlign: 'right' }}>
-            <h1 style={{ 
-              fontSize: '24px', 
-              margin: '0', 
+        {/* First page content */}
+        <div style={{ pageBreakAfter: 'always' }}>
+          <PageHeader isFirstPage={true} />
+
+          {/* Patient Information Section */}
+          <div style={{ marginBottom: '25px' }}>
+            <h2 style={{ 
+              fontSize: '16px',
               color: '#0060df',
-              fontWeight: '500'
-            }}>Treatment Plan</h1>
-            <p style={{ 
-              margin: '5px 0 10px', 
-              color: '#666', 
-              fontSize: '14px' 
+              marginBottom: '15px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #e5e7eb',
+              fontWeight: '600'
+            }}>Patient Details</h2>
+            <div style={{ 
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '12px 30px',
+              fontSize: '13px',
+              lineHeight: '1.5'
             }}>
-              Generated on: {format(new Date(), 'MMMM d, yyyy')}
-            </p>
-          </div>
-        </div>
-
-        {/* Patient Information */}
-        <div style={{ marginBottom: '30px' }}>
-          <h2 style={{ 
-            fontSize: '16px', 
-            color: '#0060df', 
-            marginBottom: '20px',
-            fontWeight: '500'
-          }}>Patient Information</h2>
-
-          <div style={{ 
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '20px 40px',
-            fontSize: '14px'
-          }}>
-            {/* Left Column */}
-            <div>
-              <div style={{ marginBottom: '15px' }}>
-                <p style={{ margin: '0 0 5px', color: '#666' }}>Full Name</p>
-                <p style={{ margin: '0', fontWeight: '500' }}>
-                  {plan.patient?.full_name || plan.patientName || 'Not specified'}
+              <div>
+                <p style={{ margin: '0 0 8px' }}>
+                  <span style={{ color: '#4b5563' }}>Gender</span><br />
+                  <span style={{ color: '#1f2937', fontWeight: '500' }}>
+                    {plan.patient?.gender ? 
+                      plan.patient.gender.charAt(0).toUpperCase() + plan.patient.gender.slice(1) : 
+                      'Not specified'}
+                  </span>
                 </p>
-              </div>
-              <div style={{ marginBottom: '15px' }}>
-                <p style={{ margin: '0 0 5px', color: '#666' }}>Registration Number</p>
-                <p style={{ margin: '0', fontWeight: '500' }}>
-                  {formatPatientDetail(plan.patient?.registration_number)}
+                <p style={{ margin: '0 0 8px' }}>
+                  <span style={{ color: '#4b5563' }}>Plan Title</span><br />
+                  <span style={{ color: '#1f2937', fontWeight: '500' }}>{plan.title}</span>
                 </p>
-              </div>
-            </div>
-
-            {/* Right Column */}
-            <div>
-              <div style={{ marginBottom: '15px' }}>
-                <p style={{ margin: '0 0 5px', color: '#666' }}>Gender</p>
-                <p style={{ margin: '0', fontWeight: '500' }}>
-                  {plan.patient?.gender ? 
-                    plan.patient.gender.charAt(0).toUpperCase() + plan.patient.gender.slice(1) : 
-                    'Not specified'}
-                </p>
-              </div>
-              <div style={{ marginBottom: '15px' }}>
-                <p style={{ margin: '0 0 5px', color: '#666' }}>Age</p>
-                <p style={{ margin: '0', fontWeight: '500' }}>
-                  {formatPatientDetail(plan.patient?.age, ' years')}
-                </p>
-              </div>
-            </div>
-
-            {/* Plan Details - Full Width */}
-            <div style={{ gridColumn: '1 / -1' }}>
-              <div style={{ marginBottom: '15px' }}>
-                <p style={{ margin: '0 0 5px', color: '#666' }}>Plan Title</p>
-                <p style={{ margin: '0', fontWeight: '500' }}>{plan.title}</p>
-              </div>
-              <div style={{ 
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '15px'
-              }}>
-                <div>
-                  <p style={{ margin: '0 0 5px', color: '#666' }}>Status</p>
-                  <p style={{ margin: '0', fontWeight: '500' }}>
+                <p style={{ margin: '0' }}>
+                  <span style={{ color: '#4b5563' }}>Status</span><br />
+                  <span style={{ color: '#1f2937', fontWeight: '500' }}>
                     {plan.status.charAt(0).toUpperCase() + plan.status.slice(1)}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ margin: '0 0 5px', color: '#666' }}>Priority</p>
-                  <p style={{ margin: '0', fontWeight: '500' }}>
+                  </span>
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 8px' }}>
+                  <span style={{ color: '#4b5563' }}>Age</span><br />
+                  <span style={{ color: '#1f2937', fontWeight: '500' }}>
+                    {formatPatientDetail(plan.patient?.age, ' years')}
+                  </span>
+                </p>
+                <p style={{ margin: '0 0 8px' }}>
+                  <span style={{ color: '#4b5563' }}>Priority</span><br />
+                  <span style={{ color: '#1f2937', fontWeight: '500' }}>
                     {plan.priority ? plan.priority.charAt(0).toUpperCase() + plan.priority.slice(1) : 'Not specified'}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ margin: '0 0 5px', color: '#666' }}>Start Date</p>
-                  <p style={{ margin: '0', fontWeight: '500' }}>
+                  </span>
+                </p>
+                <p style={{ margin: '0' }}>
+                  <span style={{ color: '#4b5563' }}>Start Date</span><br />
+                  <span style={{ color: '#1f2937', fontWeight: '500' }}>
                     {format(new Date(plan.start_date), 'MMMM d, yyyy')}
-                  </p>
-                </div>
+                  </span>
+                </p>
               </div>
             </div>
 
-            {/* Description - Full Width */}
             {plan.description && (
-              <div style={{ 
-                gridColumn: '1 / -1',
-                marginTop: '10px'
-              }}>
-                <p style={{ margin: '0 0 5px', color: '#666' }}>Description</p>
+              <div style={{ marginTop: '15px' }}>
+                <p style={{ margin: '0 0 5px', color: '#4b5563' }}>Description</p>
                 <p style={{ 
                   margin: '0',
+                  padding: '10px',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '6px',
+                  border: '1px solid #e5e7eb',
+                  fontSize: '13px',
                   lineHeight: '1.5',
-                  color: '#000',
-                  whiteSpace: 'pre-line'
+                  color: '#1f2937'
                 }}>{plan.description}</p>
               </div>
             )}
           </div>
-        </div>
 
-        {/* Treatment Details */}
-        <div style={{ marginBottom: '30px' }}>
-          <h2 style={{ 
-            fontSize: '16px', 
-            color: '#0060df', 
-            marginBottom: '20px',
-            fontWeight: '500'
-          }}>Treatment Details</h2>
-          
-          <table style={{ 
-            width: '100%', 
-            borderCollapse: 'collapse',
-            fontSize: '14px'
-          }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #eee' }}>
-                <th style={{ 
-                  textAlign: 'left', 
-                  padding: '10px 15px 10px 0',
-                  fontWeight: '500',
-                  color: '#666'
-                }}>Treatment</th>
-                <th style={{ 
-                  textAlign: 'left', 
-                  padding: '10px 15px',
-                  fontWeight: '500',
-                  color: '#666'
-                }}>Description</th>
-                <th style={{ 
-                  textAlign: 'center', 
-                  padding: '10px 15px',
-                  fontWeight: '500',
-                  color: '#666'
-                }}>Status</th>
-                <th style={{ 
-                  textAlign: 'center', 
-                  padding: '10px 15px',
-                  fontWeight: '500',
-                  color: '#666'
-                }}>Date</th>
-                <th style={{ 
-                  textAlign: 'right', 
-                  padding: '10px 0 10px 15px',
-                  fontWeight: '500',
-                  color: '#666'
-                }}>Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {treatmentsWithEstimatedDates.map((treatment, index) => (
-                <tr key={treatment.id || index} style={{ borderBottom: '1px solid #eee' }}>
-                  <td style={{ padding: '15px 15px 15px 0' }}>
-                    {treatment.type || treatment.title || 'N/A'}
-                  </td>
-                  <td style={{ padding: '15px' }}>
-                    {treatment.description || treatment.procedures || 'N/A'}
-                  </td>
-                  <td style={{ padding: '15px', textAlign: 'center' }}>
-                    {treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1)}
-                  </td>
-                  <td style={{ padding: '15px', textAlign: 'center' }}>
-                    {treatment.scheduled_date 
-                      ? format(new Date(treatment.scheduled_date), 'MMM d, yyyy')
-                      : (treatment.estimatedVisitDate 
-                          ? format(new Date(treatment.estimatedVisitDate), 'MMM d, yyyy')
-                          : 'Not scheduled')}
-                  </td>
-                  <td style={{ padding: '15px 0 15px 15px', textAlign: 'right' }}>
-                    {treatment.cost ? formatCurrency(parseFloat(String(treatment.cost))) : 'N/A'}
-                  </td>
+          {/* Treatment Details Section */}
+          <div style={{ marginBottom: '25px' }}>
+            <h2 style={{ 
+              fontSize: '16px',
+              color: '#0060df',
+              marginBottom: '15px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #e5e7eb',
+              fontWeight: '600'
+            }}>Treatment Details</h2>
+            <table style={{ 
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '13px',
+              border: '1px solid #e5e7eb'
+            }}>
+              <thead style={{ backgroundColor: '#007bff', color: 'white' }}>
+                <tr style={{ borderBottom: '2px solid #0056b3' }}>
+                  <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600' }}>Treatment</th>
+                  <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: '600' }}>Description</th>
+                  <th style={{ textAlign: 'center', padding: '10px 12px', fontWeight: '600' }}>Status</th>
+                  <th style={{ textAlign: 'center', padding: '10px 12px', fontWeight: '600' }}>Date</th>
+                  <th style={{ textAlign: 'right', padding: '10px 12px', fontWeight: '600' }}>Cost</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {treatmentsWithEstimatedDates.map((treatment, index) => (
+                  <tr key={treatment.id || index} style={{
+                    borderBottom: '1px solid #e5e7eb',
+                    backgroundColor: index % 2 === 0 ? '#f9fafb' : 'white'
+                  }}>
+                    <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+                      {treatment.type || treatment.title || 'N/A'}
+                    </td>
+                    <td style={{ padding: '10px 12px', verticalAlign: 'middle', lineHeight: '1.5' }}>
+                      {treatment.description || treatment.procedures || 'N/A'}
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
+                      <span style={{
+                        padding: '3px 7px',
+                        borderRadius: '10px',
+                        fontSize: '11px',
+                        fontWeight: '500',
+                        backgroundColor: treatment.status === 'completed' ? '#d1fae5' : treatment.status === 'pending' ? '#feF3c7' : '#fee2e2',
+                        color: treatment.status === 'completed' ? '#065f46' : treatment.status === 'pending' ? '#92400e' : '#991b1b'
+                      }}>
+                        {treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1)}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
+                      {treatment.scheduled_date 
+                        ? format(new Date(treatment.scheduled_date), 'MMM d, yyyy')
+                        : (treatment.completed_date 
+                            ? format(new Date(treatment.completed_date), 'MMM d, yyyy') 
+                            : (treatment.estimatedVisitDate
+                                ? format(new Date(treatment.estimatedVisitDate),'MMM d, yyyy')
+                                : 'Not scheduled'))}
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', verticalAlign: 'middle' }}>
+                      {treatment.cost ? formatCurrency(parseFloat(String(treatment.cost))) : 'N/A'}
+                    </td>
+                  </tr>
+                ))}
+                {treatmentsWithEstimatedDates.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '15px', color: '#6b7280' }}>
+                      No treatment details available.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* Clinical Information */}
-        <div style={{ padding: '20px', borderBottom: '1px solid #eee' }}>
-          <h2 style={{ fontSize: '18px', color: '#0060df', marginBottom: '15px' }}>Clinical Information</h2>
-          {plan.metadata && plan.metadata.length > 0 ? (
-            <div style={{ display: 'grid', gap: '15px' }}>
-              {plan.metadata[0].clinical_considerations && (
-                <div style={{ padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
-                  <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#333' }}>Clinical Considerations</h3>
-                  <p style={{ margin: '0', whiteSpace: 'pre-line' }}>{plan.metadata[0].clinical_considerations}</p>
-                </div>
-              )}
-              {plan.metadata[0].key_materials && (
-                <div style={{ padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
-                  <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#333' }}>Key Materials</h3>
-                  <p style={{ margin: '0', whiteSpace: 'pre-line' }}>{plan.metadata[0].key_materials}</p>
-                </div>
-              )}
-              {plan.metadata[0].post_treatment_care && (
-                <div style={{ padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
-                  <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#333' }}>Post-Treatment Care</h3>
-                  <p style={{ margin: '0', whiteSpace: 'pre-line' }}>{plan.metadata[0].post_treatment_care}</p>
-                </div>
-              )}
+        {/* Additional Information Section - New Page */}
+        <div style={{ pageBreakBefore: 'always' }}>
+          <PageHeader isFirstPage={false} />
+          
+          <div style={{ marginBottom: '25px' }}>
+            <h2 style={{ 
+              fontSize: '16px',
+              color: '#0060df',
+              marginBottom: '15px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #e5e7eb',
+              fontWeight: '600'
+            }}>Additional Information</h2>
+            <div style={{ display: 'grid', gap: '15px', fontSize: '13px' }}>
+              {isDoctorView && clinicalConsiderationsBlock}
+              {isDoctorView && keyMaterialsBlock}
+              {postTreatmentCareBlock}
+              {!hasRenderedContentForInfoSection && noInfoMessage}
             </div>
-          ) : (
-            <p style={{ color: '#666' }}>No additional clinical information available.</p>
-          )}
-        </div>
+          </div>
 
-        {/* Financial Summary */}
-        <div style={{ padding: '20px', borderBottom: '1px solid #eee' }}>
-          <h2 style={{ fontSize: '18px', color: '#0060df', marginBottom: '15px' }}>Financial Summary</h2>
+          {/* Financial Summary Section */}
+          <div style={{ marginBottom: '25px' }}>
+            <h2 style={{ 
+              fontSize: '16px',
+              color: '#0060df',
+              marginBottom: '15px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #e5e7eb',
+              fontWeight: '600'
+            }}>Financial Summary</h2>
+            <div style={{ 
+              backgroundColor: '#f9fafb',
+              padding: '20px',
+              borderRadius: '8px',
+              border: '1px solid #e5e7eb',
+              display: 'grid',
+              gap: '12px',
+              fontSize: '13px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>
+                <span style={{ fontWeight: '500', color: '#4b5563' }}>Total Treatment Cost:</span>
+                <strong style={{ color: '#1f2937' }}>{formatCurrency(plan.totalCost || 0)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>
+                <span style={{ fontWeight: '500', color: '#4b5563' }}>Insurance Coverage (Est.):</span>
+                <strong style={{ color: '#1f2937' }}>{formatCurrency(plan.insurance_coverage || 0)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px' }}>
+                <span style={{ fontWeight: '500', color: '#4b5563' }}>Patient Responsibility:</span>
+                <strong style={{ color: '#1f2937', fontSize: '16px' }}>{formatCurrency((plan.totalCost || 0) - (plan.insurance_coverage || 0))}</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* Signatures Section */}
+          <div style={{ marginTop: '25px', pageBreakInside: 'avoid' }}>
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: '1fr 1fr', 
+              gap: '40px',
+              marginBottom: '20px'
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ borderTop: '1px solid #000', width: '100%', marginBottom: '6px' }}></div>
+                <p style={{ margin: '0', fontSize: '13px', fontWeight: '600', color: '#1f2937' }}>Doctor's Signature</p>
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>Date: _________________</p>
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
+                  Doctor Name: _________________
+                </p>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ borderTop: '1px solid #000', width: '100%', marginBottom: '6px' }}></div>
+                <p style={{ margin: '0', fontSize: '13px', fontWeight: '600', color: '#1f2937' }}>Patient's Signature</p>
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>Date: _________________</p>
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
+                  {plan.patient?.full_name || plan.patientName || 'Patient Name'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
           <div style={{ 
-            backgroundColor: '#f8f9fa', 
-            padding: '20px', 
-            borderRadius: '4px',
-            display: 'grid',
-            gap: '10px'
+            borderTop: '2px solid #0060df',
+            marginTop: '15px',
+            padding: '12px 0',
+            textAlign: 'center',
+            color: '#6b7280',
+            fontSize: '11px'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
-              <span>Total Treatment Cost:</span>
-              <strong>{formatCurrency(plan.totalCost || 0)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
-              <span>Insurance Coverage (Est.):</span>
-              <strong>{formatCurrency(plan.insurance_coverage || 0)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '5px' }}>
-              <span>Patient Responsibility:</span>
-              <strong>{formatCurrency((plan.totalCost || 0) - (plan.insurance_coverage || 0))}</strong>
-            </div>
+            <p style={{ margin: '0 0 3px' }}>This treatment plan is valid for 6 months from the date of issue.</p>
+            <p style={{ margin: '0' }}>For any queries, please contact your dental care provider.</p>
           </div>
-        </div>
-
-        {/* Signatures Section */}
-        <div style={{ padding: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', marginTop: '30px' }}>
-            <div>
-              <div style={{ borderTop: '1px solid #000', paddingTop: '10px', marginTop: '40px' }}>
-                <p style={{ margin: '0', fontSize: '14px' }}><strong>Doctor's Signature</strong></p>
-                <p style={{ margin: '5px 0 0', fontSize: '12px', color: '#666' }}>Date: _________________</p>
-              </div>
-            </div>
-            <div>
-              <div style={{ borderTop: '1px solid #000', paddingTop: '10px', marginTop: '40px' }}>
-                <p style={{ margin: '0', fontSize: '14px' }}><strong>Patient's Signature</strong></p>
-                <p style={{ margin: '5px 0 0', fontSize: '12px', color: '#666' }}>Date: _________________</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div style={{ 
-          borderTop: '2px solid #0060df',
-          padding: '20px',
-          textAlign: 'center',
-          color: '#666',
-          fontSize: '12px'
-        }}>
-          <p style={{ margin: '0' }}>This treatment plan is valid for 6 months from the date of issue.</p>
-          <p style={{ margin: '5px 0 0' }}>For any queries, please contact your dental care provider.</p>
         </div>
       </div>
     </div>
@@ -1933,6 +2010,7 @@ export function TreatmentPlanDetails({
           }
         }} 
         treatmentsWithEstimatedDates={treatmentsWithEstimatedDates} 
+        printViewType="patient" // Explicitly set for the default direct print
       />
     </>
   );

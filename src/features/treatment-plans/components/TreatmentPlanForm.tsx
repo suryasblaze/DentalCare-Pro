@@ -31,7 +31,18 @@ import { format, addDays } from 'date-fns';
 import DentalChart, { InitialToothState, ToothCondition, DentalChartHandle } from './DentalChart';
 import { api } from '@/lib/api'; // Import the api object
 import { useToast } from '@/components/ui/use-toast'; // Import useToast
-import { AISuggestionForm, AISuggestion } from './AISuggestionForm';
+import { AISuggestionForm } from './AISuggestionForm'; // Removed AISuggestion from import
+import { Badge } from "@/components/ui/badge"; // May or may not be needed for new accordion display
+
+// Imports for Accordion display from AISuggestionForm.tsx
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { cn } from '@/lib/utils'; // cn might already be imported
+import { Clock, Calendar } from 'lucide-react'; // Icons for accordion
 
 // Define schema for treatment plan form
 export const treatmentPlanSchema = z.object({
@@ -71,8 +82,6 @@ interface ToothConditionData {
   tooth_id: number;
   conditions: ToothCondition[];
   patient_id: string;
-  id?: string;
-  last_updated_at?: string;
 }
 
 // Add interface for treatment plan item
@@ -90,6 +99,51 @@ interface TreatmentPlanItem {
       duration: string;
     };
   };
+}
+
+// Interface definitions from AISuggestionForm.tsx
+interface AppointmentDetail {
+  visit: string;
+  procedures: string;
+  estimatedDuration: string;
+  timeGap: string;
+}
+
+interface AppointmentPlan {
+  totalSittings: string;
+  sittingDetails: AppointmentDetail[];
+  totalTreatmentTime: string;
+  medicalPrecautions?: string;
+}
+
+// Updated AISuggestion interface from AISuggestionForm.tsx
+export interface AISuggestion {
+  title: string;
+  description: string; // Corresponds to output.clinicalAssessment
+  planDetails: {
+    planName: string;
+    clinicalProtocol: string;
+    keyMaterials: string;
+    clinicalConsiderations: string;
+    expectedOutcomes: string;
+    appointmentPlan?: AppointmentPlan;
+    isPatientSelected?: boolean;
+  };
+  caseOverview?: {
+    condition: string; // Domain from our form
+    severity: string; // From matrix
+    teethInvolved: string; // toothIds from our form
+    patientSymptoms?: string; // symptoms from our form
+    patientSelectedTreatment?: string; // treatment from our form
+  };
+  patientFactors?: {
+    relevantMedicalConditions: string;
+    medicationConsiderations: string;
+    ageRelatedConsiderations: string;
+  };
+  recommendedInvestigations?: string;
+  clinicalRationale?: string;
+  postTreatmentCare: string;
 }
 
 export function TreatmentPlanForm({
@@ -130,10 +184,11 @@ export function TreatmentPlanForm({
   const [matrixDetails, setMatrixDetails] = useState<any | null>(null); // Using any due to TS issues
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   // State for AI suggestions
-  const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[]>([]); // Changed type from any[]
+  const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[]>([]); // USE THE NEW DETAILED INTERFACE
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [isSavingChart, setIsSavingChart] = useState(false); // State for saving indicator
   const [selectedAISuggestionForSubmit, setSelectedAISuggestionForSubmit] = useState<AISuggestion | null>(null); // New state for applied AI suggestion
+  const [conditionAppliedInChart, setConditionAppliedInChart] = useState<string | null>(null); // New state
 
   const { toast } = useToast(); // Initialize toast
   const dentalChartRef = useRef<DentalChartHandle>(null); // Ref for DentalChart component
@@ -145,7 +200,6 @@ export function TreatmentPlanForm({
       description: '',
       patient_id: '',
       domain: '',
-      condition: '',
       treatment: '',
       estimated_duration: '',
       total_visits: '',
@@ -177,7 +231,6 @@ export function TreatmentPlanForm({
          description: '',
          patient_id: selectedPatientId || '',
          domain: '',
-         condition: '',
          treatment: '',
          estimated_duration: '',
          total_visits: '',
@@ -216,7 +269,6 @@ export function TreatmentPlanForm({
 
   // Watch form values for domain and condition
   const selectedDomain = form.watch('domain');
-  const selectedCondition = form.watch('condition');
 
   // Update filtered conditions when selectedDomain changes
   useEffect(() => {
@@ -228,60 +280,66 @@ export function TreatmentPlanForm({
         .sort();
       console.log(`Filtered conditions for ${selectedDomain}:`, relatedConditions); // Log filtered conditions
       setFilteredConditions(relatedConditions);
-      // Reset condition field if the current condition is not valid for the new domain
-      if (selectedCondition && !relatedConditions.includes(selectedCondition)) {
-         form.setValue('condition', ''); // Reset condition selection
-         setMatrixDetails(null); // Also clear details
-      }
     } else {
-      setFilteredConditions([]); // Clear conditions if no domain selected
-      form.setValue('condition', ''); // Reset condition selection
-      setMatrixDetails(null); // Also clear details
-      setAiSuggestions([]); // Clear suggestions if domain changes
-    }
-  }, [selectedDomain, matrixOptions, selectedCondition, form]); // Dependencies: selected domain and condition
-
-  // Fetch matrix details when domain and condition change
-  useEffect(() => {
-    // Reset details if either domain or condition is cleared
-    if (!selectedDomain || !selectedCondition) {
+      setFilteredConditions([]);
       setMatrixDetails(null);
+      setAiSuggestions([]);
+    }
+  }, [selectedDomain, matrixOptions, form]);
+
+  // useEffect to fetch matrix details when domain and conditionAppliedInChart change
+  useEffect(() => {
+    if (!selectedDomain || !conditionAppliedInChart) {
+      setMatrixDetails(null);
+      // Reset related form fields if domain/condition changes and details are cleared
+      // form.setValue('treatment', ''); // Keep existing treatment if user typed something
+      // form.setValue('symptoms', '');
+      // form.setValue('description', '');
       return;
     }
 
     const fetchDetails = async () => {
       setIsLoadingDetails(true);
-      setMatrixDetails(null); // Clear previous details
       try {
-        const details = await api.getMatrixDetails(selectedDomain, selectedCondition);
+        console.log(`Fetching matrix details for Domain: ${selectedDomain}, Condition: ${conditionAppliedInChart}`);
+        // Corrected API call based on the definition found in src/lib/api.ts
+        const details = await api.getMatrixDetails(selectedDomain, conditionAppliedInChart); 
         setMatrixDetails(details);
+        // Pre-filling logic adjusted based on actual available fields in 'details' object
+        // The 'details' object provides: urgency, severity, risk_impact, recommended_investigations, treatment_options
+        // It does NOT provide: treatment_title, default_symptoms, default_description, default_duration_weeks, default_visits
+
+        // If there are treatment_options, and the form's treatment field is empty, 
+        // we could potentially set the first option as default, but this might be too presumptive.
+        // For now, let user/AI fill the main 'treatment' field based on these options.
+        // Example: if (details?.treatment_options?.[0] && !form.getValues('treatment')) {
+        //   form.setValue('treatment', details.treatment_options[0]);
+        // }
+
       } catch (error) {
-        console.error(`Failed to fetch matrix details for ${selectedDomain}/${selectedCondition}:`, error);
-        setMatrixDetails(null); // Ensure details are null on error
-        setAiSuggestions([]); // Clear suggestions if details fetch fails or changes
+        console.error("Failed to fetch matrix details:", error);
+        setMatrixDetails(null);
+        toast({ title: "Error", description: "Could not load details for the selected domain/condition.", variant: "destructive" });
       } finally {
         setIsLoadingDetails(false);
       }
     };
-
     fetchDetails();
-  }, [selectedDomain, selectedCondition]); // Dependencies: selected domain and condition
+  }, [selectedDomain, conditionAppliedInChart, form, toast]);
 
-  // Update form field handlers
   const handleDomainChange = (value: string) => {
     form.setValue('domain', value);
-    form.setValue('condition', ''); // Reset condition when domain changes
-    setMatrixDetails(null); // Clear details when domain changes
-    setAiSuggestions([]); // Clear suggestions if domain changes
+    setMatrixDetails(null);
+    setAiSuggestions([]);
+    // Filtered conditions will be updated by the useEffect watching selectedDomain
   };
 
-  const handleConditionChange = (value: string) => {
+  // handleConditionChange is no longer needed for the main form
+  /* const handleConditionChange = (value: string) => {
     form.setValue('condition', value);
-    setMatrixDetails(null); // Clear details when condition changes directly
-    setAiSuggestions([]); // Clear suggestions if condition changes
-  };
+    // Fetching details is handled by useEffect
+  }; */
 
-  // Handler for patient selection from search results - Fetch conditions and set initial selection
   const handlePatientSelect = async (patient: any) => {
     setSelectedPatientId(patient.id);
     setSelectedPatientName(`${patient.first_name || ''} ${patient.last_name || ''}`.trim());
@@ -387,57 +445,61 @@ export function TreatmentPlanForm({
     setIsSavingChart(true);
     try {
       // 1. Get the current state from the DentalChart component via ref
-      const currentChartState = dentalChartRef.current.getTeethData(); // e.g., { 1: { conditions: ['decay'], isSelected: true }, ... }
+      const currentChartState = dentalChartRef.current.getTeethData();
+      const lastActiveConditionInChart = dentalChartRef.current.getLastActiveCondition();
       console.log("Data from chart ref:", currentChartState);
+      console.log("Last active condition from chart ref:", lastActiveConditionInChart);
 
       // 2. Transform the data into the format expected by the API
-      // ONLY include teeth that are selected AND have conditions other than just ['healthy']
+      // Convert single condition to array format for the database
       const conditionsToSave: ToothConditionData[] = Object.entries(currentChartState)
         .filter(([, toothData]) => {
-          const isSelected = toothData.isSelected;
-          const isOnlyHealthy = Array.isArray(toothData.conditions) &&
-                                toothData.conditions.length === 1 &&
-                                toothData.conditions[0] === 'healthy';
-          return isSelected && !isOnlyHealthy;
+          return toothData.isSelected && toothData.condition !== 'healthy';
         })
         .map(([toothIdStr, toothData]) => ({
           tooth_id: parseInt(toothIdStr, 10),
-          conditions: toothData.conditions as ToothCondition[],
+          conditions: [toothData.condition], // Convert single condition to array
           patient_id: selectedPatientId,
         }));
-      console.log("Filtered and transformed data to save (only selected & non-healthy):", conditionsToSave);
 
+      console.log("Filtered and transformed data to save:", conditionsToSave);
 
-      // 3. Call the correct API function to save the data (API function also needs modification)
-      // Assuming savePatientToothConditionsDetailed is the correct function in api.ts
+      // 3. Call the API function to save the data
       await api.patients.savePatientToothConditionsDetailed(selectedPatientId, conditionsToSave);
 
-      // 4. Update the local state (selectedToothIds and potentially chartInitialState for consistency)
-      // Use the original currentChartState for updating local UI state
+      // 4. Update the local state
       const currentSelectedIds = Object.entries(currentChartState)
         .filter(([, data]) => data.isSelected)
         .map(([id]) => parseInt(id, 10));
-      setSelectedToothIds(currentSelectedIds); // Update the main form's selected IDs display
+      setSelectedToothIds(currentSelectedIds);
 
-      // Update chartInitialState to reflect the saved state, so reopening shows the saved data
+      // Update chartInitialState to reflect the saved state
       const formattedSavedState: InitialToothState = {};
       Object.entries(currentChartState).forEach(([id, data]) => {
-         // Ensure data.conditions is treated as ToothCondition[] if possible,
-         // We know data.conditions contains valid ToothCondition strings from the chart,
-         // so we can safely assert the type here after the deep copy.
-         formattedSavedState[parseInt(id, 10)] = {
-           conditions: data.conditions as ToothCondition[], // Re-add type assertion here
-           isSelected: data.isSelected
-         };
+        formattedSavedState[parseInt(id, 10)] = {
+          condition: data.condition,
+          conditions: [data.condition], // Add conditions array for database compatibility
+          isSelected: data.isSelected
+        };
       });
       setChartInitialState(formattedSavedState);
+
+      // Set the condition applied in chart
+      if (lastActiveConditionInChart) {
+        setConditionAppliedInChart(lastActiveConditionInChart);
+      } else {
+        const firstSelectedToothWithCondition = Object.values(currentChartState).find(td => 
+          td.isSelected && td.condition !== 'healthy'
+        );
+        setConditionAppliedInChart(firstSelectedToothWithCondition?.condition || null);
+      }
 
       toast({
         title: "Chart Saved",
         description: "Patient's tooth conditions have been updated.",
-        variant: "default", // Use default variant for success
+        variant: "default",
       });
-      setIsChartDialogOpen(false); // Close dialog on success
+      setIsChartDialogOpen(false);
 
     } catch (error) {
       console.error("Failed to save tooth conditions:", error);
@@ -446,8 +508,6 @@ export function TreatmentPlanForm({
         description: "Could not save tooth conditions to the database.",
         variant: "destructive",
       });
-      // Keep dialog open on error? Or close? Closing for now.
-      // setIsChartDialogOpen(false);
     } finally {
       setIsSavingChart(false);
     }
@@ -551,10 +611,10 @@ export function TreatmentPlanForm({
 
   // Function to fetch AI suggestions from n8n
   const handleGetAISuggestions = useCallback(async () => {
-    if (!selectedPatientId || selectedToothIds.length === 0 || !selectedDomain || !selectedCondition || !selectedPatientRecord) {
+    if (!selectedPatientId || selectedToothIds.length === 0 || !selectedDomain || !selectedPatientRecord) {
       toast({
         title: "Missing Information",
-        description: "Please select patient, teeth, domain, and condition first.",
+        description: "Please select patient, teeth (and apply conditions in chart), and domain first.",
         variant: "default",
         duration: 3000,
       });
@@ -562,7 +622,7 @@ export function TreatmentPlanForm({
     }
 
     setIsGeneratingSuggestions(true);
-    setAiSuggestions([]); // Clear previous suggestions
+    setAiSuggestions([]);
 
     try {
       const webhookUrl = 'https://n8n1.kol.tel/webhook/2169736a-368b-49b5-b93f-ffc215203d99';
@@ -570,13 +630,11 @@ export function TreatmentPlanForm({
         patientId: selectedPatientId,
         toothIds: selectedToothIds,
         domain: selectedDomain,
-        condition: selectedCondition,
-        details: matrixDetails, // Send fetched matrix details
-        treatment: form.getValues('treatment'), // Single treatment instead of array
-        patientRecord: selectedPatientRecord, // Include the full patient record
-        // Add any other relevant patient info if needed by n8n
+        details: matrixDetails, 
+        treatment: form.getValues('treatment'), 
+        patientRecord: selectedPatientRecord, 
       };
-      console.log("Sending payload to n8n:", payload); // Log payload
+      console.log("Sending payload to n8n:", payload);
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -595,35 +653,82 @@ export function TreatmentPlanForm({
       const responseData = await response.json();
       console.log("Received response from n8n:", responseData);
 
-      // --- Adjust parsing based on actual n8n response structure ---
-      // Assuming n8n returns an array of suggestions directly, or nested within a known key
-      // Example: If response is { "suggestions": [...] }
-      // const suggestions = responseData.suggestions;
-      // Example: If response is [{...}, {...}]
-      const suggestions = responseData; // Adjust this line based on actual structure
+      // --- Adapt parsing from AISuggestionForm.tsx ---
+      const output = responseData[0]?.output?.response;
 
-      if (Array.isArray(suggestions) && suggestions.length > 0) {
-        // Assuming each suggestion has at least 'title' and 'description'
-        // Filter out any potentially invalid suggestions if needed
-        const validSuggestions = suggestions.filter(s => s && typeof s === 'object' && s.title && s.description);
-        setAiSuggestions(validSuggestions);
+      if (!output || !output.treatmentPlans || !Array.isArray(output.treatmentPlans)) {
+        console.warn("Invalid AI response structure: treatmentPlans missing or not an array. Response:", responseData);
+        setAiSuggestions([]);
+        toast({
+          title: "AI Response Error",
+          description: "The AI returned an unexpected data format.",
+          variant: "destructive",
+        });
+        setIsGeneratingSuggestions(false);
+        return;
+      }
+
+      const parsedSuggestions: AISuggestion[] = output.treatmentPlans.map((plan: any) => {
+        const planNameOriginal = plan.planName;
+        const planNameLower = planNameOriginal?.toLowerCase();
+        const patientSelectedTreatmentForm = form.getValues('treatment');
+        const patientSelectedTreatmentLower = patientSelectedTreatmentForm?.toLowerCase();
+
+        let isPatientSelected = false;
+        if (planNameLower) {
+            isPatientSelected = planNameLower.includes('(patient-selected)') || planNameLower.includes('(patient selected)');
+            if (!isPatientSelected && patientSelectedTreatmentLower && planNameLower.startsWith(patientSelectedTreatmentLower)) {
+                isPatientSelected = true;
+            }
+        }
+        
+        const caseOverviewData = {
+          condition: selectedDomain || output.caseOverview?.condition || 'N/A',
+          severity: matrixDetails?.severity || output.caseOverview?.severity || 'N/A',
+          teethInvolved: selectedToothIds.join(', ') || output.caseOverview?.teethInvolved || 'N/A',
+          patientSymptoms: form.getValues('symptoms') || output.caseOverview?.patientSymptoms,
+          patientSelectedTreatment: patientSelectedTreatmentForm || output.caseOverview?.patientSelectedTreatment,
+        };
+
+        return {
+          title: plan.planName || "AI Suggested Plan",
+          description: output.clinicalAssessment || plan.description || plan.clinicalProtocol || "No detailed assessment provided.",
+          planDetails: {
+            planName: plan.planName,
+            clinicalProtocol: plan.clinicalProtocol,
+            keyMaterials: plan.keyMaterials,
+            clinicalConsiderations: plan.clinicalConsiderations,
+            expectedOutcomes: plan.expectedOutcomes,
+            appointmentPlan: plan.appointmentPlan || plan.planDetails?.appointmentPlan,
+            isPatientSelected: isPatientSelected,
+          },
+          caseOverview: caseOverviewData, // Use the constructed caseOverviewData
+          patientFactors: output.patientFactors, // Directly from AI response output
+          recommendedInvestigations: output.recommendedInvestigations, // Directly from AI response output
+          clinicalRationale: output.clinicalRationale, // Directly from AI response output
+          postTreatmentCare: output.postTreatmentCare || plan.postTreatmentCare || "", // Check both output level and plan level
+        };
+      });
+
+      if (parsedSuggestions.length > 0) {
+        setAiSuggestions(parsedSuggestions);
         toast({
           title: "AI Suggestions Ready",
-          description: `Received ${validSuggestions.length} suggestions.`,
+          description: `Received ${parsedSuggestions.length} new suggestions.`,
           variant: "default",
           duration: 3000,
         });
       } else {
-         console.warn("Received empty or invalid suggestions array from n8n:", responseData);
-         setAiSuggestions([]); // Ensure it's an empty array
+         console.warn("Parsed suggestions array is empty. Raw AI output:", output);
+         setAiSuggestions([]);
          toast({
-           title: "No Suggestions",
-           description: "The AI did not return any suggestions for this case.",
+           title: "No Specific Suggestions",
+           description: "The AI did not return specific treatment plans based on the input.",
            variant: "default",
            duration: 3000,
          });
       }
-      // --- End parsing adjustment ---
+      // --- End adapted parsing ---
 
     } catch (error: unknown) {
       console.error('Error fetching AI suggestions:', error);
@@ -638,7 +743,7 @@ export function TreatmentPlanForm({
       setIsGeneratingSuggestions(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPatientId, selectedToothIds, selectedDomain, selectedCondition, matrixDetails, form, toast, selectedPatientRecord]); // Add dependencies
+  }, [selectedPatientId, selectedToothIds, selectedDomain, matrixDetails, form, toast, selectedPatientRecord]); // Removed selectedCondition from deps
 
   // Function to apply a selected AI suggestion to the form
   const handleApplySuggestion = (suggestion: AISuggestion) => {
@@ -767,31 +872,8 @@ export function TreatmentPlanForm({
                 )}
               />
 
-              {/* Button to Open Dental Chart Dialog */}
-              <FormItem>
-                <FormLabel>Affected Teeth & Conditions</FormLabel>
-                <div className="flex items-center gap-4">
-                  <Button type="button" variant="outline" onClick={openChartDialog}>
-                    <Smile className="mr-2 h-4 w-4" /> {/* Use Smile icon */}
-                    Select Teeth...
-                  </Button>
-                  {/* Display Confirmed Selected Teeth */}
-                  <div className="text-sm text-muted-foreground flex-grow min-w-0">
-                    {selectedToothIds.length > 0 ? (
-                      <span className="truncate">
-                        Selected: {selectedToothIds.sort((a, b) => a - b).join(', ')}
-                      </span>
-                    ) : (
-                      "No teeth selected"
-                    )}
-                  </div>
-                </div>
-                 <FormMessage />
-              </FormItem>
-
-              {/* Conditionally render Domain and Condition if teeth ARE selected */}
-              {selectedToothIds.length > 0 && (
-                <>
+              {/* Domain Selection - MOVED UP */}
+              {selectedPatientId && ( // Show Domain only after patient is selected
                   <FormField
                     control={form.control}
                     name="domain"
@@ -812,9 +894,9 @@ export function TreatmentPlanForm({
                             {isLoadingOptions ? (
                               <SelectItem value="loading" disabled>Loading...</SelectItem>
                             ) : (
-                              domains.map((domain) => (
-                                <SelectItem key={domain} value={domain}>
-                                  {domain.charAt(0).toUpperCase() + domain.slice(1)}
+                            domains.map((domainItem) => (
+                              <SelectItem key={domainItem} value={domainItem}>
+                                {domainItem.charAt(0).toUpperCase() + domainItem.slice(1)}
                                 </SelectItem>
                               ))
                             )}
@@ -824,47 +906,73 @@ export function TreatmentPlanForm({
                       </FormItem>
                     )}
                   />
+              )}
 
+              {/* Select Affected Teeth Button - MOVED AFTER DOMAIN */}
+              {selectedPatientId && selectedDomain && ( // Show button only after patient and domain are selected
+                <FormItem>
+                  <FormLabel>Affected Teeth & Conditions</FormLabel>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={openChartDialog}
+                      disabled={!selectedPatientId || !selectedDomain} // Ensure patient and domain are selected
+                    >
+                      <Smile className="mr-2 h-4 w-4" />
+                      Select Teeth & Apply Domain Conditions
+                    </Button>
+                    {selectedToothIds.length > 0 && (
+                      <span className="text-sm text-muted-foreground">
+                        Selected: {selectedToothIds.join(', ')}
+                      </span>
+                    )}
+                  </div>
+                  <FormDescription>
+                    Select the patient and domain first, then specify affected teeth and apply conditions from the selected domain.
+                  </FormDescription>
+                </FormItem>
+              )}
+
+              {/* Symptoms */}
                   <FormField
                     control={form.control}
-                    name="condition"
+                name="symptoms"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Condition</FormLabel>
-                        <Select
-                          onValueChange={handleConditionChange}
-                          value={field.value || ''}
-                          disabled={isLoadingOptions}
-                        >
+                    <FormLabel>Symptoms *</FormLabel>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder={isLoadingOptions ? "Loading..." : "Select condition"} />
-                            </SelectTrigger>
+                      <Input placeholder="Enter patient symptoms" {...field} />
                           </FormControl>
-                          <SelectContent>
-                            {isLoadingOptions ? (
-                              <SelectItem value="loading" disabled>Loading...</SelectItem>
-                            ) : (
-                              filteredConditions.map((condition) => (
-                                <SelectItem key={condition} value={condition}>
-                                  {condition.charAt(0).toUpperCase() + condition.slice(1)}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
 
-                  {/* Display Fetched Matrix Details */}
-                  {isLoadingDetails && (
-                    <div className="text-sm text-muted-foreground p-2 border rounded-md">Loading details...</div>
-                  )}
-                  {!isLoadingDetails && matrixDetails && (
-                    <div className="mt-4 p-3 border rounded-md bg-secondary/10 space-y-2 text-sm">
-                      <h4 className="font-semibold text-base mb-2">Details for {selectedDomain} / {selectedCondition}</h4>
+              {/* Description */}
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description *</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Detailed description of the treatment plan"
+                        {...field}
+                        rows={3}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Restored section for displaying Matrix Details (Urgency, Severity, Treatment Options) */}
+              {isLoadingDetails && <div className="flex justify-center items-center p-4"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> <span className="ml-2 text-muted-foreground">Loading details...</span></div>}
+              {!isLoadingDetails && matrixDetails && selectedDomain && conditionAppliedInChart && (
+                  <div className="my-4 p-4 border rounded-lg bg-secondary/10 space-y-2 text-sm">
+                    <h4 className="font-semibold text-base mb-2">Details for {selectedDomain} / {conditionAppliedInChart}</h4>
                       {matrixDetails.urgency && <p><strong>Urgency:</strong> {matrixDetails.urgency}</p>}
                       {matrixDetails.severity && <p><strong>Severity:</strong> {matrixDetails.severity}</p>}
                       {matrixDetails.risk_impact && <p><strong>Risk/Impact:</strong> {matrixDetails.risk_impact}</p>}
@@ -872,7 +980,6 @@ export function TreatmentPlanForm({
                         <p><strong>Investigations:</strong> {matrixDetails.recommended_investigations.join(', ')}</p>
                       )}
                       
-                      {/* Treatment options as radio buttons directly in the details box */}
                       {matrixDetails.treatment_options && matrixDetails.treatment_options.length > 0 && (
                         <div className="mt-3">
                           <p className="font-semibold mb-1">Select Treatment:</p>
@@ -882,7 +989,7 @@ export function TreatmentPlanForm({
                             render={({ field }) => (
                               <div className="space-y-1 ml-1">
                                 {matrixDetails.treatment_options.map((option: string) => (
-                                  <label key={option} className="flex items-center gap-2">
+                                <label key={option} className="flex items-center gap-2 cursor-pointer">
                                     <input
                                       type="radio"
                                       value={option}
@@ -892,6 +999,7 @@ export function TreatmentPlanForm({
                                           field.onChange(option);
                                         }
                                       }}
+                                    className="form-radio h-4 w-4 text-primary focus:ring-primary border-muted-foreground"
                                     />
                                     <span>{option}</span>
                                   </label>
@@ -902,64 +1010,214 @@ export function TreatmentPlanForm({
                           />
                         </div>
                       )}
+                  </div>
+              )}
+              {/* End Restored Matrix Details Section */}
 
-                      {/* Title and Description Fields */}
-                      <div className="mt-4 pt-4 border-t space-y-4">
-                        <FormField
-                          control={form.control}
-                          name="symptoms"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Symptoms *</FormLabel>
-                              <FormControl>
-                                <Input placeholder="Enter patient symptoms" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+              {/* AI Powered Suggestions - Now shown only after patient, domain, teeth, AND a treatment is selected from matrix details */}
+              {selectedPatientId && selectedDomain && selectedToothIds.length > 0 && matrixDetails && form.watch('treatment') && (
+                <div className="my-4 p-4 border rounded-lg bg-muted/30">
+                  <h3 className="text-lg font-semibold mb-2 flex items-center"><BrainCog className="mr-2 h-5 w-5 text-primary"/>AI Powered Suggestions</h3>
+                  <Button 
+                      type="button" 
+                      onClick={handleGetAISuggestions} 
+                      disabled={isGeneratingSuggestions || !selectedPatientId || selectedToothIds.length === 0 || !selectedDomain || isLoadingPatientDetails || !form.watch('treatment')}
+                      className={`ai-insights-button w-full flex items-center justify-center py-2 px-4 rounded-lg shadow-md font-semibold text-white transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50 ${isGeneratingSuggestions ? 'opacity-100 cursor-not-allowed' : ''}`}
+                      style={isGeneratingSuggestions ? { opacity: 1 } : {}}
+                  >
+                      {isGeneratingSuggestions ? (
+                          <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> AI is thinking... (this may take up to 2 minutes)</>
+                      ) : (
+                          <><BrainCog className="mr-2 h-5 w-5"/> Generate AI Suggestions</>
+                      )}
+                  </Button>
+                </div>
+              )}
 
-                        <FormField
-                          control={form.control}
-                          name="description"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Description *</FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  placeholder="Detailed description of the treatment plan"
-                                  {...field}
-                                  rows={3}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        {/* Add the simplified AI Suggestion Form */}
-                        <div className="mt-4">
-                          <AISuggestionForm
-                            patientId={selectedPatientId || ''}
-                            toothIds={selectedToothIds}
-                            domain={form.watch('domain') || ''}
-                            condition={form.watch('condition') || ''}
-                            matrixDetails={matrixDetails}
-                            selectedTreatment={form.watch('treatment') || ''}
-                            symptoms={form.watch('symptoms') || ''}
-                            description={form.watch('description') || ''}
-                            patientRecord={selectedPatientRecord}
-                            onSuggestionApply={handleApplySuggestion}
-                            disabled={!selectedPatientId || selectedToothIds.length === 0 || !form.watch('treatment') || !selectedPatientRecord || isLoadingPatientDetails || isGeneratingSuggestions}
-                          />
+              {/* Display AI Suggestions if available - REPLACED WITH ACCORDION */}
+              {aiSuggestions.length > 0 && (
+                <div className="mt-6 p-4 border rounded-lg bg-slate-50 shadow">
+                  <h3 className="text-lg font-semibold mb-3 text-slate-800">AI Suggestions</h3>
+                  {/* START of Accordion Rendering based on AISuggestionForm.tsx */}
+                  <div className="space-y-4">
+                    {aiSuggestions.map((suggestion, index) => (
+                      <div
+                        key={index} // Using index as key, consider a more stable key if available from suggestion
+                        className={cn(
+                          "border rounded-lg overflow-hidden bg-card",
+                          suggestion.planDetails.isPatientSelected && "border-primary/50 bg-primary/5"
+                        )}
+                      >
+                        <div className="p-4 bg-muted/50">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <h5 className="font-medium text-base">
+                                {suggestion.title}{" "}
+                                {suggestion.planDetails.isPatientSelected && (
+                                  <span className="ml-2 text-xs text-primary font-normal">(Patient Selected Plan)</span>
+                                )}
+                              </h5>
+                              {suggestion.caseOverview && (
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  <p><strong>Condition:</strong> {suggestion.caseOverview.condition}</p>
+                                  <p><strong>Severity:</strong> {suggestion.caseOverview.severity}</p>
+                                  <p><strong>Teeth:</strong> {suggestion.caseOverview.teethInvolved}</p>
+                                  {suggestion.caseOverview.patientSymptoms && <p><strong>Symptoms:</strong> {suggestion.caseOverview.patientSymptoms}</p>}
+                                  {suggestion.caseOverview.patientSelectedTreatment && <p><strong>Patient Preference:</strong> {suggestion.caseOverview.patientSelectedTreatment}</p>}
+                                </div>
+                              )}
+                            </div>
+                            {suggestion.planDetails.isPatientSelected && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleApplySuggestion(suggestion)}
+                                className="bg-primary text-white hover:bg-primary/90"
+                              >
+                                Apply Selected Plan
+                              </Button>
+                            )}
+                          </div>
                         </div>
+
+                        <Accordion type="single" collapsible className="w-full">
+                          <AccordionItem value={`clinical-assessment-${index}`}>
+                            <AccordionTrigger className="px-4">Overall Clinical Assessment</AccordionTrigger>
+                            <AccordionContent className="px-4 pb-4">
+                              <p className="text-sm text-muted-foreground whitespace-pre-line">
+                                {suggestion.description}
+                              </p>
+                            </AccordionContent>
+                          </AccordionItem>
+
+                          {suggestion.patientFactors && (
+                            <AccordionItem value={`patient-factors-${index}`}>
+                              <AccordionTrigger className="px-4">Patient Factors</AccordionTrigger>
+                              <AccordionContent className="px-4 pb-4 text-sm space-y-1">
+                                <p><strong>Relevant Medical Conditions:</strong> {suggestion.patientFactors.relevantMedicalConditions}</p>
+                                <p><strong>Medication Considerations:</strong> {suggestion.patientFactors.medicationConsiderations}</p>
+                                <p><strong>Age-Related Considerations:</strong> {suggestion.patientFactors.ageRelatedConsiderations}</p>
+                              </AccordionContent>
+                            </AccordionItem>
+                          )}
+
+                          {suggestion.recommendedInvestigations && (
+                            <AccordionItem value={`recommended-investigations-${index}`}>
+                              <AccordionTrigger className="px-4">Recommended Investigations</AccordionTrigger>
+                              <AccordionContent className="px-4 pb-4 text-sm">
+                                <p>{suggestion.recommendedInvestigations}</p>
+                              </AccordionContent>
+                            </AccordionItem>
+                          )}
+                          
+                          {suggestion.planDetails && (
+                            <AccordionItem value={`plan-details-${index}`}>
+                              <AccordionTrigger className="px-4">Details for: {suggestion.planDetails.planName || suggestion.title}</AccordionTrigger>
+                              <AccordionContent className="px-4 pb-4">
+                                <div className="space-y-3 text-sm">
+                                  {suggestion.planDetails.clinicalProtocol && <div>
+                                    <p className="font-medium">Clinical Protocol:</p>
+                                    <p className="text-muted-foreground whitespace-pre-line">
+                                      {suggestion.planDetails.clinicalProtocol}
+                                    </p>
+                                  </div>}
+                                  {suggestion.planDetails.keyMaterials && <div>
+                                    <p className="font-medium">Key Materials:</p>
+                                    <p className="text-muted-foreground">{suggestion.planDetails.keyMaterials}</p>
+                                  </div>}
+                                  {suggestion.planDetails.clinicalConsiderations && <div>
+                                    <p className="font-medium">Clinical Considerations:</p>
+                                    <p className="text-muted-foreground whitespace-pre-line">
+                                      {suggestion.planDetails.clinicalConsiderations}
+                                    </p>
+                                  </div>}
+                                  {suggestion.planDetails.expectedOutcomes && <div>
+                                    <p className="font-medium">Expected Outcomes:</p>
+                                    <p className="text-muted-foreground whitespace-pre-line">{suggestion.planDetails.expectedOutcomes}</p>
+                                  </div>}
+                        </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          )}
+
+                          {suggestion.planDetails?.appointmentPlan && (
+                            <AccordionItem value={`appointment-plan-${index}`}>
+                              <AccordionTrigger className="px-4">
+                                <span className="flex items-center">
+                                  <Calendar className="mr-2 h-4 w-4" />
+                                  Appointment Plan
+                                </span>
+                              </AccordionTrigger>
+                              <AccordionContent className="px-4 pb-4">
+                                <div className="space-y-3 text-sm">
+                                  <div className="flex items-center gap-4 text-muted-foreground mb-2">
+                                    {suggestion.planDetails.appointmentPlan.totalSittings && <div>
+                                      <Clock className="h-4 w-4 inline mr-1" />
+                                      <span>Total Sittings: {suggestion.planDetails.appointmentPlan.totalSittings}</span>
+                                    </div>}
+                                    {suggestion.planDetails.appointmentPlan.totalTreatmentTime && <div>
+                                      <Calendar className="h-4 w-4 inline mr-1" />
+                                      <span>Total Duration: {suggestion.planDetails.appointmentPlan.totalTreatmentTime}</span>
+                                    </div>}
                       </div>
+                                  {suggestion.planDetails.appointmentPlan.medicalPrecautions && (
+                                    <div className="mb-3">
+                                      <p className="font-medium">Medical Precautions:</p>
+                                      <p className="text-muted-foreground whitespace-pre-line">{suggestion.planDetails.appointmentPlan.medicalPrecautions}</p>
                     </div>
                   )}
-                   {!isLoadingDetails && selectedDomain && selectedCondition && !matrixDetails && (
-                     <div className="text-sm text-muted-foreground p-2 border rounded-md border-dashed">No details found for this combination.</div>
-                   )}
-                </>
+                                  {suggestion.planDetails.appointmentPlan.sittingDetails && suggestion.planDetails.appointmentPlan.sittingDetails.length > 0 && (
+                                    <div className="space-y-2">
+                                      <p className="font-medium text-sm mb-1">Sitting Details:</p>
+                                      {suggestion.planDetails.appointmentPlan.sittingDetails.map((sitting, idx) => (
+                                        <div key={idx} className="border rounded p-3 bg-background">
+                                          <p className="font-medium">{sitting.visit || `Visit ${idx + 1}`}</p>
+                                          <p className="text-muted-foreground mt-1">{sitting.procedures}</p>
+                                          <div className="mt-2 text-xs text-muted-foreground flex items-center gap-3">
+                                            {sitting.estimatedDuration && <p className="flex items-center">
+                                              <Clock className="h-3 w-3 mr-1" />
+                                              Duration: {sitting.estimatedDuration}
+                                            </p>}
+                                            {sitting.timeGap && sitting.timeGap !== "N/A" && (
+                                              <p className="flex items-center">
+                                                <Calendar className="h-3 w-3 mr-1" />
+                                                Next visit in: {sitting.timeGap}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          )}
+
+                          {suggestion.clinicalRationale && (
+                            <AccordionItem value={`clinical-rationale-${index}`}>
+                              <AccordionTrigger className="px-4">Clinical Rationale</AccordionTrigger>
+                              <AccordionContent className="px-4 pb-4 text-sm">
+                                <p className="whitespace-pre-line">{suggestion.clinicalRationale}</p>
+                              </AccordionContent>
+                            </AccordionItem>
+                          )}
+
+                          {suggestion.postTreatmentCare && (
+                            <AccordionItem value={`post-care-${index}`}>
+                              <AccordionTrigger className="px-4">Post-Treatment Care</AccordionTrigger>
+                              <AccordionContent className="px-4 pb-4">
+                                <p className="text-sm text-muted-foreground whitespace-pre-line">{suggestion.postTreatmentCare}</p>
+                              </AccordionContent>
+                            </AccordionItem>
+                          )}
+                        </Accordion>
+                      </div>
+                    ))}
+                  </div>
+                  {/* END of Accordion Rendering */}
+                </div>
               )}
 
               {/* Add new form fields after the existing treatment selection */}
@@ -1077,7 +1335,7 @@ export function TreatmentPlanForm({
            <DialogHeader>
              <DialogTitle>Select Affected Teeth & Apply Conditions</DialogTitle>
              <DialogDescription>
-               Click teeth to select/deselect. Use buttons below to apply conditions to selected teeth.
+               Click teeth to select/deselect. Use the controls below to apply conditions from the selected domain to the selected teeth.
              </DialogDescription>
            </DialogHeader>
 
@@ -1085,9 +1343,10 @@ export function TreatmentPlanForm({
            <DentalChart
              ref={dentalChartRef} // Pass the ref here
              key={chartDialogKey} // Force re-mount when dialog opens
-             initialState={chartInitialState} // Pass the state prepared on open
+             initialState={chartInitialState} 
              onToothSelect={handleDialogChartSelectionChange}
-             // readOnly={false} // Default is false, ensure it's interactive
+             domain={selectedDomain || undefined}
+             domainConditions={filteredConditions} 
            />
 
            <DialogFooter>

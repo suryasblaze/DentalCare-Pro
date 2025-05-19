@@ -349,13 +349,14 @@ Post-Treatment Care:`, `  ${suggestion.postTreatmentCare}`);
                       )}
                     </div>
                     {suggestion.planDetails.isPatientSelected && (
-                       <Button
+                      <Button
                         type="button"
                         variant="outline"
                         size="sm"
                         onClick={() => onSuggestionApply(suggestion)}
+                        className="bg-primary text-white hover:bg-primary/90"
                       >
-                        Apply This Plan
+                        Apply Selected Plan
                       </Button>
                     )}
                   </div>

@@ -55,6 +55,7 @@ export function Appointments() {
   // State for manual date/time selection when booking via button
   const [manualDate, setManualDate] = useState<Date | null>(null);
   const [manualTime, setManualTime] = useState<string>(''); // e.g., "09:00"
+  const [manualAmPm, setManualAmPm] = useState<'AM' | 'PM'>('AM'); // New state for AM/PM
   const { toast } = useToast(); // Initialize toast hook
   const CELL_HEIGHT = 100; // Increased height to accommodate cards better
   const HOUR_IN_MINUTES = 60;
@@ -286,24 +287,45 @@ export function Appointments() {
     if (showBookingModal && bookingStep === 'appointment-details') {
       const durationMinutes = parseInt(appointmentFormData.duration);
       let effectiveDate: Date | null = null;
-      let effectiveTime: string = '';
+      let effectiveTime: string = ''; // Expected in HH:mm (24-hour)
 
       if (selectedSlot) {
         effectiveDate = selectedSlot.date;
-        effectiveTime = selectedSlot.time;
-      } else if (manualDate && manualTime) {
+        effectiveTime = selectedSlot.time; // This is already HH:mm (24-hour)
+      } else if (manualDate && manualTime) { 
         effectiveDate = manualDate;
-        effectiveTime = manualTime;
+        const timeParts = manualTime.split(':');
+        if (timeParts.length === 2) {
+          let hours = parseInt(timeParts[0], 10);
+          let minutes = parseInt(timeParts[1], 10);
+
+          if (!isNaN(hours) && !isNaN(minutes) && hours >= 1 && hours <= 12 && minutes >= 0 && minutes <= 59) {
+            if (manualAmPm === 'PM' && hours < 12) {
+              hours += 12;
+            } else if (manualAmPm === 'AM' && hours === 12) { // 12 AM is 00 hours
+              hours = 0;
+            }
+            // For 12 PM (noon), hours remains 12.
+            // For 1 AM to 11 AM, hours < 12, hours remains as is.
+            effectiveTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+          } else {
+            setAvailableDoctors([]); 
+            return; 
+          }
+        } else {
+          setAvailableDoctors([]); 
+          return; 
+        }
       }
 
-      if (effectiveDate && effectiveTime && !isNaN(durationMinutes)) {
+      if (effectiveDate && effectiveTime && !isNaN(durationMinutes) && durationMinutes > 0) {
         fetchAvailableDoctorsForSlot(effectiveDate, effectiveTime, durationMinutes);
       } else {
-        setAvailableDoctors([]); // Clear if date/time/duration is incomplete
+        setAvailableDoctors([]);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showBookingModal, bookingStep, selectedSlot, manualDate, manualTime, appointmentFormData.duration]);
+  }, [showBookingModal, bookingStep, selectedSlot, manualDate, manualTime, manualAmPm, appointmentFormData.duration]); // Added manualAmPm
 
   // Effect to fetch treatment details when an appointment is selected
   useEffect(() => {
@@ -396,22 +418,39 @@ export function Appointments() {
         startDate.setHours(startHour, startMinute, 0, 0);
       } else {
         if (!manualDate || !manualTime) {
-          toast({ variant: "destructive", title: "Missing Information", description: "Please select a date and time." });
+          toast({ variant: "destructive", title: "Missing Information", description: "Please select a date and time (hh:mm)." });
           setIsBooking(false);
           return;
         }
-        const [startHour, startMinute] = manualTime.split(':').map(Number);
-        if (isNaN(startHour) || isNaN(startMinute)) {
-          toast({ variant: "destructive", title: "Invalid Time", description: "Invalid time format selected." });
-          setIsBooking(false);
-          return;
-        }
-        startDate = new Date(manualDate);
-        startDate.setHours(startHour, startMinute, 0, 0);
-        if (!isValid(startDate)) {
-          toast({ variant: "destructive", title: "Invalid Date/Time", description: "Invalid date or time selected." });
-          setIsBooking(false);
-          return;
+        
+        const timeParts = manualTime.split(':');
+        if (timeParts.length === 2) {
+          let hours = parseInt(timeParts[0], 10);
+          let minutes = parseInt(timeParts[1], 10);
+
+          if (!isNaN(hours) && !isNaN(minutes) && hours >= 1 && hours <= 12 && minutes >= 0 && minutes <= 59) {
+            if (manualAmPm === 'PM' && hours < 12) {
+              hours += 12;
+            } else if (manualAmPm === 'AM' && hours === 12) { // 12 AM is 00 hours
+              hours = 0;
+            }
+            // if (manualAmPm === 'PM' && hours === 12) hours remains 12 (Noon)
+            // if (manualAmPm === 'AM' && hours < 12) hours remains as is (e.g. 9 AM is 9)
+            
+            startDate = new Date(manualDate);
+            startDate.setHours(hours, minutes, 0, 0);
+
+            if (!isValid(startDate)) {
+              toast({ variant: "destructive", title: "Invalid Date/Time", description: "The constructed date/time is invalid." });
+              setIsBooking(false); return;
+            }
+          } else {
+            toast({ variant: "destructive", title: "Invalid Time", description: "Please enter a valid time in hh:mm format (01-12 for hours, 00-59 for minutes)." });
+            setIsBooking(false); return;
+          }
+        } else {
+          toast({ variant: "destructive", title: "Invalid Time Format", description: "Please use hh:mm format for time."});
+          setIsBooking(false); return;
         }
       }
 
@@ -538,6 +577,7 @@ export function Appointments() {
         setSelectedSlot(null);
         setManualDate(null);
         setManualTime('');
+        setManualAmPm('AM');
         setBookingStep('patient-select');
         setRedirectedTreatmentId(null); // This reset is important and should remain here
 
@@ -859,14 +899,49 @@ export function Appointments() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="manual-time">Time</Label>
-              <Input
-                id="manual-time"
-                type="time"
-                value={manualTime}
-                onChange={(e) => setManualTime(e.target.value)}
-                disabled={!!selectedSlot && !isTreatmentSpecificBooking}
-              />
+              <Label htmlFor="manual-time-input">Time</Label>
+              <div 
+                className={`flex items-stretch border rounded-md overflow-hidden transition-all focus-within:ring-1 focus-within:ring-ring
+                            ${!manualTime ? 'border-red-500' : 'border-input'}`}
+              >
+                <Input
+                  id="manual-time-input"
+                  type="text" // Changed from "time" to "text"
+                  value={manualTime} // Stores hh:mm
+                  onChange={(e) => {
+                    let val = e.target.value.replace(/[^0-9]/g, ''); // Keep only digits initially
+                    if (manualTime.length > val.length && manualTime.endsWith(':')) {
+                        // Handle backspace over the colon
+                        val = val.slice(0, -1);
+                    }
+                    if (val.length > 2) {
+                      val = val.slice(0, 2) + ':' + val.slice(2);
+                    }
+                    setManualTime(val.slice(0, 5)); // Ensure max length hh:mm (5 chars)
+                  }}
+                  placeholder="hh:mm"
+                  className="border-none focus:ring-0 outline-none flex-grow p-2 min-w-[70px] text-sm" // Adjusted styling
+                  required 
+                />
+                <Select
+                  value={manualAmPm}
+                  onValueChange={(value: 'AM' | 'PM') => setManualAmPm(value)}
+                >
+                  <SelectTrigger 
+                    className="border-l border-none focus:ring-0 outline-none h-full bg-transparent px-3 text-sm" // Adjusted styling for seamless look
+                    aria-label="Select AM or PM"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="AM">AM</SelectItem>
+                    <SelectItem value="PM">PM</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground pt-1">
+                Time required for the appointment.
+              </p>
             </div>
           </div>
         )}
@@ -1331,6 +1406,7 @@ export function Appointments() {
           setSelectedSlot(null);
           setManualDate(null);
           setManualTime('');
+          setManualAmPm('AM'); // Reset AM/PM state
           setSelectedPatient(null);
           setSelectedDoctor(null);
           setAvailableDoctors([]);
@@ -1346,7 +1422,12 @@ export function Appointments() {
           <DialogHeader>
             <DialogTitle>{bookingStep === 'patient-select' ? 'Select Patient' : bookingStep === 'new-patient' ? 'New Patient Registration' : redirectedTreatmentId ? 'Book Treatment Visit' : 'Appointment Details'}</DialogTitle>
             {(selectedSlot && bookingStep !== 'new-patient' && !redirectedTreatmentId) && (<DialogDescription>{format(selectedSlot.date, 'MMMM d, yyyy')} at {selectedSlot.time}</DialogDescription>)}
-            {(manualDate && bookingStep !== 'new-patient' && redirectedTreatmentId) && (<DialogDescription>For Treatment Visit: {format(manualDate, 'MMMM d, yyyy')}</DialogDescription>)}
+            {(manualDate && bookingStep !== 'new-patient' && redirectedTreatmentId) && (
+              <DialogDescription>
+                For Treatment Visit: {format(manualDate, 'MMMM d, yyyy')}
+                {manualTime && ` at ${manualTime} ${manualAmPm}`}
+              </DialogDescription>
+            )}
             {bookingStep === 'new-patient' && (<DialogDescription>Enter the new patient's details below.</DialogDescription>)}
           </DialogHeader>
           <div className="max-h-[75vh] overflow-y-auto p-4">
