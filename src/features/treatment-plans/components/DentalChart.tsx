@@ -87,20 +87,24 @@ const conditionColors: Record<string, string> = { // Changed ToothCondition to s
 };
 
 // Updated initial state generator for single condition
-const generateInitialTeeth = (initialState?: InitialToothState): Record<number, ToothData> => {
+const initializeTeethData = (initialState?: InitialToothState) => {
     const teeth: Record<number, ToothData> = {};
     const defaultCondition: ToothCondition = 'healthy'; // Default to healthy
     const defaultSelected = false; // Default selection state
 
     // Helper to get initial condition or default
     const getInitialCondition = (id: number): ToothCondition => {
-        return initialState?.[id]?.condition || defaultCondition;
+      // First check for conditions array, then fallback to single condition, then default
+      if (initialState?.[id]?.conditions?.length > 0) {
+        return initialState[id].conditions[0];
+      }
+      return initialState?.[id]?.condition || defaultCondition;
     };
 
     // Helper function to determine initial selection state from initialState prop
     const getInitialSelected = (id: number): boolean => {
-        // Respect the isSelected flag from the prop if it's explicitly true
-        return initialState?.[id]?.isSelected === true;
+      // Respect the isSelected flag from the prop if it's explicitly true
+      return initialState?.[id]?.isSelected === true;
     };
 
     // Permanent teeth (11-48) - Initialize respecting initialState.isSelected
@@ -165,7 +169,7 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>((
   // Update internal state if initialState prop changes
   useEffect(() => {
      console.log("DentalChart: useEffect for initialState triggered. Prop value:", JSON.stringify(initialState)); // <<< Log effect trigger
-     const initialTeeth = generateInitialTeeth(initialState);
+     const initialTeeth = initializeTeethData(initialState);
      console.log("DentalChart: Regenerated initialTeeth based on prop:", JSON.stringify(initialTeeth)); // <<< Log regenerated state
      setTeethData(initialTeeth);
      console.log("DentalChart: setTeethData called with regenerated state."); // <<< Log state update call
@@ -179,12 +183,25 @@ const DentalChart = forwardRef<DentalChartHandle, DentalChartProps>((
       // onToothSelect?.(currentSelectedIds);
   }, [initialState]); // <-- Dependency array updated to [initialState]
 
-  // --- Expose getTeethData via ref ---
+  // Expose methods via ref
   useImperativeHandle(ref, () => ({
     getTeethData: () => {
-      // Return the state directly. Parent component reads this immediately for saving.
-      // Avoids type loss from JSON deep copy.
-      return teethData;
+      // Convert internal state to expected format with conditions array
+      const teethWithConditions: Record<number, { 
+        id: number;
+        conditions: ToothCondition[];
+        isPrimary: boolean;
+        isSelected: boolean;
+      }> = {};
+
+      Object.entries(teethData).forEach(([id, tooth]) => {
+        teethWithConditions[parseInt(id, 10)] = {
+          ...tooth,
+          conditions: tooth.isSelected ? [tooth.condition] : ['healthy']
+        };
+      });
+
+      return teethWithConditions;
     },
     getLastActiveCondition: () => {
       return activeCondition; // Expose the activeCondition state

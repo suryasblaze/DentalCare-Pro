@@ -71,7 +71,10 @@ const ToothSelector: React.FC<ToothSelectorProps> = ({
       const selectedTeethMap: ToothConditionsMap = {};
       Object.entries(finalChartData).forEach(([idStr, toothData]) => {
         if (toothData.isSelected) {
-          selectedTeethMap[parseInt(idStr, 10)] = { conditions: toothData.conditions };
+          // Ensure each selected tooth has at least a 'healthy' condition
+          selectedTeethMap[parseInt(idStr, 10)] = { 
+            conditions: toothData.conditions?.length > 0 ? toothData.conditions : ['healthy']
+          };
         }
       });
 
