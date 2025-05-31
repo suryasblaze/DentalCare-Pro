@@ -9,6 +9,17 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { cn } from '@/lib/utils';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
+import { getAIRequestTimeout } from '@/utils/aiTimeout'; // Import timeout utility
 
 interface AppointmentDetail {
   visit: string;
@@ -85,6 +96,8 @@ export function AISuggestionForm({
   const { toast } = useToast();
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [selectedCondition, setSelectedCondition] = useState<string | null>(null);
+  const [appliedIndex, setAppliedIndex] = useState<number | null>(null);
+  const [confirmIndex, setConfirmIndex] = useState<number | null>(null);
 
   const handleGenerateClick = async () => {
     if (isGenerating) return; // Prevent re-clicks while already generating
@@ -102,7 +115,7 @@ export function AISuggestionForm({
     setSuggestions([]);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds
+    const timeoutId = setTimeout(() => controller.abort(), getAIRequestTimeout()); // Use env-based timeout
 
     try {
       const signal = controller.signal;
@@ -321,176 +334,233 @@ Post-Treatment Care:`, `  ${suggestion.postTreatmentCare}`);
         <div className="mt-4 space-y-4">
           <h4 className="font-semibold text-sm">Generated Treatment Plans</h4>
           <div className="space-y-4">
-            {suggestions.map((suggestion, index) => (
-              <div
-                key={index}
-                className={cn(
-                  "border rounded-lg overflow-hidden bg-card",
-                  suggestion.planDetails.isPatientSelected && "border-primary/50 bg-primary/5"
-                )}
-              >
-                <div className="p-4 bg-muted/50">
-                  <div className="flex items-start justify-between">
+            {suggestions.map((suggestion, index) => {
+              const isPatientSelected = suggestion.planDetails.isPatientSelected;
+              const isApplied = appliedIndex === index;
+              const isAnyApplied = appliedIndex !== null;
+              return (
+                <div
+                  key={index}
+                  className={cn(
+                    "rounded-xl shadow-md overflow-hidden mb-6 transition-opacity",
+                    isPatientSelected
+                      ? "border-2 border-primary/70 bg-primary/5"
+                      : "bg-white border border-muted/30",
+                    isAnyApplied && !isApplied && "opacity-60 pointer-events-none select-none"
+                  )}
+                >
+                  <div className={cn(
+                    "flex items-start justify-between p-4",
+                    isPatientSelected ? "bg-primary/10" : "bg-white"
+                  )}>
                     <div>
-                      <h5 className="font-medium text-base">
-                        {suggestion.title}{" "}
-                        {suggestion.planDetails.isPatientSelected && (
-                          <span className="ml-2 text-xs text-primary font-normal">(Patient Selected Plan)</span>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h5 className="font-semibold text-lg">
+                          {suggestion.title}
+                        </h5>
+                        {isPatientSelected && (
+                          <span className="px-3 py-1 rounded-full bg-primary text-white text-xs font-medium align-middle">
+                            Patient Selected
+                          </span>
                         )}
-                      </h5>
-                      {suggestion.caseOverview && (
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          <p><strong>Condition:</strong> {suggestion.caseOverview.condition}</p>
-                          <p><strong>Severity:</strong> {suggestion.caseOverview.severity}</p>
-                          <p><strong>Teeth:</strong> {suggestion.caseOverview.teethInvolved}</p>
-                          {suggestion.caseOverview.patientSymptoms && <p><strong>Symptoms:</strong> {suggestion.caseOverview.patientSymptoms}</p>}
-                          {suggestion.caseOverview.patientSelectedTreatment && <p><strong>Patient Preference:</strong> {suggestion.caseOverview.patientSelectedTreatment}</p>}
-                        </div>
+                        {!isPatientSelected && (
+                          <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium align-middle">
+                            Alternative
+                          </span>
+                        )}
+                      </div>
+                      {/* Metadata row */}
+                      <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
+                        <span><strong>Condition:</strong> {suggestion.caseOverview?.condition}</span>
+                        <span><strong>Severity:</strong> {suggestion.caseOverview?.severity}</span>
+                        <span><strong>Teeth:</strong> {suggestion.caseOverview?.teethInvolved}</span>
+                      </div>
+                      {suggestion.caseOverview?.patientSymptoms && (
+                        <div className="text-xs mt-1"><strong>Symptoms:</strong> {suggestion.caseOverview.patientSymptoms}</div>
+                      )}
+                      {suggestion.caseOverview?.patientSelectedTreatment && (
+                        <div className="text-xs"><strong>Patient Preference:</strong> {suggestion.caseOverview.patientSelectedTreatment}</div>
                       )}
                     </div>
-                    {(suggestion.planDetails.isPatientSelected || 
-                      suggestion.title.toLowerCase().includes('patient selected') ||
-                      suggestion.title.toLowerCase().includes('patient-selected')) && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onSuggestionApply(suggestion)}
-                        className="bg-primary text-white hover:bg-primary/90"
-                      >
-                        Apply Selected Plan
-                      </Button>
-                    )}
+                    <Button
+                      type="button"
+                      variant={isPatientSelected ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setConfirmIndex(index)}
+                      className={cn(
+                        "ml-4",
+                        isPatientSelected
+                          ? "bg-primary text-white hover:bg-primary/90"
+                          : "border-primary text-primary hover:bg-primary/10",
+                        isAnyApplied && !isApplied && "opacity-60 pointer-events-none select-none"
+                      )}
+                      disabled={disabled || (isAnyApplied && !isApplied)}
+                    >
+                      {isApplied ? (
+                        <>
+                          <svg className="mr-2 h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          Applied
+                        </>
+                      ) : (
+                        <>
+                          {isPatientSelected ? (
+                            <svg className="mr-2 h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          ) : (
+                            <svg className="mr-2 h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                          )}
+                          {isPatientSelected ? 'Apply Patient Selected Plan' : 'Apply Alternative Plan'}
+                        </>
+                      )}
+                    </Button>
                   </div>
-                </div>
 
-                <Accordion type="single" collapsible className="w-full">
-                  <AccordionItem value="clinical-assessment">
-                    <AccordionTrigger className="px-4">Overall Clinical Assessment</AccordionTrigger>
-                    <AccordionContent className="px-4 pb-4">
-                      <p className="text-sm text-muted-foreground whitespace-pre-line">
-                        {suggestion.description}
-                      </p>
-                    </AccordionContent>
-                  </AccordionItem>
-
-                  {suggestion.patientFactors && (
-                    <AccordionItem value="patient-factors">
-                      <AccordionTrigger className="px-4">Patient Factors</AccordionTrigger>
-                      <AccordionContent className="px-4 pb-4 text-sm space-y-1">
-                        <p><strong>Relevant Medical Conditions:</strong> {suggestion.patientFactors.relevantMedicalConditions}</p>
-                        <p><strong>Medication Considerations:</strong> {suggestion.patientFactors.medicationConsiderations}</p>
-                        <p><strong>Age-Related Considerations:</strong> {suggestion.patientFactors.ageRelatedConsiderations}</p>
+                  <Accordion type="single" collapsible className="w-full">
+                    <AccordionItem value="clinical-assessment">
+                      <AccordionTrigger className="px-4">Overall Clinical Assessment</AccordionTrigger>
+                      <AccordionContent className="px-4 pb-4">
+                        <p className="text-sm text-muted-foreground whitespace-pre-line">
+                          {suggestion.description}
+                        </p>
                       </AccordionContent>
                     </AccordionItem>
-                  )}
 
-                  {suggestion.recommendedInvestigations && (
-                    <AccordionItem value="recommended-investigations">
-                      <AccordionTrigger className="px-4">Recommended Investigations</AccordionTrigger>
-                      <AccordionContent className="px-4 pb-4 text-sm">
-                        <p>{suggestion.recommendedInvestigations}</p>
-                      </AccordionContent>
-                    </AccordionItem>
-                  )}
-                  
-                  <AccordionItem value="plan-details">
-                    <AccordionTrigger className="px-4">Details for: {suggestion.planDetails.planName}</AccordionTrigger>
-                    <AccordionContent className="px-4 pb-4">
-                      <div className="space-y-3 text-sm">
-                        <div>
-                          <p className="font-medium">Clinical Protocol:</p>
-                          <p className="text-muted-foreground whitespace-pre-line">
-                            {suggestion.planDetails.clinicalProtocol}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium">Key Materials:</p>
-                          <p className="text-muted-foreground">{suggestion.planDetails.keyMaterials}</p>
-                        </div>
-                        <div>
-                          <p className="font-medium">Clinical Considerations:</p>
-                          <p className="text-muted-foreground whitespace-pre-line">
-                            {suggestion.planDetails.clinicalConsiderations}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium">Expected Outcomes:</p>
-                          <p className="text-muted-foreground whitespace-pre-line">{suggestion.planDetails.expectedOutcomes}</p>
-                        </div>
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
+                    {suggestion.patientFactors && (
+                      <AccordionItem value="patient-factors">
+                        <AccordionTrigger className="px-4">Patient Factors</AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4 text-sm space-y-1">
+                          <p><strong>Relevant Medical Conditions:</strong> {suggestion.patientFactors.relevantMedicalConditions}</p>
+                          <p><strong>Medication Considerations:</strong> {suggestion.patientFactors.medicationConsiderations}</p>
+                          <p><strong>Age-Related Considerations:</strong> {suggestion.patientFactors.ageRelatedConsiderations}</p>
+                        </AccordionContent>
+                      </AccordionItem>
+                    )}
 
-                  {suggestion.planDetails.appointmentPlan && (
-                    <AccordionItem value="appointment-plan">
-                      <AccordionTrigger className="px-4">
-                        <span className="flex items-center">
-                          <Calendar className="mr-2 h-4 w-4" />
-                          Appointment Plan
-                        </span>
-                      </AccordionTrigger>
+                    {suggestion.recommendedInvestigations && (
+                      <AccordionItem value="recommended-investigations">
+                        <AccordionTrigger className="px-4">Recommended Investigations</AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4 text-sm">
+                          <p>{suggestion.recommendedInvestigations}</p>
+                        </AccordionContent>
+                      </AccordionItem>
+                    )}
+                    
+                    <AccordionItem value="plan-details">
+                      <AccordionTrigger className="px-4">Details for: {suggestion.planDetails.planName}</AccordionTrigger>
                       <AccordionContent className="px-4 pb-4">
                         <div className="space-y-3 text-sm">
-                          <div className="flex items-center gap-4 text-muted-foreground mb-2">
-                            <div>
-                              <Clock className="h-4 w-4 inline mr-1" />
-                              <span>Total Sittings: {suggestion.planDetails.appointmentPlan.totalSittings}</span>
-                            </div>
-                            <div>
-                              <Calendar className="h-4 w-4 inline mr-1" />
-                              <span>Total Duration: {suggestion.planDetails.appointmentPlan.totalTreatmentTime}</span>
-                            </div>
+                          <div>
+                            <p className="font-medium">Clinical Protocol:</p>
+                            <p className="text-muted-foreground whitespace-pre-line">
+                              {suggestion.planDetails.clinicalProtocol}
+                            </p>
                           </div>
-                          {suggestion.planDetails.appointmentPlan.medicalPrecautions && (
-                            <div className="mb-3">
-                              <p className="font-medium">Medical Precautions:</p>
-                              <p className="text-muted-foreground whitespace-pre-line">{suggestion.planDetails.appointmentPlan.medicalPrecautions}</p>
-                            </div>
-                          )}
-                          <div className="space-y-2">
-                            {suggestion.planDetails.appointmentPlan.sittingDetails.map((sitting, idx) => (
-                              <div key={idx} className="border rounded p-3 bg-background">
-                                <p className="font-medium">Visit {sitting.visit}</p>
-                                <p className="text-muted-foreground mt-1">{sitting.procedures}</p>
-                                <div className="mt-2 text-xs text-muted-foreground flex items-center gap-3">
-                                  <p className="flex items-center">
-                                    <Clock className="h-3 w-3 mr-1" />
-                                    Duration: {sitting.estimatedDuration}
-                                  </p>
-                                  {sitting.timeGap !== "N/A" && (
-                                    <p className="flex items-center">
-                                      <Calendar className="h-3 w-3 mr-1" />
-                                      Next visit in: {sitting.timeGap}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
+                          <div>
+                            <p className="font-medium">Key Materials:</p>
+                            <p className="text-muted-foreground">{suggestion.planDetails.keyMaterials}</p>
+                          </div>
+                          <div>
+                            <p className="font-medium">Clinical Considerations:</p>
+                            <p className="text-muted-foreground whitespace-pre-line">
+                              {suggestion.planDetails.clinicalConsiderations}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-medium">Expected Outcomes:</p>
+                            <p className="text-muted-foreground whitespace-pre-line">{suggestion.planDetails.expectedOutcomes}</p>
                           </div>
                         </div>
                       </AccordionContent>
                     </AccordionItem>
-                  )}
 
-                  {suggestion.clinicalRationale && (
-                    <AccordionItem value="clinical-rationale">
-                      <AccordionTrigger className="px-4">Clinical Rationale</AccordionTrigger>
-                      <AccordionContent className="px-4 pb-4 text-sm">
-                        <p className="whitespace-pre-line">{suggestion.clinicalRationale}</p>
+                    {suggestion.planDetails.appointmentPlan && (
+                      <AccordionItem value="appointment-plan">
+                        <AccordionTrigger className="px-4">
+                          <span className="flex items-center">
+                            <Calendar className="mr-2 h-4 w-4" />
+                            Appointment Plan
+                          </span>
+                        </AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4">
+                          <div className="space-y-3 text-sm">
+                            <div className="flex items-center gap-4 text-muted-foreground mb-2">
+                              <div>
+                                <Clock className="h-4 w-4 inline mr-1" />
+                                <span>Total Sittings: {suggestion.planDetails.appointmentPlan.totalSittings}</span>
+                              </div>
+                              <div>
+                                <Calendar className="h-4 w-4 inline mr-1" />
+                                <span>Total Duration: {suggestion.planDetails.appointmentPlan.totalTreatmentTime}</span>
+                              </div>
+                            </div>
+                            {suggestion.planDetails.appointmentPlan.medicalPrecautions && (
+                              <div className="mb-3">
+                                <p className="font-medium">Medical Precautions:</p>
+                                <p className="text-muted-foreground whitespace-pre-line">{suggestion.planDetails.appointmentPlan.medicalPrecautions}</p>
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                              {suggestion.planDetails.appointmentPlan.sittingDetails.map((sitting, idx) => (
+                                <div key={idx} className="border rounded p-3 bg-background">
+                                  <p className="font-medium">Visit {sitting.visit}</p>
+                                  <p className="text-muted-foreground mt-1">{sitting.procedures}</p>
+                                  <div className="mt-2 text-xs text-muted-foreground flex items-center gap-3">
+                                    <p className="flex items-center">
+                                      <Clock className="h-3 w-3 mr-1" />
+                                      Duration: {sitting.estimatedDuration}
+                                    </p>
+                                    {sitting.timeGap !== "N/A" && (
+                                      <p className="flex items-center">
+                                        <Calendar className="h-3 w-3 mr-1" />
+                                        Next visit in: {sitting.timeGap}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    )}
+
+                    {suggestion.clinicalRationale && (
+                      <AccordionItem value="clinical-rationale">
+                        <AccordionTrigger className="px-4">Clinical Rationale</AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4 text-sm">
+                          <p className="whitespace-pre-line">{suggestion.clinicalRationale}</p>
+                        </AccordionContent>
+                      </AccordionItem>
+                    )}
+
+                    <AccordionItem value="post-care">
+                      <AccordionTrigger className="px-4">Post-Treatment Care</AccordionTrigger>
+                      <AccordionContent className="px-4 pb-4">
+                        <p className="text-sm text-muted-foreground">{suggestion.postTreatmentCare}</p>
                       </AccordionContent>
                     </AccordionItem>
-                  )}
-
-                  <AccordionItem value="post-care">
-                    <AccordionTrigger className="px-4">Post-Treatment Care</AccordionTrigger>
-                    <AccordionContent className="px-4 pb-4">
-                      <p className="text-sm text-muted-foreground">{suggestion.postTreatmentCare}</p>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              </div>
-            ))}
+                  </Accordion>
+                  {/* Confirmation Dialog */}
+                  <AlertDialog open={confirmIndex === index}>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Apply this plan?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to apply this treatment plan? This will pre-fill the form with the selected plan's details.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setConfirmIndex(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => {
+                          setAppliedIndex(index);
+                          setConfirmIndex(null);
+                          onSuggestionApply(suggestion);
+                        }}>Apply</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

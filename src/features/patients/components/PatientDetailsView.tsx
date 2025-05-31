@@ -12,6 +12,7 @@ import { MedicalRecordsHistory } from './MedicalRecordsHistory'; // Import the n
 import teethSvgUrl from '/teethselectdiagram.svg?url';
 // Import ToothCondition type if needed, or define locally
 import { ToothCondition } from '@/features/treatment-plans/components/DentalChart';
+import { api } from '@/lib/api'; // Import the api for fetching doctors
 
 // Define type for a selected tooth from dental history
 // Define type for a selected tooth from dental history, now including conditions
@@ -224,6 +225,7 @@ export function PatientDetailsView({
 }: PatientDetailsViewProps) {
   const [svgContent, setSvgContent] = useState<string | null>(null); // State for SVG content
   const [svgLoading, setSvgLoading] = useState<boolean>(true); // <<< Add state for SVG loading
+  const [doctors, setDoctors] = useState<any[]>([]); // Add state for doctors
 
   // Fetch SVG content on mount
   useEffect(() => {
@@ -248,6 +250,10 @@ export function PatientDetailsView({
       });
   }, []);
 
+  // Fetch doctors on mount
+  useEffect(() => {
+    api.staff.getDoctors().then(setDoctors).catch(() => setDoctors([]));
+  }, []);
 
   // DEBUG LOG: Inspect the patient object received by the view
   console.log('Patient object received in PatientDetailsView:', patient);
@@ -550,6 +556,7 @@ const getConditionLabel = (conditionValue: ToothCondition): string => {
       <MedicalRecordsHistory
         medicalRecords={medicalRecords}
         onAddMedicalRecord={onAddMedicalRecord}
+        doctors={doctors} // Pass doctors as a prop
       />
 
        {/* Existing: Patient Visit History (Appointments) Section - Kept for context */}

@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Re-add single Select imports
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { Loader2, Smile } from 'lucide-react'; // Added Smile icon
+import { Loader2, Smile, ClipboardList, CheckCircle2, Calendar, DollarSign } from 'lucide-react'; // Added Smile icon
 import { format } from 'date-fns';
 import {
   Dialog,
@@ -30,6 +30,9 @@ import {
 // Removed supabase import
 // import { MultiSelectCheckbox } from '@/components/ui/multi-select-checkbox'; // Removed MultiSelectCheckbox import
 import DentalChart from '@/features/treatment-plans/components/DentalChart'; // Import DentalChart
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { patientService } from '../services/patientService';
 
  // Define the schema for the form using DB valid types
  const medicalRecordSchema = z.object({
@@ -86,6 +89,9 @@ isLoading: boolean;
    const [isChartDialogOpen, setIsChartDialogOpen] = useState(false);
    // State for temporary selection within the dialog
    const [dialogSelectedToothIds, setDialogSelectedToothIds] = useState<number[]>([]);
+   const [showPlansModal, setShowPlansModal] = useState(false);
+   const [plansLoading, setPlansLoading] = useState(false);
+   const [completedPlans, setCompletedPlans] = useState<any[]>([]);
 
   // Use the explicit schema type for useForm
   const form = useForm<MedicalRecordFormSchemaValues>({
@@ -152,6 +158,19 @@ isLoading: boolean;
      // Also reset dialog state if needed, though closing should handle it
      setDialogSelectedToothIds([]);
    };
+
+  const handleShowPlans = async () => {
+    setShowPlansModal(true);
+    setPlansLoading(true);
+    try {
+      const allPlans = await patientService.getPatientTreatmentPlans(patientId);
+      setCompletedPlans((allPlans || []).filter((plan: any) => plan.status === 'completed'));
+    } catch (e) {
+      setCompletedPlans([]);
+    } finally {
+      setPlansLoading(false);
+    }
+  };
 
    return (
      <> {/* Wrap in Fragment to allow Dialog as sibling */}
@@ -281,14 +300,10 @@ isLoading: boolean;
     
                 {/* Procedure Tab Content */}
                 <TabsContent value="procedure" className="mt-0 p-0">
-                  <div className="space-y-4 p-4 border rounded bg-muted/30">
-                    <h4 className="font-medium text-sm">Treatment / Procedure Details</h4>
-                    <FormField control={form.control} name="treatment_procedure" render={({ field }) => (
-                      <FormItem><FormLabel>Procedure (Code or Name)</FormLabel><FormControl><Input placeholder="e.g., D2391, Composite Filling" {...field} /></FormControl><FormMessage /></FormItem>
-                    )} />
-                    <FormField control={form.control} name="treatment_details" render={({ field }) => (
-                      <FormItem><FormLabel>Treatment Notes/Details</FormLabel><FormControl><Textarea placeholder="Materials used, tooth number, outcome..." {...field} /></FormControl><FormMessage /></FormItem>
-                    )} />
+                  <div className="flex justify-end p-4 border rounded bg-muted/30">
+                    <Button type="button" variant="secondary" onClick={handleShowPlans}>
+                      <ClipboardList className="w-4 h-4 mr-2" /> Add Treatment Plan Details History
+                    </Button>
                   </div>
                 </TabsContent>
     
@@ -394,6 +409,73 @@ isLoading: boolean;
          </DialogFooter>
        </DialogContent>
      </Dialog>
+
+     {/* Completed Treatment Plans Modal */}
+     <Dialog open={showPlansModal} onOpenChange={setShowPlansModal}>
+       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+         <DialogHeader>
+           <DialogTitle className="flex items-center gap-2"><ClipboardList className="w-5 h-5" /> Completed Treatment Plans</DialogTitle>
+         </DialogHeader>
+         {plansLoading ? (
+           <div className="flex items-center justify-center py-12"><Loader2 className="animate-spin w-6 h-6 mr-2" /> Loading...</div>
+         ) : completedPlans.length === 0 ? (
+           <div className="text-center text-muted-foreground py-8">No completed treatment plans found.</div>
+         ) : (
+           <div className="space-y-4">
+             {completedPlans.map((plan, idx) => (
+               <Card key={plan.id || idx} className="border shadow-sm">
+                 <CardHeader className="flex flex-row items-center justify-between pb-2">
+                   <div className="flex items-center gap-2">
+                     <CheckCircle2 className="text-green-500 w-5 h-5" />
+                     <CardTitle className="text-lg">{plan.title || 'Treatment Plan'}</CardTitle>
+                     <Badge variant="secondary">Completed</Badge>
+                   </div>
+                   <span className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="w-4 h-4" />{plan.end_date ? new Date(plan.end_date).toLocaleDateString() : 'N/A'}</span>
+                 </CardHeader>
+                 <CardContent className="space-y-2">
+                   <div className="flex flex-wrap gap-2 items-center">
+                     {plan.teeth && plan.teeth.length > 0 && (
+                       <span className="flex items-center gap-1 text-xs"><Smile className="w-4 h-4" />Teeth: {plan.teeth.map((t: any) => t.tooth_id).join(', ')}</span>
+                     )}
+                     {plan.totalCost && (
+                       <span className="flex items-center gap-1 text-xs"><DollarSign className="w-4 h-4" />Cost: {plan.totalCost}</span>
+                     )}
+                   </div>
+                   <div className="text-sm text-muted-foreground">{plan.description}</div>
+                   {plan.treatments && plan.treatments.length > 0 && (
+                     <div className="mt-2">
+                       <div className="font-medium text-xs mb-1">Procedures:</div>
+                       <ul className="list-disc pl-5 space-y-1">
+                         {plan.treatments.map((treat: any, i: number) => (
+                           <li key={treat.id || i} className="text-xs">
+                             <span className="font-semibold">{treat.procedures || treat.title}</span>
+                             {treat.description && <span className="ml-2 text-muted-foreground">{treat.description}</span>}
+                             {treat.status && <Badge className="ml-2" variant={treat.status === 'completed' ? 'secondary' : 'outline'}>{treat.status}</Badge>}
+                           </li>
+                         ))}
+                       </ul>
+                     </div>
+                   )}
+                 </CardContent>
+               </Card>
+             ))}
+           </div>
+         )}
+         <DialogFooter>
+           <Button variant="outline" onClick={() => setShowPlansModal(false)}>Close</Button>
+         </DialogFooter>
+       </DialogContent>
+     </Dialog>
+
+     {/* Add Record Form */}
+     <div className="bg-white rounded-xl border p-6 mb-6">
+       <h2 className="text-2xl font-bold mb-4">Treatment Plan</h2>
+       <div className="flex justify-end">
+         <Button type="button" variant="secondary" onClick={handleShowPlans}>
+           <ClipboardList className="w-4 h-4 mr-2" /> View Completed Treatment Plans
+         </Button>
+       </div>
+     </div>
    </> // Close Fragment
  );
 }

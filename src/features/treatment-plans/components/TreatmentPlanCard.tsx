@@ -63,7 +63,17 @@ export function TreatmentPlanCard({ plan, onViewDetails }: TreatmentPlanCardProp
   };
   
   return (
-    <Card className="overflow-hidden">
+    <Card
+      className="overflow-hidden glass-plan-card"
+      style={{
+        background: 'linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(173,216,255,0.18) 100%)',
+        backdropFilter: 'blur(18px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(18px) saturate(180%)',
+        boxShadow: '0 4px 24px 0 rgba(120,180,255,0.10), 0 1.5px 6px 0 rgba(120,180,255,0.10)',
+        border: '1.5px solid rgba(120,180,255,0.10)',
+        borderRadius: 18,
+      }}
+    >
       <CardHeader className="pb-2">
         <div className="flex justify-between items-start">
           <CardTitle className="text-lg">{plan.title}</CardTitle>
@@ -93,7 +103,27 @@ export function TreatmentPlanCard({ plan, onViewDetails }: TreatmentPlanCardProp
               <span>Progress</span>
               <span>{plan.completedTreatments} of {plan.totalTreatments} treatments</span>
             </div>
-            <Progress value={plan.progress} />
+            <div style={{
+              width: '100%',
+              height: 8,
+              borderRadius: 8,
+              background: 'rgba(200,220,255,0.18)',
+              overflow: 'hidden',
+              marginTop: 4,
+              position: 'relative',
+            }}>
+              <div
+                style={{
+                  width: `${plan.status === 'completed' ? 100 : plan.progress ?? 0}%`,
+                  height: '100%',
+                  borderRadius: 8,
+                  background: plan.status === 'completed'
+                    ? 'linear-gradient(90deg, #03C988 0%,rgb(20, 196, 84) 100%)'
+                    : 'linear-gradient(90deg, #3b82f6 0%, #06b6d4 100%)',
+                  transition: 'width 0.7s cubic-bezier(.4,2,.6,1), background 0.7s cubic-bezier(.4,2,.6,1)',
+                }}
+              />
+            </div>
           </div>
         </div>
       </CardContent>

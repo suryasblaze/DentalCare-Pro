@@ -1489,6 +1489,21 @@ export function TreatmentPlanDetails({
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-medium">Treatments</h3>
                   <div className="flex gap-2">
+                    {plan.status === 'planned' && (
+                      <Button
+                        variant="outline"
+                        onClick={() => onStatusChange(plan.id, 'in_progress')}
+                        disabled={loading}
+                        title="Start this treatment plan"
+                      >
+                        {loading && !showDeleteConfirm && !showCancelConfirm ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Clock className="h-4 w-4 mr-1" />
+                        )}
+                        Start Treatment
+                      </Button>
+                    )}
                     <Button 
                       variant="outline" 
                       size="sm"
@@ -1608,11 +1623,33 @@ export function TreatmentPlanDetails({
               </div>
 
               {/* Tabs for Additional Information */}
-              <Tabs defaultValue="additionalInfo" className="w-full tabs-print-all-content"> {/* Added tabs-print-all-content */}
-                <TabsList className="grid w-full grid-cols-3 print-hide"> {/* Added print-hide */}
-                  <TabsTrigger value="additionalInfo">Additional Information</TabsTrigger>
-                  <TabsTrigger value="visits">Scheduled Visits</TabsTrigger>
-                  <TabsTrigger value="financial">Financial Information</TabsTrigger>
+              <Tabs defaultValue="additionalInfo" className="w-full tabs-print-all-content">
+                {/* Ultra-modern, glassy TabsList with gradient overlay and perfect vertical centering */}
+                <TabsList
+                  className="flex items-center min-h-[44px] grid w-full grid-cols-3 print-hide rounded-2xl bg-white/30 bg-gradient-to-br from-white/60 to-[#e3f0ff]/60 backdrop-blur-lg border border-[#d0e6ff] shadow-xl px-2 py-0 relative"
+                  style={{ boxShadow: '0 6px 32px 0 #e3f0ff' }}
+                >
+                  <TabsTrigger
+                    value="additionalInfo"
+                    className="flex h-full items-center justify-center gap-2 px-5 py-0 text-base font-semibold text-brand-medium rounded-xl focus:outline-none data-[state=active]:bg-white/80 data-[state=active]:shadow-md data-[state=active]:border data-[state=active]:border-blue-200 data-[state=active]:z-10 data-[state=active]:text-brand-primary hover:bg-white/40 transition-all"
+                  >
+                    <Stethoscope className="w-5 h-5" />
+                    Additional Information
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="visits"
+                    className="flex h-full items-center justify-center gap-2 px-5 py-0 text-base font-semibold text-brand-medium rounded-xl focus:outline-none data-[state=active]:bg-white/80 data-[state=active]:shadow-md data-[state=active]:border data-[state=active]:border-blue-200 data-[state=active]:z-10 data-[state=active]:text-brand-primary hover:bg-white/40 transition-all"
+                  >
+                    <Calendar className="w-5 h-5" />
+                    Scheduled Visits
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="financial"
+                    className="flex h-full items-center justify-center gap-2 px-5 py-0 text-base font-semibold text-brand-medium rounded-xl focus:outline-none data-[state=active]:bg-white/80 data-[state=active]:shadow-md data-[state=active]:border data-[state=active]:border-blue-200 data-[state=active]:z-10 data-[state=active]:text-brand-primary hover:bg-white/40 transition-all"
+                  >
+                    <CreditCard className="w-5 h-5" />
+                    Financial Information
+                  </TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="additionalInfo" className="space-y-4">
@@ -1865,23 +1902,6 @@ export function TreatmentPlanDetails({
                     </Button>
                   )}
 
-                  {/* Mark Completed: Only show if status is 'in_progress' */}
-                  {plan.status === 'in_progress' && (
-                    <Button
-                      variant="outline"
-                      onClick={() => onStatusChange(plan.id, 'completed')}
-                      disabled={loading}
-                      title="Mark this plan as completed"
-                    >
-                      {loading && !showDeleteConfirm && !showCancelConfirm ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Check className="h-4 w-4 mr-1" />
-                      )}
-                      Mark Completed
-                    </Button>
-                  )}
-
                   {/* Cancel Plan: Show if 'planned' or 'in_progress', triggers confirmation */}
                   {(plan.status === 'planned' || plan.status === 'in_progress') && (
                     <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
@@ -1980,13 +2000,40 @@ export function TreatmentPlanDetails({
                   </Button>
 
                   {plan.status !== 'completed' && plan.status !== 'cancelled' && (
-                      <Button 
-                          onClick={() => onStatusChange(plan.id, 'completed' as TreatmentStatus)} 
-                          disabled={loading || !plan.treatments || plan.treatments.length === 0}
-                          variant="default"
+                      <Button
+                        onClick={() => {
+                          // Check if all treatments are completed
+                          if (!plan.treatments || plan.treatments.length === 0) {
+                            toast({
+                              title: "No Treatments",
+                              description: "Please add at least one treatment before completing the plan.",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          const incomplete = plan.treatments.find(
+                            (t: any) => t.status !== 'completed'
+                          );
+                          if (incomplete) {
+                            // Find the first incomplete visit number or title
+                            const visitLabel =
+                              incomplete.visit_number
+                                ? `Visit ${incomplete.visit_number}`
+                                : incomplete.type || incomplete.title || "a treatment";
+                            toast({
+                              title: "Cannot Complete Plan",
+                              description: `Please complete ${visitLabel} before marking the entire plan as completed.`,
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          onStatusChange(plan.id, 'completed' as TreatmentStatus);
+                        }}
+                        disabled={loading || !plan.treatments || plan.treatments.length === 0}
+                        variant="default"
                       >
-                          <Check className="h-4 w-4 mr-2" />
-                          Mark as Completed
+                        <Check className="h-4 w-4 mr-2" />
+                        Mark as Completed
                       </Button>
                   )}
                 </div>

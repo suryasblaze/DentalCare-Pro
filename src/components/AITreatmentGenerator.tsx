@@ -17,6 +17,17 @@ import { supabase } from '@/lib/supabase'; // Import supabase client
 import ToothSelector, { type ToothConditionsMap } from '@/features/treatment-plans/components/ToothSelector';
 // Remove DentalChart import if no longer needed elsewhere in this file
 // import DentalChart, { type InitialToothState } from '@/features/treatment-plans/components/DentalChart';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
+import { getAIRequestTimeout } from '@/utils/aiTimeout'; // Import timeout utility
 
 // Remove Tooth type definition
 
@@ -68,6 +79,10 @@ export function AITreatmentGenerator({
   // Remove teeth and fetchError state
   const [selectedTeethData, setSelectedTeethData] = useState<ToothConditionsMap>({}); // Changed state for selected teeth
   const { toast } = useToast();
+  // Add state for cancel confirmation dialog
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  // Store the user's intent to close
+  const [pendingClose, setPendingClose] = useState(false);
 
   // generateSuggestions function targeting correct fields (with logging)
   const generateSuggestions = (details: PatientDetails | null): Suggestion[] => {
@@ -359,8 +374,8 @@ export function AITreatmentGenerator({
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-      console.log("Fetch request timed out after 120 seconds");
-    }, 120000); // 120 seconds
+      console.log(`Fetch request timed out after ${getAIRequestTimeout()} ms`);
+    }, getAIRequestTimeout()); // Use env-based timeout
 
     try {
       // n8n webhook URL
@@ -513,7 +528,7 @@ export function AITreatmentGenerator({
   };
 
   // Reset state when dialog closes (or when triggered externally)
-  const handleDialogClose = () => {
+  const actuallyCloseDialog = () => {
     setGeneratedPlan(null); // Clear generated plan on dialog close
     setSelectedTeethData({}); // Clear selected teeth on dialog close
     setSelectedPatientId(''); // Clear selected patient ID
@@ -527,6 +542,28 @@ export function AITreatmentGenerator({
     onOpenChange(false); // Notify parent that the dialog should close
   };
 
+  // Intercept dialog open/close
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setShowCancelConfirm(true); // Show confirmation dialog
+      setPendingClose(true);
+    } else {
+      onOpenChange(true); // Open as usual
+    }
+  };
+
+  // Handle cancel confirmation dialog actions
+  const handleCancelConfirm = () => {
+    setShowCancelConfirm(false);
+    setPendingClose(false);
+  };
+
+  const handleCancelYes = () => {
+    setShowCancelConfirm(false);
+    setPendingClose(false);
+    actuallyCloseDialog(); // Actually close and reset the dialog
+  };
+
   // Filter patients based on search term
   const filteredPatients = patients.filter(patient => {
     const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
@@ -537,357 +574,374 @@ export function AITreatmentGenerator({
   });
 
   return (
-    <Dialog open={open} onOpenChange={handleDialogClose}>
-      {/* Added max-height and overflow to DialogContent */}
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <BrainCog className="h-5 w-5" />
-            AI Treatment Plan Generator
-          </DialogTitle>
-          <DialogDescription>
-            Select a patient and describe the current issue to generate a treatment plan using AI.
-          </DialogDescription>
-        </DialogHeader>
-        {/* Reduced vertical spacing from space-y-4 to space-y-3 */}
-        <div className="space-y-3 py-4">
-          {/* Patient Selection - Replaced with Search Input */}
-          <div className="space-y-2 relative"> {/* Added relative positioning */}
-            <Label htmlFor="patient-search">Select Patient</Label>
-            <Input
-              type="search"
-              id="patient-search"
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                // Clear selection when user starts typing again
-                if (selectedPatientId) {
-                  setSelectedPatientId('');
-                  setSelectedPatientName('');
-                  setFetchedPatientDetails(null); // Clear details if selection is cleared
-                }
-              }}
-              placeholder={selectedPatientName || "Search by name, phone, or registration..."} // Updated placeholder
-              className="w-full"
-              // Optionally disable if patients are loading (if applicable)
-              // disabled={isLoadingPatients}
-            />
+    <>
+      <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+        {/* Added max-height and overflow to DialogContent */}
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BrainCog className="h-5 w-5" />
+              AI Treatment Plan Generator
+            </DialogTitle>
+            <DialogDescription>
+              Select a patient and describe the current issue to generate a treatment plan using AI.
+            </DialogDescription>
+          </DialogHeader>
+          {/* Reduced vertical spacing from space-y-4 to space-y-3 */}
+          <div className="space-y-3 py-4">
+            {/* Patient Selection - Replaced with Search Input */}
+            <div className="space-y-2 relative"> {/* Added relative positioning */}
+              <Label htmlFor="patient-search">Select Patient</Label>
+              <Input
+                type="search"
+                id="patient-search"
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  // Clear selection when user starts typing again
+                  if (selectedPatientId) {
+                    setSelectedPatientId('');
+                    setSelectedPatientName('');
+                    setFetchedPatientDetails(null); // Clear details if selection is cleared
+                  }
+                }}
+                placeholder={selectedPatientName || "Search by name, phone, or registration..."} // Updated placeholder
+                className="w-full"
+                // Optionally disable if patients are loading (if applicable)
+                // disabled={isLoadingPatients}
+              />
 
-            {/* Search Results Dropdown */}
-            {searchTerm && ( // Only show dropdown if there's a search term
-              <ScrollArea className="absolute z-10 w-full bg-background border rounded-md shadow-lg mt-1 max-h-60"> {/* Dropdown styling */}
-                <div className="p-2">
-                  {filteredPatients.length > 0 ? (
-                    filteredPatients.map((patient) => (
-                      <Button
-                        key={patient.id}
-                        variant="ghost" // Use ghost variant for list items
-                        className="w-full justify-start text-left h-auto py-2 px-3 mb-1" // Adjust padding/margin
-                        onClick={() => handlePatientSelect(patient)}
-                      >
-                        <div>
-                          <div>{`${patient.first_name || ''} ${patient.last_name || ''}`.trim()}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {patient.registration_number && `Reg: ${patient.registration_number}`}
-                            {patient.registration_number && patient.phone && " | "}
-                            {patient.phone && `Ph: ${patient.phone}`}
-                            {/* Show ID if neither Reg nor Phone is available */}
-                            {!patient.registration_number && !patient.phone && `ID: ${patient.id.substring(0, 6)}...`}
+              {/* Search Results Dropdown */}
+              {searchTerm && ( // Only show dropdown if there's a search term
+                <ScrollArea className="absolute z-10 w-full bg-background border rounded-md shadow-lg mt-1 max-h-60"> {/* Dropdown styling */}
+                  <div className="p-2">
+                    {filteredPatients.length > 0 ? (
+                      filteredPatients.map((patient) => (
+                        <Button
+                          key={patient.id}
+                          variant="ghost" // Use ghost variant for list items
+                          className="w-full justify-start text-left h-auto py-2 px-3 mb-1" // Adjust padding/margin
+                          onClick={() => handlePatientSelect(patient)}
+                        >
+                          <div>
+                            <div>{`${patient.first_name || ''} ${patient.last_name || ''}`.trim()}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {patient.registration_number && `Reg: ${patient.registration_number}`}
+                              {patient.registration_number && patient.phone && " | "}
+                              {patient.phone && `Ph: ${patient.phone}`}
+                              {/* Show ID if neither Reg nor Phone is available */}
+                              {!patient.registration_number && !patient.phone && `ID: ${patient.id.substring(0, 6)}...`}
+                            </div>
                           </div>
-                        </div>
-                      </Button>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground p-2">No patients found matching "{searchTerm}"</p>
-                  )}
-                </div>
-              </ScrollArea>
-            )}
-             {/* Optional: Add loading/error indicators if patients are fetched dynamically */}
-             {/* {isLoadingPatients && <p className="text-sm text-muted-foreground mt-1">Loading patients...</p>} */}
-             {/* {errorPatients && <p className="text-sm text-destructive mt-1">{errorPatients}</p>} */}
-          </div>
+                        </Button>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground p-2">No patients found matching "{searchTerm}"</p>
+                    )}
+                  </div>
+                </ScrollArea>
+              )}
+               {/* Optional: Add loading/error indicators if patients are fetched dynamically */}
+               {/* {isLoadingPatients && <p className="text-sm text-muted-foreground mt-1">Loading patients...</p>} */}
+               {/* {errorPatients && <p className="text-sm text-destructive mt-1">{errorPatients}</p>} */}
+            </div>
 
-          {/* Tooth Selection Field - Using ToothSelector */}
-          <div className="space-y-2">
-            <Label>Teeth *</Label>
-            {selectedPatientId ? (
-              <ToothSelector
-                value={selectedTeethData} // Use the existing state for selected IDs - Changed
-                onChange={setSelectedTeethData} // Use the existing state setter - Changed
-                placeholder="Select Affected Teeth..."
+            {/* Tooth Selection Field - Using ToothSelector */}
+            <div className="space-y-2">
+              <Label>Teeth *</Label>
+              {selectedPatientId ? (
+                <ToothSelector
+                  value={selectedTeethData} // Use the existing state for selected IDs - Changed
+                  onChange={setSelectedTeethData} // Use the existing state setter - Changed
+                  placeholder="Select Affected Teeth..."
+                  disabled={!selectedPatientId} // Disable if no patient selected
+                />
+              ) : (
+                // Display placeholder text when no patient is selected
+                <div className="flex items-center justify-center h-10 px-3 border rounded-md bg-gray-50 text-sm text-muted-foreground">
+                  Select a patient to enable teeth selection.
+                </div>
+              )}
+            </div>
+
+            {/* Current Condition Input */}
+            {/* Condition Input */}
+            <div className="space-y-2">
+              <Label htmlFor="condition-input">Condition</Label>
+              <Textarea
+                id="condition-input"
+                placeholder="Describe symptoms, observations, relevant history..."
+                rows={5}
+                value={currentCondition} // Still using currentCondition state variable
+                onChange={(e) => setCurrentCondition(e.target.value)}
                 disabled={!selectedPatientId} // Disable if no patient selected
               />
-            ) : (
-              // Display placeholder text when no patient is selected
-              <div className="flex items-center justify-center h-10 px-3 border rounded-md bg-gray-50 text-sm text-muted-foreground">
-                Select a patient to enable teeth selection.
+            </div>
+
+            {/* Question Input */}
+            <div className="space-y-2">
+              <Label htmlFor="question-input">Question</Label>
+              <Textarea
+                id="question-input"
+                placeholder="What specific question do you have based on the condition?"
+                rows={3}
+                value={currentQuestion} // Still using currentQuestion state variable
+                onChange={(e) => setCurrentQuestion(e.target.value)}
+                disabled={!selectedPatientId} // Disable if no patient selected
+              />
+            </div>
+
+            {/* Query Suggestions (Simplified - Always show default pool if patient selected) */}
+            {/* Show suggestions *only* if patient-specific ones were generated */}
+            {selectedPatientId && dynamicSuggestions.length > 0 && (
+              <div className="space-y-2 pt-2"> {/* Keep pt-2 for spacing above label */}
+                <Label>Query Suggestions</Label> {/* Updated Label */}
+                {/* Changed layout to horizontal wrap, removed ScrollArea */}
+                <div className="flex flex-wrap gap-2 pt-1"> {/* Use flex-wrap and gap */}
+                  {/* Fixed Suggestion Button */}
+                  <Button
+                    key="fixed-suggestion"
+                    disabled={!selectedPatientId}
+                    variant="ghost"
+                    size="sm"
+                    // Using similar styling but maybe a slightly different color scheme if needed
+                    // For now, using the unselected style
+                    className={`
+                      h-auto px-2.5 py-0.5 rounded-full border-none
+                      transition-colors duration-150 ease-in-out
+                      focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0118D8]
+                      disabled:opacity-60 disabled:cursor-not-allowed
+                      bg-[#e8eefd] text-[#1B56FD] hover:bg-[#d1dffd]
+                      disabled:bg-blue-50 disabled:text-blue-300
+                    `}
+                    onClick={handleFixedSuggestionClick} // Use the new handler
+                  >
+                    I want three treatment plans
+                  </Button>
+
+                  {/* Dynamic Patient-Specific Suggestions */}
+                  {dynamicSuggestions.map((suggestion, index) => {
+                    const isSelected = suggestion.label === selectedSuggestionLabel;
+                    const baseClasses = `
+                      h-auto px-2.5 py-0.5
+                      rounded-full
+                      border-none
+                      transition-colors duration-150 ease-in-out
+                      focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0118D8]
+                      disabled:opacity-60 disabled:cursor-not-allowed
+                    `;
+                    const selectedClasses = `
+                      bg-[#1B56FD] /* Main blue background */
+                      text-white /* White text */
+                      hover:bg-[#0118D8] /* Darker blue hover */
+                      disabled:bg-blue-300 disabled:text-gray-100
+                    `;
+                    const unselectedClasses = `
+                      bg-[#e8eefd] /* Light blue background */
+                      text-[#1B56FD] /* Main blue text */
+                      hover:bg-[#d1dffd] /* Slightly darker light blue hover */
+                      disabled:bg-blue-50 disabled:text-blue-300
+                    `;
+
+                    return (
+                      <Button
+                        key={index}
+                        disabled={!selectedPatientId}
+                        variant="ghost"
+                        size="sm"
+                        className={`${baseClasses} ${isSelected ? selectedClasses : unselectedClasses}`}
+                        onClick={() => handleSuggestionClick(suggestion)}
+                      >
+                        {suggestion.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground pt-1">Click a suggestion to populate the fields above. The fixed suggestion only populates the question.</p> {/* Updated description */}
               </div>
             )}
-          </div>
-
-          {/* Current Condition Input */}
-          {/* Condition Input */}
-          <div className="space-y-2">
-            <Label htmlFor="condition-input">Condition</Label>
-            <Textarea
-              id="condition-input"
-              placeholder="Describe symptoms, observations, relevant history..."
-              rows={5}
-              value={currentCondition} // Still using currentCondition state variable
-              onChange={(e) => setCurrentCondition(e.target.value)}
-              disabled={!selectedPatientId} // Disable if no patient selected
-            />
-          </div>
-
-          {/* Question Input */}
-          <div className="space-y-2">
-            <Label htmlFor="question-input">Question</Label>
-            <Textarea
-              id="question-input"
-              placeholder="What specific question do you have based on the condition?"
-              rows={3}
-              value={currentQuestion} // Still using currentQuestion state variable
-              onChange={(e) => setCurrentQuestion(e.target.value)}
-              disabled={!selectedPatientId} // Disable if no patient selected
-            />
-          </div>
-
-          {/* Query Suggestions (Simplified - Always show default pool if patient selected) */}
-          {/* Show suggestions *only* if patient-specific ones were generated */}
-          {selectedPatientId && dynamicSuggestions.length > 0 && (
-            <div className="space-y-2 pt-2"> {/* Keep pt-2 for spacing above label */}
-              <Label>Query Suggestions</Label> {/* Updated Label */}
-              {/* Changed layout to horizontal wrap, removed ScrollArea */}
-              <div className="flex flex-wrap gap-2 pt-1"> {/* Use flex-wrap and gap */}
-                {/* Fixed Suggestion Button */}
-                <Button
-                  key="fixed-suggestion"
-                  disabled={!selectedPatientId}
-                  variant="ghost"
-                  size="sm"
-                  // Using similar styling but maybe a slightly different color scheme if needed
-                  // For now, using the unselected style
-                  className={`
-                    h-auto px-2.5 py-0.5 rounded-full border-none
-                    transition-colors duration-150 ease-in-out
-                    focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0118D8]
-                    disabled:opacity-60 disabled:cursor-not-allowed
-                    bg-[#e8eefd] text-[#1B56FD] hover:bg-[#d1dffd]
-                    disabled:bg-blue-50 disabled:text-blue-300
-                  `}
-                  onClick={handleFixedSuggestionClick} // Use the new handler
-                >
-                  I want three treatment plans
-                </Button>
-
-                {/* Dynamic Patient-Specific Suggestions */}
-                {dynamicSuggestions.map((suggestion, index) => {
-                  const isSelected = suggestion.label === selectedSuggestionLabel;
-                  const baseClasses = `
-                    h-auto px-2.5 py-0.5
-                    rounded-full
-                    border-none
-                    transition-colors duration-150 ease-in-out
-                    focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0118D8]
-                    disabled:opacity-60 disabled:cursor-not-allowed
-                  `;
-                  const selectedClasses = `
-                    bg-[#1B56FD] /* Main blue background */
-                    text-white /* White text */
-                    hover:bg-[#0118D8] /* Darker blue hover */
-                    disabled:bg-blue-300 disabled:text-gray-100
-                  `;
-                  const unselectedClasses = `
-                    bg-[#e8eefd] /* Light blue background */
-                    text-[#1B56FD] /* Main blue text */
-                    hover:bg-[#d1dffd] /* Slightly darker light blue hover */
-                    disabled:bg-blue-50 disabled:text-blue-300
-                  `;
-
-                  return (
-                    <Button
-                      key={index}
-                      disabled={!selectedPatientId}
-                      variant="ghost"
-                      size="sm"
-                      className={`${baseClasses} ${isSelected ? selectedClasses : unselectedClasses}`}
-                      onClick={() => handleSuggestionClick(suggestion)}
-                    >
-                      {suggestion.label}
-                    </Button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-muted-foreground pt-1">Click a suggestion to populate the fields above. The fixed suggestion only populates the question.</p> {/* Updated description */}
-            </div>
-          )}
-          {/* Render suggestions section even if only the fixed one is available */}
-          {selectedPatientId && dynamicSuggestions.length === 0 && (
-             <div className="space-y-2 pt-2">
-              <Label>Query Suggestions</Label>
-              <div className="flex flex-wrap gap-2 pt-1">
-                 <Button
-                  key="fixed-suggestion-only"
-                  disabled={!selectedPatientId}
-                  variant="ghost"
-                  size="sm"
-                  className={`
-                    h-auto px-2.5 py-0.5 rounded-full border-none
-                    transition-colors duration-150 ease-in-out
-                    focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0118D8]
-                    disabled:opacity-60 disabled:cursor-not-allowed
-                    bg-[#e8eefd] text-[#1B56FD] hover:bg-[#d1dffd]
-                    disabled:bg-blue-50 disabled:text-blue-300
-                  `}
-                  onClick={handleFixedSuggestionClick}
-                >
-                  I want three treatment plans
-                </Button>
-              </div>
-               <p className="text-xs text-muted-foreground pt-1">Click the suggestion to populate the question field.</p>
-            </div>
-          )}
-
-          {/* Display Generated Plan - Design Refresh v2 */}
-          {generatedPlan && (
-            <div className="pt-6 mt-6 border-t border-gray-200">
-              <Label className="text-base font-medium mb-3 block text-gray-700">
-                AI Generated Plan
-              </Label>
-              <div className="flex items-start space-x-3">
-                {/* Icon */}
-                <div className="flex-shrink-0 w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center border border-indigo-200 shadow-sm">
-                  <Bot className="w-5 h-5 text-indigo-600" />
+            {/* Render suggestions section even if only the fixed one is available */}
+            {selectedPatientId && dynamicSuggestions.length === 0 && (
+               <div className="space-y-2 pt-2">
+                <Label>Query Suggestions</Label>
+                <div className="flex flex-wrap gap-2 pt-1">
+                   <Button
+                    key="fixed-suggestion-only"
+                    disabled={!selectedPatientId}
+                    variant="ghost"
+                    size="sm"
+                    className={`
+                      h-auto px-2.5 py-0.5 rounded-full border-none
+                      transition-colors duration-150 ease-in-out
+                      focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0118D8]
+                      disabled:opacity-60 disabled:cursor-not-allowed
+                      bg-[#e8eefd] text-[#1B56FD] hover:bg-[#d1dffd]
+                      disabled:bg-blue-50 disabled:text-blue-300
+                    `}
+                    onClick={handleFixedSuggestionClick}
+                  >
+                    I want three treatment plans
+                  </Button>
                 </div>
-                {/* Bubble Container - Added overflow-hidden */}
-                <div className="flex-1 min-w-0 overflow-hidden">
-                  {/* Bubble with ScrollArea - Enhanced Rendering */}
-                  <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-                    {/* Removed max-h-96 to prevent truncation */}
-                    <ScrollArea className="h-auto pr-4">
-                      <div className="space-y-4 text-sm text-gray-800"> {/* Use space-y for structure */}
-                        {(() => {
-                          // Define helpers inside the IIFE scope
-                          const renderSection = (title: string, content: string | undefined, className: string = "mb-4") => {
-                            if (!content) return null;
-                            return (
-                              <div className={className}>
-                                <strong className="block font-semibold text-gray-800 mb-1">{title}:</strong>
-                                <p className="text-gray-700 whitespace-pre-wrap">{content}</p>
-                              </div>
-                            );
-                          };
+                 <p className="text-xs text-muted-foreground pt-1">Click the suggestion to populate the question field.</p>
+              </div>
+            )}
 
-                          const renderSteps = (steps: string | undefined) => {
-                            if (!steps || typeof steps !== 'string') return null;
-                            if (steps.match(/^\s*\d+\.\s+/m)) {
+            {/* Display Generated Plan - Design Refresh v2 */}
+            {generatedPlan && (
+              <div className="pt-6 mt-6 border-t border-gray-200">
+                <Label className="text-base font-medium mb-3 block text-gray-700">
+                  AI Generated Plan
+                </Label>
+                <div className="flex items-start space-x-3">
+                  {/* Icon */}
+                  <div className="flex-shrink-0 w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center border border-indigo-200 shadow-sm">
+                    <Bot className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  {/* Bubble Container - Added overflow-hidden */}
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    {/* Bubble with ScrollArea - Enhanced Rendering */}
+                    <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                      {/* Removed max-h-96 to prevent truncation */}
+                      <ScrollArea className="h-auto pr-4">
+                        <div className="space-y-4 text-sm text-gray-800"> {/* Use space-y for structure */}
+                          {(() => {
+                            // Define helpers inside the IIFE scope
+                            const renderSection = (title: string, content: string | undefined, className: string = "mb-4") => {
+                              if (!content) return null;
                               return (
-                                <ol className="list-decimal list-inside pl-4 mt-1 space-y-1 text-gray-700">
-                                  {steps.split(/\n?\s*\d+\.\s+/).filter(Boolean).map((item: string, i: number) => (
-                                    <li key={i}>{item.trim()}</li>
-                                  ))}
-                                </ol>
+                                <div className={className}>
+                                  <strong className="block font-semibold text-gray-800 mb-1">{title}:</strong>
+                                  <p className="text-gray-700 whitespace-pre-wrap">{content}</p>
+                                </div>
                               );
-                            }
-                            return <p className="text-gray-700 whitespace-pre-wrap mt-1">{steps}</p>;
-                          };
+                            };
 
-                          try {
-                            // Parse the stringified 'output' object stored in generatedPlan
-                            const outputData = JSON.parse(generatedPlan);
-                            // Extract the 'response' object which contains the actual plan data
-                            const planData = outputData.response;
+                            const renderSteps = (steps: string | undefined) => {
+                              if (!steps || typeof steps !== 'string') return null;
+                              if (steps.match(/^\s*\d+\.\s+/m)) {
+                                return (
+                                  <ol className="list-decimal list-inside pl-4 mt-1 space-y-1 text-gray-700">
+                                    {steps.split(/\n?\s*\d+\.\s+/).filter(Boolean).map((item: string, i: number) => (
+                                      <li key={i}>{item.trim()}</li>
+                                    ))}
+                                  </ol>
+                                );
+                              }
+                              return <p className="text-gray-700 whitespace-pre-wrap mt-1">{steps}</p>;
+                            };
 
-                            // Check if planData (the response object) is valid
-                            if (typeof planData !== 'object' || planData === null) {
-                              console.warn("Extracted response data is not an object:", planData);
-                              // Display the raw generatedPlan (stringified output) if response is invalid
+                            try {
+                              // Parse the stringified 'output' object stored in generatedPlan
+                              const outputData = JSON.parse(generatedPlan);
+                              // Extract the 'response' object which contains the actual plan data
+                              const planData = outputData.response;
+
+                              // Check if planData (the response object) is valid
+                              if (typeof planData !== 'object' || planData === null) {
+                                console.warn("Extracted response data is not an object:", planData);
+                                // Display the raw generatedPlan (stringified output) if response is invalid
+                                return <pre className="whitespace-pre-wrap text-xs">{generatedPlan}</pre>;
+                              }
+
+                              // Render the sections based on the extracted planData
+                              return (
+                                <div className="space-y-6">
+                                  {renderSection("Clinical Assessment", planData.clinicalAssessment)}
+                                  {renderSection("Evidence & Rationale", planData.evidenceAndRationale)}
+
+                                  {/* Conditionally render Treatment Plans section */}
+                                  {planData.treatmentPlans && Array.isArray(planData.treatmentPlans) && planData.treatmentPlans.length > 0 && (
+                                    <div>
+                                      <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b pb-2">Treatment Plans</h3>
+                                      <div className="space-y-6">
+                                        {planData.treatmentPlans.map((plan: any, index: number) => (
+                                          <div key={index} className="pl-2 border-l-4 border-indigo-200">
+                                            {plan.planName && <h4 className="text-base font-semibold text-indigo-700 mb-2">{plan.planName}</h4>}
+                                            {renderSection("Recommendation", plan.recommendation, "mb-2")}
+                                            {renderSection("Approach", plan.approach, "mb-2")}
+                                            {renderSection("Benefits", plan.benefits, "mb-2")}
+                                            {renderSection("Considerations", plan.considerations, "mb-2")}
+                                            {plan.procedureSteps && (
+                                              <div className="mb-2">
+                                                <strong className="block font-semibold text-gray-800 mb-1">Procedure Steps:</strong>
+                                                {renderSteps(plan.procedureSteps)}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {renderSection("Follow Up", planData.followUp)}
+                                  {renderSection("Patient Instructions", planData.patientInstructions)}
+                                </div>
+                              );
+                            } catch (error) {
+                              console.warn("Failed to parse generatedPlan (output object) as JSON, displaying raw:", error);
                               return <pre className="whitespace-pre-wrap text-xs">{generatedPlan}</pre>;
                             }
-
-                            // Render the sections based on the extracted planData
-                            return (
-                              <div className="space-y-6">
-                                {renderSection("Clinical Assessment", planData.clinicalAssessment)}
-                                {renderSection("Evidence & Rationale", planData.evidenceAndRationale)}
-
-                                {/* Conditionally render Treatment Plans section */}
-                                {planData.treatmentPlans && Array.isArray(planData.treatmentPlans) && planData.treatmentPlans.length > 0 && (
-                                  <div>
-                                    <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b pb-2">Treatment Plans</h3>
-                                    <div className="space-y-6">
-                                      {planData.treatmentPlans.map((plan: any, index: number) => (
-                                        <div key={index} className="pl-2 border-l-4 border-indigo-200">
-                                          {plan.planName && <h4 className="text-base font-semibold text-indigo-700 mb-2">{plan.planName}</h4>}
-                                          {renderSection("Recommendation", plan.recommendation, "mb-2")}
-                                          {renderSection("Approach", plan.approach, "mb-2")}
-                                          {renderSection("Benefits", plan.benefits, "mb-2")}
-                                          {renderSection("Considerations", plan.considerations, "mb-2")}
-                                          {plan.procedureSteps && (
-                                            <div className="mb-2">
-                                              <strong className="block font-semibold text-gray-800 mb-1">Procedure Steps:</strong>
-                                              {renderSteps(plan.procedureSteps)}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {renderSection("Follow Up", planData.followUp)}
-                                {renderSection("Patient Instructions", planData.patientInstructions)}
-                              </div>
-                            );
-                          } catch (error) {
-                            console.warn("Failed to parse generatedPlan (output object) as JSON, displaying raw:", error);
-                            return <pre className="whitespace-pre-wrap text-xs">{generatedPlan}</pre>;
-                          }
-                        })()}
-                      </div>
-                    </ScrollArea>
+                          })()}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                    {/* Placeholder for Action Icons - Kept for potential future use */}
+                    {/* <div className="flex items-center space-x-2 mt-2 text-gray-400">
+                      <button className="hover:text-indigo-600"><Copy className="w-4 h-4" /></button>
+                      <button className="hover:text-indigo-600"><Share2 className="w-4 h-4" /></button>
+                      <button className="hover:text-indigo-600"><ThumbsUp className="w-4 h-4" /></button>
+                      <button className="hover:text-indigo-600"><ThumbsDown className="w-4 h-4" /></button>
+                    </div> */}
                   </div>
-                  {/* Placeholder for Action Icons - Kept for potential future use */}
-                  {/* <div className="flex items-center space-x-2 mt-2 text-gray-400">
-                    <button className="hover:text-indigo-600"><Copy className="w-4 h-4" /></button>
-                    <button className="hover:text-indigo-600"><Share2 className="w-4 h-4" /></button>
-                    <button className="hover:text-indigo-600"><ThumbsUp className="w-4 h-4" /></button>
-                    <button className="hover:text-indigo-600"><ThumbsDown className="w-4 h-4" /></button>
-                  </div> */}
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
-          <Button
-            onClick={handleGenerateTreatmentPlan}
-            disabled={
-              !selectedPatientId ||
-              Object.keys(selectedTeethData).length === 0 || // Changed
-              !currentCondition.trim() ||
-              !currentQuestion.trim()
-            }
-            className={`ai-insights-button ${isGenerating ? 'opacity-100 cursor-not-allowed' : ''}`}
-            style={isGenerating ? { opacity: 1 } : {}}
-          >
-            {isGenerating ? (
-              <>
-                <BrainCog className="mr-2 h-4 w-4 animate-spin" />
-                {"AI is thinking... (this may take up to 2 minutes)"}
-              </>
-            ) : (
-              <>
-                <BrainCog className="mr-2 h-4 w-4" /> 
-                Generate Plan
-              </>
             )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCancelConfirm(true)}>Cancel</Button>
+            <Button
+              onClick={handleGenerateTreatmentPlan}
+              disabled={
+                !selectedPatientId ||
+                Object.keys(selectedTeethData).length === 0 || // Changed
+                !currentCondition.trim() ||
+                !currentQuestion.trim()
+              }
+              className={`ai-insights-button ${isGenerating ? 'opacity-100 cursor-not-allowed' : ''}`}
+              style={isGenerating ? { opacity: 1 } : {}}
+            >
+              {isGenerating ? (
+                <>
+                  <BrainCog className="mr-2 h-4 w-4 animate-spin" />
+                  {"AI is thinking... (this may take up to 2 minutes)"}
+                </>
+              ) : (
+                <>
+                  <BrainCog className="mr-2 h-4 w-4" /> 
+                  Generate Plan
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Cancel confirmation dialog */}
+      <AlertDialog open={showCancelConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel this plan? All unsaved changes will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelConfirm}>No</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCancelYes}>Yes</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

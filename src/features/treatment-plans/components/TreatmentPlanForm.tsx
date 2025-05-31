@@ -44,6 +44,16 @@ import {
 import { cn } from '@/lib/utils'; // cn might already be imported
 import { Clock, Calendar } from 'lucide-react'; // Icons for accordion
 import { useNavigate } from 'react-router-dom';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
 
 // Define schema for treatment plan form
 export const treatmentPlanSchema = z.object({
@@ -198,6 +208,11 @@ export function TreatmentPlanForm({
   const [isSavingChart, setIsSavingChart] = useState(false); // State for saving indicator
   const [selectedAISuggestionForSubmit, setSelectedAISuggestionForSubmit] = useState<AISuggestion | null>(null); // New state for applied AI suggestion
   const [conditionAppliedInChart, setConditionAppliedInChart] = useState<string | null>(null); // New state
+
+  // Add state for cancel confirmation dialog
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  // Store the user's intent to close
+  const [pendingClose, setPendingClose] = useState(false);
 
   const { toast } = useToast(); // Initialize toast
   const dentalChartRef = useRef<DentalChartHandle>(null); // Ref for DentalChart component
@@ -805,11 +820,33 @@ export function TreatmentPlanForm({
     });
   };
 
+  // Intercept dialog open/close
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setShowCancelConfirm(true); // Show confirmation dialog
+      setPendingClose(true);
+    } else {
+      onOpenChange(true); // Open as usual
+    }
+  };
+
+  // Handle cancel confirmation dialog actions
+  const handleCancelConfirm = () => {
+    setShowCancelConfirm(false);
+    setPendingClose(false);
+  };
+
+  const handleCancelYes = () => {
+    setShowCancelConfirm(false);
+    setPendingClose(false);
+    onOpenChange(false); // Actually close the dialog
+  };
+
   // Need to wrap the return in a Fragment as Dialogs are siblings
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+        <DialogContent className="max-w-3xl w-full max-h-[90vh] overflow-y-auto p-8 rounded-xl">
           <DialogHeader>
             <DialogTitle>Create New Treatment Plan</DialogTitle>
             <DialogDescription>
@@ -1089,17 +1126,15 @@ export function TreatmentPlanForm({
                                 </div>
                               )}
                             </div>
-                            {suggestion.planDetails.isPatientSelected && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleApplySuggestion(suggestion)}
-                                className="bg-primary text-white hover:bg-primary/90"
-                              >
-                                Apply Selected Plan
-                              </Button>
-                            )}
+                            <Button
+                              type="button"
+                              variant={suggestion.planDetails.isPatientSelected ? "outline" : "secondary"}
+                              size="sm"
+                              onClick={() => handleApplySuggestion(suggestion)}
+                              className={suggestion.planDetails.isPatientSelected ? "bg-primary text-white hover:bg-primary/90" : ""}
+                            >
+                              Apply Selected Plan
+                            </Button>
                           </div>
                         </div>
 
@@ -1380,6 +1415,22 @@ export function TreatmentPlanForm({
            </DialogFooter>
          </DialogContent>
        </Dialog>
+
+       {/* Cancel confirmation dialog */}
+       <AlertDialog open={showCancelConfirm}>
+         <AlertDialogContent>
+           <AlertDialogHeader>
+             <AlertDialogTitle>Cancel Plan?</AlertDialogTitle>
+             <AlertDialogDescription>
+               Are you sure you want to cancel this plan? All unsaved changes will be lost.
+             </AlertDialogDescription>
+           </AlertDialogHeader>
+           <AlertDialogFooter>
+             <AlertDialogCancel onClick={handleCancelConfirm}>No</AlertDialogCancel>
+             <AlertDialogAction onClick={handleCancelYes}>Yes</AlertDialogAction>
+           </AlertDialogFooter>
+         </AlertDialogContent>
+       </AlertDialog>
     </>
   );
 }

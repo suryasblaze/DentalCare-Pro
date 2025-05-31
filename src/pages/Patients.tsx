@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Search, Plus, User, Phone, Mail } from 'lucide-react';
+import { Search, Plus, User, Phone, Mail, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
@@ -12,8 +12,13 @@ import { api } from '@/lib/api';
 import { globalCache } from '@/lib/utils/cache-manager';
 // Import PatientDetailsView and its required prop types (PatientDentalHistoryTooth)
 import { PatientDetailsView, PatientDentalHistoryTooth } from '@/features/patients/components/PatientDetailsView';
-import { AddMedicalRecordForm } from '@/features/patients/components/AddMedicalRecordForm';
+import { DentalRecordForm } from '@/features/patients/components/DentalRecordForm';
 import { Appointment } from '@/types';
+import { TreatmentPlanCard } from '@/features/treatment-plans/components/TreatmentPlanCard';
+import { TreatmentPlanDetails } from '@/features/treatment-plans/components/TreatmentPlanDetails';
+import { treatmentService } from '@/features/treatment-plans/services/treatmentService';
+import { TreatmentPlanForm } from '@/features/treatment-plans/components/TreatmentPlanForm';
+import { TreatmentForm } from '@/features/treatment-plans/components/TreatmentForm';
 
 interface PatientFormDialogProps {
   open: boolean;
@@ -53,10 +58,34 @@ export function PatientList() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewPatientDialog, setShowNewPatientDialog] = useState(false);
+  const [showTreatmentPlansDialog, setShowTreatmentPlansDialog] = useState(false);
+  const [treatmentPlansLoading, setTreatmentPlansLoading] = useState(false);
+  const [treatmentPlans, setTreatmentPlans] = useState<any[]>([]);
+  const [selectedPatientForPlans, setSelectedPatientForPlans] = useState<any>(null);
+  const [selectedPlan, setSelectedPlan] = useState<any>(null);
+  const [showPlanDetailsDialog, setShowPlanDetailsDialog] = useState(false);
+  const [showAddPlanDialog, setShowAddPlanDialog] = useState(false);
+  const [showEditPlanDialog, setShowEditPlanDialog] = useState(false);
+  const [editPlanInitialData, setEditPlanInitialData] = useState<any>(null);
+  const [showAddTreatmentDialog, setShowAddTreatmentDialog] = useState(false);
+  const [showEditTreatmentDialog, setShowEditTreatmentDialog] = useState(false);
+  const [editTreatmentInitialData, setEditTreatmentInitialData] = useState<any>(null);
+  const [treatmentFormPlanId, setTreatmentFormPlanId] = useState<string | null>(null);
+  const [patientsList, setPatientsList] = useState<any[]>([]);
 
   useEffect(() => {
     fetchPatients();
+    fetchAllPatients();
   }, []);
+
+  const fetchAllPatients = async () => {
+    try {
+      const data = await api.patients.getAll();
+      setPatientsList(data);
+    } catch (error) {
+      setPatientsList([]);
+    }
+  };
 
   const fetchPatients = async () => {
     try {
@@ -112,110 +141,361 @@ export function PatientList() {
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Patients</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage patient information and appointments
-          </p>
-        </div>
-      </div>
+  const handleOpenTreatmentPlans = async (patient: any) => {
+    setSelectedPatientForPlans(patient);
+    setShowTreatmentPlansDialog(true);
+    setTreatmentPlansLoading(true);
+    setTreatmentPlans([]);
+    try {
+      const plans = await treatmentService.getPatientTreatmentPlans(patient.id);
+      setTreatmentPlans(plans || []);
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to load treatment plans', variant: 'destructive' });
+      setTreatmentPlans([]);
+    } finally {
+      setTreatmentPlansLoading(false);
+    }
+  };
 
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by name, phone, or registration number..."
-            className="pl-8"
-            value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
-          />
+  const handleCloseTreatmentPlans = () => {
+    setShowTreatmentPlansDialog(false);
+    setSelectedPatientForPlans(null);
+    setTreatmentPlans([]);
+  };
+
+  const handleViewPlanDetails = (plan: any) => {
+    setSelectedPlan(plan);
+    setShowPlanDetailsDialog(true);
+  };
+
+  const handleClosePlanDetails = () => {
+    setShowPlanDetailsDialog(false);
+    setSelectedPlan(null);
+  };
+
+  const handleAddPlan = () => {
+    setShowAddPlanDialog(true);
+  };
+
+  const handleEditPlan = (plan: any) => {
+    setEditPlanInitialData(plan);
+    setShowEditPlanDialog(true);
+  };
+
+  const handleAddTreatment = (plan: any) => {
+    setTreatmentFormPlanId(plan.id);
+    setEditTreatmentInitialData(null);
+    setShowAddTreatmentDialog(true);
+  };
+
+  const handleEditTreatment = (plan: any, treatment: any) => {
+    setTreatmentFormPlanId(plan.id);
+    setEditTreatmentInitialData(treatment);
+    setShowEditTreatmentDialog(true);
+  };
+
+  const refreshTreatmentPlans = async (patientId: string) => {
+    setTreatmentPlansLoading(true);
+    try {
+      const plans = await treatmentService.getPatientTreatmentPlans(patientId);
+      setTreatmentPlans(plans || []);
+    } catch {
+      setTreatmentPlans([]);
+    } finally {
+      setTreatmentPlansLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <style>{`
+        .glass-treatment-btn {
+          background: linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(173,216,255,0.25) 100%);
+          border-radius: 18px;
+          border: 1.5px solid rgba(120, 180, 255, 0.18);
+          box-shadow: 0 4px 24px 0 rgba(120,180,255,0.10), 0 1.5px 6px 0 rgba(120,180,255,0.10);
+          backdrop-filter: blur(22px) saturate(180%);
+          -webkit-backdrop-filter: blur(22px) saturate(180%);
+          color: #2563eb;
+          font-weight: 600;
+          padding: 0.85rem 1.5rem;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          transition: box-shadow 0.2s, background 0.2s, border 0.2s;
+          outline: none;
+        }
+        .glass-treatment-btn:hover {
+          background: linear-gradient(135deg, rgba(255,255,255,0.60) 0%, rgba(173,216,255,0.35) 100%);
+          box-shadow: 0 12px 40px 0 rgba(120,180,255,0.18), 0 2px 8px 0 rgba(120,180,255,0.15);
+          color: #1d4ed8;
+          border: 1.5px solid rgba(120,180,255,0.28);
+        }
+      `}</style>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Patients</h1>
+            <p className="text-sm text-muted-foreground">
+              Manage patient information and appointments
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, phone, or registration number..."
+              className="pl-8"
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+            />
+          </div>
+          
+          <Button onClick={() => setShowNewPatientDialog(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Patient
+          </Button>
         </div>
         
-        <Button onClick={() => setShowNewPatientDialog(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Patient
-        </Button>
-      </div>
-      
-      {showNewPatientDialog && (
-        <PatientFormDialog
-          open={showNewPatientDialog}
-          onOpenChange={setShowNewPatientDialog}
-          onSuccess={(patientId) => {
-            setShowNewPatientDialog(false);
-            navigate(`/patients/${patientId}`);
-          }}
-        />
-      )}
+        {showNewPatientDialog && (
+          <PatientFormDialog
+            open={showNewPatientDialog}
+            onOpenChange={setShowNewPatientDialog}
+            onSuccess={(patientId) => {
+              setShowNewPatientDialog(false);
+              navigate(`/patients/${patientId}`);
+            }}
+          />
+        )}
 
-      {loading ? (
-        <div className="text-center py-8">Loading patients...</div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {patients.map((patient) => (
-            <Card key={patient.id}>
-              <CardContent className="pt-6">
-                <div className="flex flex-col space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-medium">{patient.first_name} {patient.last_name}</h3>
-                    <div className={`px-2 py-1 rounded-full text-xs ${
-                      patient.profileCompletion === 100 ? 'bg-green-100 text-green-800' :
-                      patient.profileCompletion > 50 ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {patient.profileCompletion === 100 ? 'Complete' :
-                       patient.profileCompletion > 50 ? 'In Progress' : 'Basic'}
+        {loading ? (
+          <div className="text-center py-8">Loading patients...</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {patients.map((patient) => (
+              <Card key={patient.id}>
+                <CardContent className="pt-6">
+                  <div className="flex flex-col space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-medium">{patient.first_name} {patient.last_name}</h3>
+                      <div className={`px-2 py-1 rounded-full text-xs ${
+                        patient.profileCompletion === 100 ? 'bg-green-100 text-green-800' :
+                        patient.profileCompletion > 50 ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-blue-100 text-blue-800'
+                      }`}>
+                        {patient.profileCompletion === 100 ? 'Complete' :
+                         patient.profileCompletion > 50 ? 'In Progress' : 'Basic'}
+                      </div>
                     </div>
-                  </div>
-                  
-                  <div className="flex items-center text-sm text-muted-foreground">
-                    <Phone className="h-4 w-4 mr-2" />
-                    {patient.phone}
-                  </div>
-                  
-                  {patient.email && (
+                    
                     <div className="flex items-center text-sm text-muted-foreground">
-                      <Mail className="h-4 w-4 mr-2" />
-                      {patient.email}
+                      <Phone className="h-4 w-4 mr-2" />
+                      {patient.phone}
                     </div>
-                  )}
-                  
-                  <div className="mt-2">
-                    <div className="flex items-center justify-between text-sm mb-1">
-                      <span>Profile Completion</span>
-                      <span>{patient.profileCompletion}%</span>
+                    
+                    {patient.email && (
+                      <div className="flex items-center text-sm text-muted-foreground">
+                        <Mail className="h-4 w-4 mr-2" />
+                        {patient.email}
+                      </div>
+                    )}
+                    
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span>Profile Completion</span>
+                        <span>{patient.profileCompletion}%</span>
+                      </div>
+                      <Progress value={patient.profileCompletion} />
                     </div>
-                    <Progress value={patient.profileCompletion} />
                   </div>
-                </div>
-              </CardContent>
-              
-              <CardFooter className="flex justify-between">
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => navigate(`/patients/${patient.id}`, { state: { action: 'view' } })}
-                >
-                  View Details
-                </Button>
+                </CardContent>
                 
-                <Button 
-                  variant="secondary" 
-                  size="sm"
-                  onClick={() => navigate(`/patients/${patient.id}`, { state: { action: 'edit' } })}
-                >
-                  <User className="h-4 w-4 mr-1" />
-                  {patient.profileCompletion < 100 ? 'Complete Profile' : 'Edit Profile'}
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
+                <CardFooter className="flex flex-col gap-2 items-stretch">
+                  <div className="flex justify-between w-full">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => navigate(`/patients/${patient.id}`, { state: { action: 'view' } })}
+                    >
+                      View Details
+                    </Button>
+                    <Button 
+                      variant="secondary" 
+                      size="sm"
+                      onClick={() => navigate(`/patients/${patient.id}`, { state: { action: 'edit' } })}
+                    >
+                      <User className="h-4 w-4 mr-1" />
+                      {patient.profileCompletion < 100 ? 'Complete Profile' : 'Edit Profile'}
+                    </Button>
+                  </div>
+                  <Button 
+                    type="button"
+                    className="glass-treatment-btn"
+                    onClick={() => handleOpenTreatmentPlans(patient)}
+                  >
+                    <ClipboardList className="h-5 w-5" /> Treatment Plan
+                  </Button>
+                </CardFooter>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Treatment Plans Dialog */}
+        <Dialog open={showTreatmentPlansDialog} onOpenChange={handleCloseTreatmentPlans}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                {selectedPatientForPlans ? `Treatment Plans for ${selectedPatientForPlans.first_name} ${selectedPatientForPlans.last_name}` : 'Treatment Plans'}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="flex justify-end mb-4">
+              <Button
+                type="button"
+                className="glass-treatment-btn"
+                onClick={handleAddPlan}
+              >
+                <ClipboardList className="h-5 w-5" /> Add Treatment Plan
+              </Button>
+            </div>
+            {treatmentPlansLoading ? (
+              <div className="flex items-center justify-center py-12">Loading...</div>
+            ) : treatmentPlans.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">No treatment plans found for this patient.</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {treatmentPlans.map((plan: any) => (
+                  <TreatmentPlanCard key={plan.id} plan={plan} onViewDetails={handleViewPlanDetails} />
+                ))}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+        {/* Add Treatment Plan Dialog */}
+        <Dialog open={showAddPlanDialog} onOpenChange={setShowAddPlanDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Add Treatment Plan</DialogTitle>
+            </DialogHeader>
+            {selectedPatientForPlans && (
+              <TreatmentPlanForm
+                open={showAddPlanDialog}
+                onOpenChange={setShowAddPlanDialog}
+                onSubmit={async (data, toothIds) => {
+                  await treatmentService.createTreatmentPlan({ ...data, patient_id: selectedPatientForPlans.id }, toothIds);
+                  setShowAddPlanDialog(false);
+                  refreshTreatmentPlans(selectedPatientForPlans.id);
+                }}
+                patients={patientsList}
+                loading={false}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+        {/* Edit Treatment Plan Dialog */}
+        <Dialog open={showEditPlanDialog} onOpenChange={setShowEditPlanDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Treatment Plan</DialogTitle>
+            </DialogHeader>
+            {selectedPatientForPlans && editPlanInitialData && (
+              <TreatmentPlanForm
+                open={showEditPlanDialog}
+                onOpenChange={setShowEditPlanDialog}
+                onSubmit={async (data, toothIds) => {
+                  await treatmentService.updateTreatmentPlan(editPlanInitialData.id, { ...data, patient_id: selectedPatientForPlans.id });
+                  setShowEditPlanDialog(false);
+                  refreshTreatmentPlans(selectedPatientForPlans.id);
+                }}
+                patients={patientsList}
+                loading={false}
+                initialData={editPlanInitialData}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+        {/* Add/Edit Treatment Dialogs */}
+        <Dialog open={showAddTreatmentDialog} onOpenChange={setShowAddTreatmentDialog}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Add Treatment</DialogTitle>
+            </DialogHeader>
+            {treatmentFormPlanId && (
+              <TreatmentForm
+                open={showAddTreatmentDialog}
+                onOpenChange={setShowAddTreatmentDialog}
+                onSubmit={async (values) => {
+                  await treatmentService.createTreatment({ ...values, plan_id: treatmentFormPlanId });
+                  setShowAddTreatmentDialog(false);
+                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                }}
+                planId={treatmentFormPlanId}
+                loading={false}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+        <Dialog open={showEditTreatmentDialog} onOpenChange={setShowEditTreatmentDialog}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Treatment</DialogTitle>
+            </DialogHeader>
+            {treatmentFormPlanId && editTreatmentInitialData && (
+              <TreatmentForm
+                open={showEditTreatmentDialog}
+                onOpenChange={setShowEditTreatmentDialog}
+                onSubmit={async (values) => {
+                  await treatmentService.updateTreatment(editTreatmentInitialData.id, { ...values, plan_id: treatmentFormPlanId });
+                  setShowEditTreatmentDialog(false);
+                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                }}
+                planId={treatmentFormPlanId}
+                loading={false}
+                initialData={editTreatmentInitialData}
+                isEditMode={true}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+        {/* Treatment Plan Details Dialog (nested) */}
+        <Dialog open={showPlanDetailsDialog} onOpenChange={handleClosePlanDetails}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            {selectedPlan && (
+              <TreatmentPlanDetails
+                open={showPlanDetailsDialog}
+                onOpenChange={handleClosePlanDetails}
+                plan={selectedPlan}
+                onRefresh={async () => { if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id); }}
+                onAddTreatment={() => handleAddTreatment(selectedPlan)}
+                onStatusChange={async (planId, status) => {
+                  await treatmentService.updateTreatmentPlan(planId, { status });
+                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                }}
+                onDeletePlan={async (planId) => {
+                  await treatmentService.deleteTreatmentPlan(planId);
+                  setShowPlanDetailsDialog(false);
+                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                }}
+                onTreatmentStatusChange={async (treatmentId, status) => {
+                  await treatmentService.updateTreatment(treatmentId, { status });
+                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                }}
+                onDeleteTreatment={async (treatmentId) => {
+                  await treatmentService.deleteTreatment(treatmentId);
+                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                }}
+                onEditTreatment={(treatment) => handleEditTreatment(selectedPlan, treatment)}
+                loading={false}
+                navigateToPatient={() => {}}
+                aiInitialSuggestion={null}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
+    </>
   );
 
 }
@@ -249,7 +529,7 @@ export function PatientDetails() {
       globalCache.invalidate(`patients:${patientId}`);
       globalCache.invalidate(`appointments:patient:${patientId}`);
       globalCache.invalidate(`medical_records:${patientId}`);
-      globalCache.invalidate(`patient_dental_history_teeth:${patientId}`); // <<< Invalidate dental history teeth cache
+      globalCache.invalidate(`patient_dental_history_teeth:${patientId}`); // <<< Invalidate dental history teeth
 
       // Fetch patient, appointments, medical records, and dental history teeth concurrently
       const [patientData, appointmentsData, medicalRecordsData, dentalHistoryTeethData] = await Promise.all([
@@ -414,8 +694,6 @@ export function PatientDetails() {
       
       {isEditing ? (
         <>
-          {/* <<< Add logging here >>> */}
-          {console.log(`Patients.tsx: Rendering PatientForm for editing. Key: ${patient?.id || 'new-patient-form'}, Patient ID: ${patient?.id}`)}
           <PatientForm
             key={patient?.id || 'new-patient-form'} // <<< Add key prop here
             patient={patient}
@@ -440,13 +718,39 @@ export function PatientDetails() {
 
       {/* Add Medical Record Dialog */}
       <Dialog open={showAddRecordDialog} onOpenChange={setShowAddRecordDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-5xl w-full mx-auto rounded-lg shadow-lg">
           <DialogHeader>
             <DialogTitle>Add New Medical Record</DialogTitle>
           </DialogHeader>
-          <AddMedicalRecordForm
-            patientId={id!} // Pass patient ID
-            onSubmit={handleSaveMedicalRecord}
+          <DentalRecordForm
+            patientId={id!}
+            patientName={patient?.first_name + ' ' + patient?.last_name}
+            onSubmit={async (values) => {
+              setAddRecordLoading(true);
+              try {
+                await api.patients.createMedicalRecord({
+                  patient_id: id!,
+                  record_date: values.chief_complaint ? new Date().toISOString().split('T')[0] : '', // fallback if needed
+                  record_type: 'dental', // or another type if needed
+                  description: JSON.stringify(values),
+                }, []);
+                toast({
+                  title: 'Success',
+                  description: 'Medical record added successfully.',
+                });
+                setShowAddRecordDialog(false);
+                fetchPatientAndAppointments(id!);
+              } catch (error) {
+                console.error('Error adding medical record:', error);
+                toast({
+                  title: 'Error',
+                  description: 'Failed to add medical record.',
+                  variant: 'destructive',
+                });
+              } finally {
+                setAddRecordLoading(false);
+              }
+            }}
             onCancel={() => setShowAddRecordDialog(false)}
             isLoading={addRecordLoading}
           />
