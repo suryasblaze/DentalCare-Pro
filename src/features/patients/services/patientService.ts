@@ -72,7 +72,7 @@ export const patientService = {
    * Get patient's medical records
    */
   async getPatientMedicalRecords(patientId: string) {
-    return api.patients.getMedicalRecords(patientId);
+    return api.patients.getMedicalRecords(patientId);        
   },
 
   /**

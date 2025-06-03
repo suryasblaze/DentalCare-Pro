@@ -179,13 +179,13 @@ export function PrescriptionFields({ index, form, onRemove }: PrescriptionFields
 
       <FormField
         control={form.control}
-        name={`prescriptions.${index}.instructions`}
+        name={`prescriptions.${index}.special_instructions`}
         render={({ field }) => (
           <FormItem>
             <FormLabel>Special Instructions</FormLabel>
             <FormControl>
               <Textarea 
-                placeholder="Additional instructions (e.g., take with food)"
+                placeholder="Special instructions for this prescription (e.g., take with food)"
                 {...field}
               />
             </FormControl>

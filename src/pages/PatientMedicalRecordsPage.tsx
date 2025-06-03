@@ -48,7 +48,7 @@ export function PatientMedicalRecordsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [searchTerm, setSearchTerm] = useState(''); // Add state for search term
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
-  const [selectedPatientName, setSelectedPatientName] = useState<string | null>(null); // State to show selected patient name
+  const [selectedPatientName, setSelectedPatientName] = useState<string | null>(null);
   const [medicalRecords, setMedicalRecords] = useState<MedicalRecord[]>([]);
   const [isLoadingPatients, setIsLoadingPatients] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
@@ -56,7 +56,10 @@ export function PatientMedicalRecordsPage() {
   const [errorRecords, setErrorRecords] = useState<string | null>(null);
   const [isAddRecordModalOpen, setIsAddRecordModalOpen] = useState(false);
   const [isSubmittingRecord, setIsSubmittingRecord] = useState(false); // Add loading state for submission
+  const [doctors, setDoctors] = useState<any[]>([]); // Add state for doctors
   const { toast } = useToast();
+  const [viewingPatientId, setViewingPatientId] = useState<string | null>(null);
+  const [viewingPatientName, setViewingPatientName] = useState<string | null>(null);
 
   // Fetch patients
   useEffect(() => {
@@ -82,6 +85,11 @@ export function PatientMedicalRecordsPage() {
       }
     };
     fetchPatients();
+  }, []);
+
+  // Fetch doctors
+  useEffect(() => {
+    api.staff.getDoctors().then(setDoctors).catch(() => setDoctors([]));
   }, []);
 
   // Fetch medical records when a patient is selected
@@ -137,10 +145,19 @@ export function PatientMedicalRecordsPage() {
     }
   }, [selectedPatientId, fetchMedicalRecords]);
 
-  const handlePatientSelect = (patient: Patient) => {
-    setSelectedPatientId(patient.id);
+  const handleViewMedicalRecords = (patient: Patient) => {
+    setViewingPatientId(patient.id);
+    setViewingPatientName(`${patient.first_name || ''} ${patient.last_name || ''}`.trim());
+    setSelectedPatientId(patient.id); // for fetching records
     setSelectedPatientName(`${patient.first_name || ''} ${patient.last_name || ''}`.trim());
-    setSearchTerm(''); // Clear search term after selection
+  };
+
+  const handleBackToPatients = () => {
+    setViewingPatientId(null);
+    setViewingPatientName(null);
+    setSelectedPatientId(null);
+    setSelectedPatientName(null);
+    setMedicalRecords([]);
   };
 
   // Handler for the "Add Record" button within MedicalRecordsHistory
@@ -220,7 +237,7 @@ export function PatientMedicalRecordsPage() {
         record_date: new Date().toISOString(),
         record_type: 'examination',
         description: JSON.stringify(nestedDescription), // Save in nested format
-        attachments: attachments
+        attachments: attachments.length ? attachments : null // Ensure valid JSON or null
       };
 
       await api.patients.createMedicalRecord(recordData, []);
@@ -246,107 +263,101 @@ export function PatientMedicalRecordsPage() {
   };
 
   return (
-    <div className="w-full min-h-screen h-screen flex flex-col md:flex-row gap-8 px-4 py-8 bg-gray-50">
-      {/* Patient List Column */}
-      <div className="flex-1 bg-white rounded-xl shadow-lg p-8 flex flex-col min-h-[600px]">
-        <Label htmlFor="patient-search" className="mb-2">Search Patients</Label>
-        <Input
-          id="patient-search"
-          type="search"
-          placeholder="Search by name or ID..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="mb-4"
-        />
-        <TooltipProvider>
-          <div className="flex-1 overflow-y-auto pr-2">
-            {isLoadingPatients ? (
-              <div className="space-y-3 mt-4">
-                {[...Array(6)].map((_, i) => (
-                  <Skeleton key={i} className="h-20 w-full rounded-xl" />
-                ))}
-              </div>
-            ) : errorPatients ? (
-              <p className="text-destructive">{errorPatients}</p>
-            ) : (
-              <div className="grid gap-3">
+    <div className="w-full min-h-screen h-screen flex flex-col md:flex-row gap-4 md:gap-8 px-2 md:px-4 py-4 md:py-8 bg-white">
+      {/* Split layout: Left (patients), Right (records) */}
+      <div className="flex flex-1 flex-col md:flex-row gap-6 w-full h-full">
+        {/* Left: Patient Cards, 2 per row vertical grid */}
+        <div className="w-full md:w-1/3 lg:w-1/4 flex-shrink-0">
+          <div className="h-full flex flex-col">
+            <div className="w-full mb-3">
+              <Input
+                id="patient-search"
+                type="search"
+                placeholder="Search by name or ID..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="text-sm md:text-base"
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <div
+                className="grid grid-cols-1 sm:grid-cols-2 gap-0 w-full justify-start"
+                style={{ maxHeight: 'calc(100vh - 140px)', overflowY: 'auto', margin: 0, padding: 0 }}
+              >
                 {patients.filter(patient => {
                   const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
                   const phone = patient.phone?.toLowerCase() || '';
                   const regNum = patient.registration_number?.toLowerCase() || '';
                   const searchLower = searchTerm.toLowerCase();
                   return name.includes(searchLower) || phone.includes(searchLower) || regNum.includes(searchLower);
-                }).length > 0 ? (
-                  patients
-                    .filter(patient => {
-                      const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
-                      const phone = patient.phone?.toLowerCase() || '';
-                      const regNum = patient.registration_number?.toLowerCase() || '';
-                      const searchLower = searchTerm.toLowerCase();
-                      return name.includes(searchLower) || phone.includes(searchLower) || regNum.includes(searchLower);
-                    })
-                    .map((patient) => {
-                      const isSelected = selectedPatientId === patient.id;
-                      const initials = `${(patient.first_name?.[0] || '').toUpperCase()}${(patient.last_name?.[0] || '').toUpperCase()}`;
-                      return (
-                        <Card
-                          key={patient.id}
-                          className={`flex items-center gap-3 p-3 cursor-pointer border transition-shadow ${isSelected ? 'ring-2 ring-primary border-primary bg-primary/10 shadow-lg' : 'hover:shadow-md'} group`}
-                          onClick={() => handlePatientSelect(patient)}
-                        >
-                          <Avatar className="h-12 w-12">
-                            <AvatarFallback>{initials || '?'}</AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold truncate">{`${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Unnamed'}</span>
-                              {patient.registration_number && (
-                                <Badge variant="secondary" className="ml-1">Reg: {patient.registration_number}</Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 mt-1">
-                              {patient.phone && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="text-xs text-muted-foreground underline cursor-help">{patient.phone}</span>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Phone: {patient.phone}</TooltipContent>
-                                </Tooltip>
-                              )}
-                            </div>
-                          </div>
-                        </Card>
-                      );
-                    })
-                ) : (
-                  <p className="text-sm text-muted-foreground p-2">No patients found matching "{searchTerm}"</p>
-                )}
+                }).map((patient) => {
+                  const initials = `${(patient.first_name?.[0] || '').toUpperCase()}${(patient.last_name?.[0] || '').toUpperCase()}`;
+                  return (
+                    <div
+                      key={patient.id}
+                      className="relative flex flex-col items-center p-1.5 rounded-lg shadow bg-white/70 border border-blue-200 transition-all duration-200 cursor-pointer group min-w-[110px] max-w-[140px] font-sans"
+                      style={{ boxShadow: '0 1px 4px 0 rgba(0,0,0,0.04)', background: 'rgba(255,255,255,0.90)' }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.97)';
+                        e.currentTarget.style.backdropFilter = 'blur(12px)';
+                        e.currentTarget.style.border = '0.5px solid';
+                        e.currentTarget.style.borderImage = 'linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%) 1';
+                        e.currentTarget.style.boxShadow = '0 0 0 2px #3b82f6, 0 8px 32px 0 rgba(59,130,246,0.10)';
+                        e.currentTarget.style.transform = 'scale(1.045)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.90)';
+                        e.currentTarget.style.backdropFilter = 'blur(6px)';
+                        e.currentTarget.style.border = '0.5px solid #bfdbfe';
+                        e.currentTarget.style.borderImage = '';
+                        e.currentTarget.style.boxShadow = '0 1px 4px 0 rgba(0,0,0,0.04)';
+                        e.currentTarget.style.transform = 'scale(1)';
+                      }}
+                      onClick={() => handleViewMedicalRecords(patient)}
+                    >
+                      <Avatar className="h-9 w-9 mb-1 shadow-sm border border-blue-200 bg-white/70">
+                        <AvatarFallback className="text-sm">{initials || '?'}</AvatarFallback>
+                      </Avatar>
+                      <div className="font-bold text-center text-[15px] mb-0.5 truncate w-full capitalize text-gray-900 drop-shadow-sm">
+                        {`${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Unnamed'}
+                      </div>
+                      {patient.registration_number && (
+                        <div className="text-[11px] text-blue-700 font-semibold mb-0.5">Reg: {patient.registration_number}</div>
+                      )}
+                      {patient.phone && (
+                        <div className="text-[11px] text-muted-foreground mb-1">{patient.phone}</div>
+                      )}
+                      {/* Glassy gradient overlay */}
+                      <div className="pointer-events-none absolute inset-0 rounded-lg" style={{background: 'linear-gradient(120deg,rgba(255,255,255,0.10) 0%,rgba(96,165,250,0.07) 100%)'}} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+        {/* Right: Medical Records/Details */}
+        <div className="flex-1 flex flex-col">
+          <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 border border-dotted border-gray-300 rounded-xl p-4 md:p-8 min-h-[400px]">
+            {/* Step 2: Full-Page Medical Records View */}
+            {viewingPatientId ? (
+              <MedicalRecordsHistory
+                medicalRecords={medicalRecords}
+                onAddMedicalRecord={handleAddMedicalRecordClick}
+                doctors={doctors}
+                fullPage // pass a prop if you want to adjust styles for full page
+              />
+            ) : (
+              <div className="w-full max-w-2xl mx-auto flex flex-col items-center justify-center h-96 text-center animate-fade-in py-12 md:py-24">
+                <UserCircle className="w-16 h-16 md:w-20 md:h-20 text-muted-foreground mb-4 md:mb-6" />
+                <h2 className="text-xl md:text-2xl font-semibold mb-2">Select a patient to view their medical records</h2>
+                <p className="text-muted-foreground mb-4">Scroll and click a patient card to get started.</p>
               </div>
             )}
           </div>
-        </TooltipProvider>
+        </div>
       </div>
-      {/* Medical Records History Column */}
-      <div className="flex-1 bg-white rounded-xl shadow-lg p-8 min-h-[600px] flex flex-col justify-start">
-        <PageHeader
-          heading="Patient Medical Records"
-          text="View and manage patient medical records"
-          className="mb-6"
-        />
-        {selectedPatientId ? (
-          <MedicalRecordsHistory
-            medicalRecords={medicalRecords}
-            onAddMedicalRecord={handleAddMedicalRecordClick}
-          />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in py-24">
-            <UserCircle className="w-20 h-20 text-muted-foreground mb-6" />
-            <h2 className="text-2xl font-semibold mb-2">Select a patient to view their medical records</h2>
-            <p className="text-muted-foreground mb-4">Search or scroll the patient list and click a patient to get started.</p>
-          </div>
-        )}
-      </div>
-      {/* Dental Record Form Dialog - adjust max width for better sizing */}
+      {/* Dental Record Form Dialog */}
       <Dialog 
         open={isAddRecordModalOpen} 
         onOpenChange={setIsAddRecordModalOpen}

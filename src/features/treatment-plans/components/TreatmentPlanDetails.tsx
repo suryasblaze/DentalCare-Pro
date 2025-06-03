@@ -63,7 +63,7 @@ import autoTable from 'jspdf-autotable';
 // Import status type (only TreatmentStatus is needed)
 import type { TreatmentStatus } from '@/types'; // Ensure path is correct
 // Import AISuggestion type if it's used for the new prop
-import type { AISuggestion } from './AISuggestionForm';
+import type { AISuggestion as ImportedAISuggestion } from './AISuggestionForm';
 // Remove import type { Database } from 'supabase_types'; // Import the Database type
 import type { BookedAppointmentDetail } from '../hooks/useTreatmentPlans'; // Import BookedAppointmentDetail
 
@@ -151,6 +151,36 @@ export interface TreatmentVisit { // Added export
   priority?: string; // Assuming priority might be editable per visit
 }
 
+interface AISuggestion {
+  title?: string;
+  description?: string;
+  planDetails?: {
+    planName?: string;
+    keyMaterials?: string;
+    appointmentPlan?: {
+      totalSittings?: string | number;
+      sittingDetails?: Array<{
+        visit?: string;
+        timeGap?: string;
+        procedures?: string;
+        estimatedDuration?: string;
+      }>;
+      medicalPrecautions?: string;
+      totalTreatmentTime?: string;
+    };
+    clinicalProtocol?: string;
+    expectedOutcomes?: string;
+    isPatientSelected?: boolean;
+    clinicalConsiderations?: string;
+  };
+  caseOverview?: any;
+  patientFactors?: any;
+  clinicalRationale?: string;
+  postTreatmentCare?: string;
+  recommendedInvestigations?: string;
+  // Add any other fields that are part of the AI suggestion object
+}
+
 interface TreatmentPlanDetailsProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -164,13 +194,17 @@ interface TreatmentPlanDetailsProps {
     start_date: string;
     end_date?: string;
     patientName: string;
-    treatments: any[];
+    treatments: any[]; // Consider typing this more strictly if possible
     metadata: {
       clinical_considerations: string | null;
       key_materials: string | null;
       post_treatment_care: string | null;
-      total_visits: number;
-      completed_visits: number;
+      total_visits: number; // This might be from AI plan, or calculated
+      completed_visits: number; // This might be from AI plan, or calculated
+      originalAISuggestion?: AISuggestion | null; // Added for full AI suggestion
+      aiPlanClinicalConsiderations?: string | null; // Added from DB schema
+      aiPlanKeyMaterials?: string | null; // Added from DB schema
+      aiOutputPostTreatmentCare?: string | null; // Added from DB schema
     }[] | null;
     visits: {
       id: string;
@@ -192,6 +226,7 @@ interface TreatmentPlanDetailsProps {
       gender: string;
       registration_number: string;
     };
+    originalAISuggestion?: AISuggestion | null; // Existing direct prop on plan
   };
   onRefresh: () => Promise<void>;
   onAddTreatment: () => void;
@@ -201,9 +236,9 @@ interface TreatmentPlanDetailsProps {
   onDeleteTreatment: (treatmentId: string) => Promise<void>;
   loading?: boolean;
   navigateToPatient?: (patientId: string) => void;
-  aiInitialSuggestion?: AISuggestion | null; // New prop for initial AI suggestion
-  onEditTreatment: (treatment: TreatmentVisit) => void; // New prop for editing a treatment/visit
-  bookedAppointments?: BookedAppointmentDetail[]; // Use BookedAppointmentDetail[]
+  aiInitialSuggestion?: AISuggestion | null; // Prop for passing initial AI suggestion
+  onEditTreatment: (treatment: TreatmentVisit) => void;
+  bookedAppointments?: BookedAppointmentDetail[];
 }
 
 // Add these type definitions at the top of the file after the imports
@@ -248,7 +283,7 @@ interface PrintableContentProps {
 }
 
 // Update the PrintableContent component with types
-const PrintableContent = ({ plan, treatmentsWithEstimatedDates }: PrintableContentProps) => {
+export const PrintableContent = ({ plan, treatmentsWithEstimatedDates }: PrintableContentProps) => {
   if (!plan) return null;
 
   const HeaderContent = () => (
@@ -649,24 +684,29 @@ export function TreatmentPlanDetails({
   onDeleteTreatment,
   loading = false,
   navigateToPatient,
-  aiInitialSuggestion, // Destructure new prop
-  onEditTreatment, // Destructure new prop
-  bookedAppointments = [], // Destructure, default to empty array
+  aiInitialSuggestion: aiInitialSuggestionProp, // Destructure new prop
+  onEditTreatment, 
+  bookedAppointments = [], 
 }: TreatmentPlanDetailsProps) {
-  const { toast } = useToast(); // Initialize toast for feedback
-  const navigate = useNavigate(); // Initialize navigate
-  // --- Confirmation Dialog State ---
+  const { toast } = useToast(); 
+  const navigate = useNavigate(); 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  // --- End Confirmation Dialog State ---
-
-  // --- Pagination State ---
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 5; // Show 5 treatments per page
-  const [isCreatingAiTreatments, setIsCreatingAiTreatments] = useState(false); // New state
+  const ITEMS_PER_PAGE = 5; 
+  const [isCreatingAiTreatments, setIsCreatingAiTreatments] = useState(false); 
 
-  // Helper function to parse duration strings (e.g., "40-50 minutes", "1 hour", "3 weeks")
-  // and format for PostgreSQL interval (e.g., "50 minutes", "1 hour", "3 weeks")
+  // --- BEGIN PATIENT SECTION DEBUG LOGS ---
+  if (typeof console !== 'undefined' && console.groupCollapsed && console.log && console.groupEnd) {
+    console.groupCollapsed(`[TreatmentPlanDetails PROPS - Plan ID: ${plan?.id}]`);
+    console.log('[TreatmentPlanDetails PROPS] Received plan:', JSON.parse(JSON.stringify(plan || {})));
+    console.log('[TreatmentPlanDetails PROPS] plan.treatments:', JSON.parse(JSON.stringify(plan?.treatments || [])));
+    console.log('[TreatmentPlanDetails PROPS] plan.originalAISuggestion:', JSON.parse(JSON.stringify(plan?.originalAISuggestion || null)));
+    console.log('[TreatmentPlanDetails PROPS] Received aiInitialSuggestionProp:', JSON.parse(JSON.stringify(aiInitialSuggestionProp || null)));
+    console.groupEnd();
+  }
+  // --- END PATIENT SECTION DEBUG LOGS ---
+
   const parseAndFormatDurationForInterval = (durationStr?: string): string | undefined => {
     if (!durationStr || typeof durationStr !== 'string') return undefined;
 
@@ -697,16 +737,71 @@ export function TreatmentPlanDetails({
     // For now, let's make it fail by not matching, so it returns undefined.
 
     console.warn(`[TreatmentPlanDetails] Could not parse duration: "${durationStr}". It does not match expected formats (e.g., "X-Y units", "X units", "X"). Falling back to undefined.`);
-    return undefined; // Or a default like '30 minutes' if preferred
+    return undefined; 
   };
 
-  console.log('[TreatmentPlanDetails] Rendering. Plan:', plan);
-  console.log('[TreatmentPlanDetails] aiInitialSuggestion:', aiInitialSuggestion);
-  if (aiInitialSuggestion?.planDetails?.appointmentPlan) {
-    console.log('[TreatmentPlanDetails] aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails:', aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails);
-    console.log('[TreatmentPlanDetails] sittingDetails length:', aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails?.length);
-  }
-  console.log('[TreatmentPlanDetails] plan.treatments:', plan?.treatments);
+  const [aiInitialSuggestion, setAiInitialSuggestion] = useState<AISuggestion | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const findExistingSuggestion = (): AISuggestion | null => {
+      if (aiInitialSuggestionProp) {
+        // console.log('[TreatmentPlanDetails] Using aiInitialSuggestionProp:', aiInitialSuggestionProp);
+        return aiInitialSuggestionProp;
+      }
+      if (plan?.originalAISuggestion) {
+        // console.log('[TreatmentPlanDetails] Using plan.originalAISuggestion:', plan.originalAISuggestion);
+        return plan.originalAISuggestion;
+      }
+      if (plan?.metadata && plan.metadata.length > 0 && plan.metadata[0]?.originalAISuggestion) {
+        // console.log('[TreatmentPlanDetails] Using plan.metadata[0].originalAISuggestion:', plan.metadata[0].originalAISuggestion);
+        return plan.metadata[0].originalAISuggestion as AISuggestion;
+      }
+      return null;
+    };
+
+    const existingSuggestion = findExistingSuggestion();
+
+    if (isMounted) {
+      if (existingSuggestion) {
+        setAiInitialSuggestion(existingSuggestion);
+        // console.log('[TreatmentPlanDetails] Set aiInitialSuggestion from existing:', existingSuggestion);
+      } else {
+        // Only attempt to fetch if no existing suggestion is found AND specific conditions are met.
+        // This helps prevent re-fetching if a plan is opened that genuinely had no AI suggestion initially.
+        if (
+          open && plan && plan.id && plan.patient_id && plan.description &&
+          (!plan.treatments || plan.treatments.length === 0) && // Only if no manual treatments exist
+          !plan.visits?.length // And no visits already exist
+        ) {
+          // console.log('[TreatmentPlanDetails] No existing AI suggestion found, attempting to fetch for new/empty plan...');
+          import('../services/treatmentService')
+            .then(m => m.treatmentService.getAiSuggestionForPlan(plan))
+            .then(suggestion => {
+              if (isMounted) {
+                setAiInitialSuggestion(suggestion);
+                // console.log('[TreatmentPlanDetails] (auto-fetched) AI Suggestion:', suggestion);
+              }
+            })
+            .catch(e => {
+              console.error('[TreatmentPlanDetails] Error auto-fetching AI suggestion:', e);
+              if (isMounted) setAiInitialSuggestion(null);
+            });
+        } else if (aiInitialSuggestion !== null) { // Clear if conditions not met and suggestion was present
+            // This case handles if the plan changes to one that shouldn't auto-fetch, or if it already has treatments/visits
+            // setAiInitialSuggestion(null); // Or decide if stale suggestion should persist. For now, let's not clear aggressively.
+        }
+      }
+    }
+
+    return () => { isMounted = false; };
+  }, [open, plan, aiInitialSuggestionProp]); // Effect dependencies
+
+  // console.log('[TreatmentPlanDetails] Rendering. Plan:', plan);
+  // console.log('[TreatmentPlanDetails] aiInitialSuggestion:', aiInitialSuggestion);
+  // if (aiInitialSuggestion?.planDetails?.appointmentPlan) {
+  // ... existing code ...
 
   // New memo to sort treatments by visit_number
   const sortedAndUniqueTreatments = useMemo(() => {
@@ -1254,7 +1349,7 @@ export function TreatmentPlanDetails({
           description: treatmentDescription,
           status: 'pending' as const,
           priority: 'medium' as const,
-          cost: "0",
+          cost: "0", // Defaulting cost to 0 for AI suggestions, can be edited later
           estimated_duration: formattedDuration,
           time_gap: sitting.timeGap || null,
           plan_id: plan.id
@@ -1268,6 +1363,7 @@ export function TreatmentPlanDetails({
         title: "Success",
         description: `${treatmentsCreatedCount} of ${totalSuggestions} AI suggested treatments created. Refreshing...`,
       });
+      setAiInitialSuggestion(null); // Clear internal AI suggestion state after successful creation
       await onRefresh();
     } catch (error) {
       console.error("Error creating AI suggested treatments:", error);
@@ -1276,6 +1372,8 @@ export function TreatmentPlanDetails({
         description: `Failed to create some or all AI suggested treatments. ${treatmentsCreatedCount} created. ${(error as Error).message}`,
         variant: "destructive",
       });
+      // Only refresh if some treatments were actually created, to reflect partial success.
+      // Don't clear internal AI suggestion on full failure, so user can potentially retry.
       if (treatmentsCreatedCount > 0) {
         await onRefresh();
       }
@@ -1409,8 +1507,8 @@ export function TreatmentPlanDetails({
             <div className="space-y-6">
               <div className="flex justify-between items-start">
                 <div>
-                  <h2 className="text-xl font-semibold">{plan.title}</h2>
-                  <p className="text-sm text-muted-foreground">{plan.description}</p>
+                  <h2 className="text-xl font-semibold">{plan.title || 'Plan Title N/A'}</h2>
+                  <p className="text-sm text-muted-foreground">{plan.description || 'No description available.'}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {renderStatusBadge(plan.status)}
@@ -1435,7 +1533,7 @@ export function TreatmentPlanDetails({
                     <User className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Patient</p>
-                      <p>{plan.patientName}</p>
+                      <p>{plan.patientName || 'Patient Name N/A'}</p>
                     </div>
                     {navigateToPatient && (
                       <Button
@@ -1454,8 +1552,8 @@ export function TreatmentPlanDetails({
                     <div>
                       <p className="text-sm font-medium">Timeframe</p>
                       <p>
-                        {format(new Date(plan.start_date), 'MMMM d, yyyy')}
-                        {plan.end_date && ` to ${format(new Date(plan.end_date), 'MMMM d, yyyy')}`}
+                        {plan.start_date ? format(new Date(plan.start_date), 'MMMM d, yyyy') : 'Start Date N/A'}
+                        {plan.start_date && plan.end_date && ` to ${format(new Date(plan.end_date), 'MMMM d, yyyy')}`}
                       </p>
                       {duration && (
                          <p className="text-sm text-muted-foreground">Calculated Duration: {duration}</p>
@@ -1470,7 +1568,7 @@ export function TreatmentPlanDetails({
                   </div>
 
                   {/* Display Associated Teeth */}
-                  {plan.teeth && plan.teeth.length > 0 && (
+                  {plan.teeth && plan.teeth.length > 0 ? (
                     <div className="flex items-center gap-2">
                       <Smile className="h-5 w-5 text-muted-foreground" />
                       <div>
@@ -1478,6 +1576,14 @@ export function TreatmentPlanDetails({
                         <p className="text-sm text-muted-foreground">
                           {plan.teeth.map(t => t.tooth_id).sort((a, b) => a - b).join(', ')}
                         </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Smile className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">Affected Teeth</p>
+                        <p className="text-sm text-muted-foreground">N/A</p>
                       </div>
                     </div>
                   )}
@@ -1555,7 +1661,7 @@ export function TreatmentPlanDetails({
                     </div>
                     {/* Pagination Controls */}
                     {totalPages > 1 && (
-                      <div className="flex justify-center items-center gap-2 mt-4 pagination-controls-print-hide"> {/* Added pagination-controls-print-hide */}
+                      <div className="flex justify-center items-center gap-2 mt-4 pagination-controls-print-hide">
                         <Button
                           variant="outline"
                           size="sm"
@@ -1581,44 +1687,60 @@ export function TreatmentPlanDetails({
                     )}
                   </>
                 ) : (
-                  // MODIFIED BLOCK: Check for AI suggestions if no actual treatments exist
-                  aiInitialSuggestion?.planDetails?.appointmentPlan?.sittingDetails && aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails.length > 0 ? (
-                    // New: Shows a message and JUST the button to add AI visits
-                    <div className="text-center py-6 border rounded-lg">
-                      <BrainCog className="h-8 w-8 mx-auto text-primary mb-3" /> 
-                      <p className="text-muted-foreground mb-4">
-                        AI-generated treatment visits are available for this plan.
-                      </p>
-                      <Button
-                        onClick={handleCreateAiSuggestedTreatments}
-                        disabled={isCreatingAiTreatments || loading}
-                        size="sm" // Or default, matching other similar buttons
-                      >
-                        {isCreatingAiTreatments ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Plus className="mr-2 h-4 w-4" /> // Or BrainCog icon
-                        )}
-                        Add AI Suggested Visits
-                      </Button>
-                    </div>
-                  ) : (
-                    // Original fallback if no treatments and no AI suggestions
-                    <div className="text-center py-6 border rounded-lg">
-                      <FileText className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">No treatments added yet</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="mt-4"
-                        onClick={onAddTreatment}
-                        disabled={loading}
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add First Treatment
-                      </Button>
-                    </div>
-                  )
+                  // MODIFIED BLOCK: Always show AI suggestion box if available, never show Add First Treatment button
+                  (() => {
+                    const aiSittings1 = aiInitialSuggestion?.planDetails?.appointmentPlan?.sittingDetails;
+                    const aiSittings2 = aiInitialSuggestionProp?.planDetails?.appointmentPlan?.sittingDetails;
+                    const aiSittings3 = plan.originalAISuggestion?.planDetails?.appointmentPlan?.sittingDetails;
+                    const showAiVisits = (Array.isArray(aiSittings1) && aiSittings1.length > 0)
+                      || (Array.isArray(aiSittings2) && aiSittings2.length > 0)
+                      || (Array.isArray(aiSittings3) && aiSittings3.length > 0);
+
+                    // --- BEGIN PATIENT SECTION DEBUG LOGS (IIFE) ---
+                    if (typeof console !== 'undefined' && console.groupCollapsed && console.log && console.groupEnd) {
+                        console.groupCollapsed(`[TreatmentPlanDetails IIFE - Plan ID: ${plan?.id}] AI Logic`);
+                        console.log('[TreatmentPlanDetails IIFE] Internal aiInitialSuggestion state:', JSON.parse(JSON.stringify(aiInitialSuggestion || null)));
+                        console.log('[TreatmentPlanDetails IIFE] Prop aiInitialSuggestionProp:', JSON.parse(JSON.stringify(aiInitialSuggestionProp || null)));
+                        console.log('[TreatmentPlanDetails IIFE] Plan plan.originalAISuggestion:', JSON.parse(JSON.stringify(plan.originalAISuggestion || null)));
+                        console.log('[TreatmentPlanDetails IIFE] aiSittings1 (from internal state):', JSON.parse(JSON.stringify(aiSittings1 || null)));
+                        console.log('[TreatmentPlanDetails IIFE] aiSittings2 (from prop):', JSON.parse(JSON.stringify(aiSittings2 || null)));
+                        console.log('[TreatmentPlanDetails IIFE] aiSittings3 (from plan object):', JSON.parse(JSON.stringify(aiSittings3 || null)));
+                        console.log('[TreatmentPlanDetails IIFE] Calculated showAiVisits:', showAiVisits);
+                        console.groupEnd();
+                    }
+                    // --- END PATIENT SECTION DEBUG LOGS (IIFE) ---
+
+                    // console.log('[TreatmentPlanDetails] aiInitialSuggestion:', aiInitialSuggestion);
+                    // console.log('[TreatmentPlanDetails] aiInitialSuggestionProp:', aiInitialSuggestionProp);
+                    // console.log('[TreatmentPlanDetails] plan.originalAISuggestion:', plan.originalAISuggestion);
+                    // console.log('[TreatmentPlanDetails] aiSittings1:', aiSittings1);
+                    // console.log('[TreatmentPlanDetails] aiSittings2:', aiSittings2);
+                    // console.log('[TreatmentPlanDetails] aiSittings3:', aiSittings3);
+                    // console.log('[TreatmentPlanDetails] showAiVisits:', showAiVisits);
+                    if (showAiVisits) {
+                      return (
+                        <div className="text-center py-6 border rounded-lg">
+                          <BrainCog className="h-8 w-8 mx-auto text-primary mb-3" /> 
+                          <p className="text-muted-foreground mb-4">
+                            AI-generated treatment visits are available for this plan.
+                          </p>
+                          <Button
+                            onClick={handleCreateAiSuggestedTreatments}
+                            disabled={isCreatingAiTreatments || loading}
+                            size="sm"
+                          >
+                            {isCreatingAiTreatments ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Plus className="mr-2 h-4 w-4" />
+                            )}
+                            Add AI Suggested Visits
+                          </Button>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()
                 )}
               </div>
 

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';import { Button } from '@/components/ui/button';import { PlusCircle } from 'lucide-react';import { Input } from '@/components/ui/input';import { Badge } from '@/components/ui/badge';import { MedicalRecordDetails } from './MedicalRecordDetails';import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Stethoscope, AlertCircle, FileText, CircleDot, Pill, FlaskConical, Image as ImageIcon, File, UserCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { X } from "lucide-react";
 
 // Define Medical Record type (consider moving to a shared types file)
 interface MedicalRecord {
@@ -308,6 +310,44 @@ const ModernRecordTabs = ({ record, details, doctors = [] }: { record: any, deta
     }
   }
 
+  const [attachmentModalOpen, setAttachmentModalOpen] = useState(false);
+  const [selectedAttachment, setSelectedAttachment] = useState<any | null>(null);
+  const [attachmentList, setAttachmentList] = useState<any[]>([]);
+  const [attachmentIndex, setAttachmentIndex] = useState(0);
+
+  // Helper to open modal with selected attachment
+  const openAttachmentModal = (attachment: any, list: any[] = [], idx: number = 0) => {
+    setSelectedAttachment(attachment);
+    setAttachmentList(list);
+    setAttachmentIndex(idx);
+    setAttachmentModalOpen(true);
+  };
+  // Helper to close modal
+  const closeAttachmentModal = () => {
+    setAttachmentModalOpen(false);
+    setSelectedAttachment(null);
+    setAttachmentList([]);
+    setAttachmentIndex(0);
+  };
+  // Keyboard navigation for modal
+  React.useEffect(() => {
+    if (!attachmentModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAttachmentModal();
+      if (attachmentList.length > 1) {
+        if (e.key === "ArrowRight") setAttachmentIndex((i) => (i + 1) % attachmentList.length);
+        if (e.key === "ArrowLeft") setAttachmentIndex((i) => (i - 1 + attachmentList.length) % attachmentList.length);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [attachmentModalOpen, attachmentList.length]);
+  React.useEffect(() => {
+    if (attachmentList.length && attachmentIndex >= 0) {
+      setSelectedAttachment(attachmentList[attachmentIndex]);
+    }
+  }, [attachmentIndex, attachmentList]);
+
   return (
     <div className="rounded-xl shadow-lg border overflow-hidden mb-4">
       <div className={`p-4 ${gradient}`}>
@@ -422,13 +462,14 @@ const ModernRecordTabs = ({ record, details, doctors = [] }: { record: any, deta
                 <div>
                   <h5 className="text-sm font-medium mb-1 flex items-center gap-1"><ImageIcon className="h-4 w-4 text-blue-500" /> X-ray Images</h5>
                   <div className="flex flex-wrap gap-2">
-                    {attachments.filter(a => a.type === 'xray').map((img, idx) => (
+                    {attachments.filter(a => a.type === 'xray').map((img, idx, arr) => (
                       <img
                         key={idx}
                         src={img.url}
                         alt={img.name || `X-ray ${idx + 1}`}
-                        className="rounded border object-cover w-24 h-24 cursor-pointer hover:scale-105 transition-transform"
+                        className="rounded-xl border object-cover w-24 h-24 cursor-pointer hover:scale-110 transition-transform shadow-md"
                         title={img.name}
+                        onClick={() => openAttachmentModal(img, arr, idx)}
                       />
                     ))}
                   </div>
@@ -439,13 +480,14 @@ const ModernRecordTabs = ({ record, details, doctors = [] }: { record: any, deta
                 <div>
                   <h5 className="text-sm font-medium mb-1 flex items-center gap-1"><ImageIcon className="h-4 w-4 text-blue-500" /> Clinical Photos</h5>
                   <div className="flex flex-wrap gap-2">
-                    {attachments.filter(a => a.type === 'photo').map((img, idx) => (
+                    {attachments.filter(a => a.type === 'photo').map((img, idx, arr) => (
                       <img
                         key={idx}
                         src={img.url}
                         alt={img.name || `Photo ${idx + 1}`}
-                        className="rounded border object-cover w-24 h-24 cursor-pointer hover:scale-105 transition-transform"
+                        className="rounded-xl border object-cover w-24 h-24 cursor-pointer hover:scale-110 transition-transform shadow-md"
                         title={img.name}
+                        onClick={() => openAttachmentModal(img, arr, idx)}
                       />
                     ))}
                   </div>
@@ -456,13 +498,11 @@ const ModernRecordTabs = ({ record, details, doctors = [] }: { record: any, deta
                 <div className="md:col-span-2">
                   <h5 className="text-sm font-medium mb-1 flex items-center gap-1"><File className="h-4 w-4 text-blue-500" /> Documents</h5>
                   <div className="space-y-2">
-                    {attachments.filter(a => a.type === 'document').map((doc, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-2 border rounded">
-                        <span className="text-sm">{doc.name}</span>
+                    {attachments.filter(a => a.type === 'document').map((doc, idx, arr) => (
+                      <div key={idx} className="flex items-center justify-between p-2 border rounded-lg bg-white/70 hover:bg-blue-50 transition cursor-pointer shadow-sm backdrop-blur-md" onClick={() => openAttachmentModal(doc, arr, idx)}>
+                        <span className="text-sm truncate max-w-xs font-medium text-gray-900" title={doc.name}>{doc.name}</span>
                         <Button variant="ghost" size="sm" asChild>
-                          <a href={doc.url} target="_blank" rel="noopener noreferrer">
-                            View
-                          </a>
+                          <span>View</span>
                         </Button>
                       </div>
                     ))}
@@ -470,6 +510,60 @@ const ModernRecordTabs = ({ record, details, doctors = [] }: { record: any, deta
                 </div>
               )}
             </div>
+            {/* Attachment Modal */}
+            <Dialog open={attachmentModalOpen} onOpenChange={setAttachmentModalOpen}>
+              <DialogContent
+                className="max-w-2xl bg-white/60 backdrop-blur-lg rounded-2xl shadow-2xl p-0 overflow-hidden flex flex-col items-center justify-center border border-blue-200 fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 animate-fade-in"
+                style={{ boxShadow: '0 8px 40px 0 rgba(30, 64, 175, 0.18)', minWidth: 380 }}
+              >
+                <DialogHeader className="w-full flex flex-row items-center justify-between px-6 pt-6 pb-2">
+                  <DialogTitle className="text-xl font-extrabold text-gray-900 tracking-tight font-sans">
+                    {selectedAttachment?.name || selectedAttachment?.type?.toUpperCase()}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="flex-1 w-full flex items-center justify-center p-8">
+                  {selectedAttachment && (selectedAttachment.type === 'xray' || selectedAttachment.type === 'photo') && (
+                    <img
+                      src={selectedAttachment.url}
+                      alt={selectedAttachment.name}
+                      className="max-h-[65vh] max-w-full rounded-xl border-2 border-blue-200 shadow-lg transition-all duration-300 bg-white/70"
+                      style={{ objectFit: 'contain', boxShadow: '0 4px 32px 0 rgba(30, 64, 175, 0.10)' }}
+                    />
+                  )}
+                  {selectedAttachment && selectedAttachment.type === 'document' && selectedAttachment.url && selectedAttachment.url.endsWith('.pdf') && (
+                    <iframe
+                      src={selectedAttachment.url}
+                      title={selectedAttachment.name}
+                      className="w-[90vw] max-w-2xl h-[65vh] rounded-xl border-2 border-blue-200 bg-white/90 shadow-lg"
+                      style={{ boxShadow: '0 4px 32px 0 rgba(30, 64, 175, 0.10)' }}
+                    />
+                  )}
+                  {selectedAttachment && selectedAttachment.type === 'document' && selectedAttachment.url && !selectedAttachment.url.endsWith('.pdf') && (
+                    <div className="flex flex-col items-center justify-center w-full">
+                      <p className="text-gray-800 mb-4 text-lg font-semibold">Preview not available.<br /><a href={selectedAttachment.url} target="_blank" rel="noopener noreferrer" className="underline text-blue-600">Download or View</a></p>
+                    </div>
+                  )}
+                </div>
+                {attachmentList.length > 1 && (
+                  <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-4">
+                    <button
+                      className="bg-white/70 hover:bg-blue-100 text-blue-700 rounded-full p-2 shadow-md transition border border-blue-200"
+                      onClick={() => setAttachmentIndex((attachmentIndex - 1 + attachmentList.length) % attachmentList.length)}
+                      aria-label="Previous"
+                    >
+                      <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg>
+                    </button>
+                    <button
+                      className="bg-white/70 hover:bg-blue-100 text-blue-700 rounded-full p-2 shadow-md transition border border-blue-200"
+                      onClick={() => setAttachmentIndex((attachmentIndex + 1) % attachmentList.length)}
+                      aria-label="Next"
+                    >
+                      <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" /></svg>
+                    </button>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
           </TabsContent>
           {/* Doctor Tab */}
           <TabsContent value="doctor" className="p-4">

@@ -338,4 +338,17 @@ export const treatmentService = {
 
     return api.patients.createTreatmentVisitsBatch(visitsToCreate);
   },
+
+  // Fetch AI suggestion for a plan
+  async getAiSuggestionForPlan(plan: { id: string, patient_id: string, description: string }) {
+    // Use the plan's patient_id and description as the current issue
+    if (!plan.patient_id || !plan.description) return null;
+    try {
+      // This will call the AI function and return the suggestion
+      return await api.patients.generateTreatmentPlan(plan.patient_id, plan.description);
+    } catch (e) {
+      console.error('Error fetching AI suggestion for plan:', e);
+      return null;
+    }
+  },
 };

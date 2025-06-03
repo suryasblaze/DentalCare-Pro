@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Search, Plus, User, Phone, Mail, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,8 @@ import { TreatmentPlanDetails } from '@/features/treatment-plans/components/Trea
 import { treatmentService } from '@/features/treatment-plans/services/treatmentService';
 import { TreatmentPlanForm } from '@/features/treatment-plans/components/TreatmentPlanForm';
 import { TreatmentForm } from '@/features/treatment-plans/components/TreatmentForm';
+import { PrintableContent } from '@/features/treatment-plans/components/TreatmentPlanDetails';
+import { format, add, parseISO } from 'date-fns';
 
 interface PatientFormDialogProps {
   open: boolean;
@@ -72,6 +74,7 @@ export function PatientList() {
   const [editTreatmentInitialData, setEditTreatmentInitialData] = useState<any>(null);
   const [treatmentFormPlanId, setTreatmentFormPlanId] = useState<string | null>(null);
   const [patientsList, setPatientsList] = useState<any[]>([]);
+  const [aiInitialSuggestion, setAiInitialSuggestion] = useState<any>(null);
 
   useEffect(() => {
     fetchPatients();
@@ -163,10 +166,31 @@ export function PatientList() {
     setTreatmentPlans([]);
   };
 
-  const handleViewPlanDetails = (plan: any) => {
-    setSelectedPlan(plan);
+  const handleViewPlanDetails = useCallback(async (plan) => {
+    setSelectedPlan(null);
     setShowPlanDetailsDialog(true);
-  };
+    setAiInitialSuggestion(null);
+    if (plan && plan.id) {
+      // Use getPatientTreatmentPlans to get the plan with treatments array
+      const allPlans = await treatmentService.getPatientTreatmentPlans(plan.patient_id);
+      const fullPlan = allPlans.find(p => p.id === plan.id);
+      if (fullPlan) {
+        let aiSuggestion = null;
+        if (!fullPlan.treatments || fullPlan.treatments.length === 0) {
+          try {
+            aiSuggestion = await treatmentService.getAiSuggestionForPlan(fullPlan);
+          } catch (e) {
+            aiSuggestion = null;
+          }
+        }
+        setSelectedPlan(fullPlan);
+        setAiInitialSuggestion(aiSuggestion);
+      } else {
+        toast({ title: 'Error', description: 'Failed to fetch plan details.', variant: 'destructive' });
+        setShowPlanDetailsDialog(false);
+      }
+    }
+  }, []);
 
   const handleClosePlanDetails = () => {
     setShowPlanDetailsDialog(false);
@@ -194,17 +218,169 @@ export function PatientList() {
     setShowEditTreatmentDialog(true);
   };
 
-  const refreshTreatmentPlans = async (patientId: string) => {
+  const refreshTreatmentPlans = async (patientId: string, expectTreatmentsOnSelectedPlan: boolean = false) => {
     setTreatmentPlansLoading(true);
     try {
       const plans = await treatmentService.getPatientTreatmentPlans(patientId);
       setTreatmentPlans(plans || []);
-    } catch {
-      setTreatmentPlans([]);
+
+      if (selectedPlan && selectedPlan.id && showPlanDetailsDialog) {
+        const updatedPlanInList = plans?.find(p => p.id === selectedPlan.id);
+        if (updatedPlanInList) {
+          let fullFreshPlanData = null;
+          let attempts = 0;
+          const MAX_ATTEMPTS = 3;
+          const RETRY_DELAY_MS = 2500;
+
+          if (expectTreatmentsOnSelectedPlan) {
+            console.log(`[Patients.tsx REFRESH] Expecting treatments for plan ${selectedPlan.id}. Will attempt up to ${MAX_ATTEMPTS} times.`);
+          }
+
+          while (attempts < MAX_ATTEMPTS) {
+            if (attempts > 0) {
+              console.log(`[Patients.tsx REFRESH ATTEMPT ${attempts + 1}/${MAX_ATTEMPTS}] Retrying to fetch details for plan ${selectedPlan.id} after ${RETRY_DELAY_MS}ms...`);
+              await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+            } else if (expectTreatmentsOnSelectedPlan && attempts === 0) {
+              // Adding a small initial delay even for the first attempt if we expect treatments,
+              // as the previous 1s delay was in this path.
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+
+            const detailsResult = await api.patients.getTreatmentPlanDetails(updatedPlanInList.id);
+
+            if (detailsResult && detailsResult.data) {
+              if (expectTreatmentsOnSelectedPlan) {
+                if (detailsResult.data.treatments && detailsResult.data.treatments.length > 0) {
+                  console.log(`[Patients.tsx REFRESH ATTEMPT ${attempts + 1}] Treatments found for plan ${selectedPlan.id}.`);
+                  fullFreshPlanData = detailsResult.data;
+                  break;
+                } else {
+                  console.log(`[Patients.tsx REFRESH ATTEMPT ${attempts + 1}] Treatments still not found for plan ${selectedPlan.id}.`);
+                  if (attempts === MAX_ATTEMPTS - 1) { // Last attempt failed
+                    fullFreshPlanData = detailsResult.data; // Use this potentially stale data
+                    console.warn(`[Patients.tsx REFRESH] Max attempts reached. Using plan data which might not have latest treatments for plan ${selectedPlan.id}.`);
+                  }
+                }
+              } else { // Not specifically expecting treatments (general refresh)
+                fullFreshPlanData = detailsResult.data;
+                break;
+              }
+            } else {
+              console.error(`[Patients.tsx REFRESH ATTEMPT ${attempts + 1}] Failed to fetch details for plan ${selectedPlan.id}. Error: ${detailsResult?.error}`);
+              if (attempts === MAX_ATTEMPTS - 1 && selectedPlan) {
+                 // On last attempt, if fetch fails completely, keep selectedPlan as is to avoid nullifying dialog
+                 // but aiInitialSuggestion might need to be handled based on expectTreatmentsOnSelectedPlan
+                 console.warn(`[Patients.tsx REFRESH] Max attempts reached and failed to fetch details for plan ${selectedPlan.id}. Plan data in dialog will be stale.`);
+              }
+              // If detailsResult itself is null/undefined, or no data, break to handle error outside loop.
+              // If there was an error object, it's logged.
+              // This ensures we don't try to access .data on null.
+              if (!detailsResult || !detailsResult.data){
+                fullFreshPlanData = null; // Ensure it's null if fetch failed
+                break;
+              }
+            }
+            attempts++;
+          }
+
+          if (fullFreshPlanData) {
+            // Use getPatientTreatmentPlans to get the plan with treatments array
+            const allPlans = await treatmentService.getPatientTreatmentPlans(selectedPatientForPlans.id);
+            const fullFreshPlan = allPlans.find(p => p.id === (fullFreshPlanData.id || (selectedPlan && selectedPlan.id)));
+            if (fullFreshPlan) {
+              setSelectedPlan(fullFreshPlan);
+              console.log('[Patients.tsx REFRESH] fullFreshPlan after attempts:', JSON.parse(JSON.stringify(fullFreshPlan)));
+              console.log('[Patients.tsx REFRESH] fullFreshPlan.treatments:', JSON.parse(JSON.stringify(fullFreshPlan.treatments || [])));
+              console.log('[Patients.tsx REFRESH] fullFreshPlan.originalAISuggestion:', JSON.parse(JSON.stringify(fullFreshPlan.originalAISuggestion || null)));
+
+              let newAiSuggestionState = null;
+              if (fullFreshPlan.treatments && fullFreshPlan.treatments.length > 0) {
+                newAiSuggestionState = null; // Treatments exist, parent should not provide AI suggestion.
+              } else {
+                if (expectTreatmentsOnSelectedPlan) {
+                  console.warn(`[Patients.tsx REFRESH] Expected treatments for plan ${fullFreshPlan.id} after AI add, but none found after retries. Retaining existing AI suggestion to allow retry.`);
+                  newAiSuggestionState = aiInitialSuggestion;
+                } else if (fullFreshPlan.originalAISuggestion) {
+                  newAiSuggestionState = fullFreshPlan.originalAISuggestion;
+                } else {
+                  console.log("[Patients.tsx REFRESH] Plan has no treatments, no embedded originalAISuggestion. Attempting to fetch new AI suggestion.");
+                  try {
+                    newAiSuggestionState = await treatmentService.getAiSuggestionForPlan(fullFreshPlan);
+                  } catch (e) {
+                    console.error("[Patients.tsx REFRESH] Failed to fetch new AI suggestion:", e);
+                    newAiSuggestionState = null;
+                  }
+                }
+              }
+              setAiInitialSuggestion(newAiSuggestionState);
+              console.log('[Patients.tsx REFRESH] newAiSuggestionState set to state:', JSON.parse(JSON.stringify(newAiSuggestionState || null)));
+            } else {
+              toast({ title: 'Warning', description: 'Could not refresh plan details. Displayed data might be stale.', variant: 'default' });
+              if (expectTreatmentsOnSelectedPlan) {
+                console.warn(`[Patients.tsx REFRESH] Failed to fetch plan details for plan ${selectedPlan.id} after AI add attempt. AI suggestion state will be preserved to allow retry.`);
+              }
+            }
+          } else {
+            toast({ title: 'Warning', description: 'Could not refresh plan details. Displayed data might be stale.', variant: 'default' });
+            if (expectTreatmentsOnSelectedPlan) {
+                console.warn(`[Patients.tsx REFRESH] Failed to fetch plan details for plan ${selectedPlan.id} after AI add attempt. AI suggestion state will be preserved to allow retry.`);
+            }
+          }
+        } else {
+          // Selected plan no longer in the main list (e.g., deleted).
+          // The dialog would typically be closed by the delete handler.
+          // If open, it might show stale data or an error if selectedPlan was cleared.
+          // For safety, clearing here, though ideally delete should manage this.
+          // setShowPlanDetailsDialog(false); // Avoid direct control if managed by other flows.
+          // setSelectedPlan(null);
+          // setAiInitialSuggestion(null);
+        }
+      }
+    } catch (error) {
+      console.error("[Patients.tsx REFRESH] Error in refreshTreatmentPlans:", error);
+      toast({ title: 'Error', description: 'Failed to refresh treatment plans.', variant: 'destructive' });
+      // Set treatment plans to empty array on error to avoid displaying stale data.
+      setTreatmentPlans([]); 
     } finally {
       setTreatmentPlansLoading(false);
     }
   };
+
+  // --- FIX: Move useMemo to top level ---
+  const treatmentsWithEstimatedDates = useMemo(() => {
+    const treatments = selectedPlan?.treatments || [];
+    if (!treatments.length) return [];
+    // Deduplicate by id
+    const uniqueByIdMap = new Map();
+    for (const treatment of treatments) {
+      if (treatment && typeof treatment.id !== 'undefined') {
+        if (!uniqueByIdMap.has(treatment.id)) {
+          uniqueByIdMap.set(treatment.id, treatment);
+        }
+      }
+    }
+    const sortedTreatments = Array.from(uniqueByIdMap.values()).sort((a, b) => {
+      const visitA = typeof a.visit_number === 'number' ? a.visit_number : Infinity;
+      const visitB = typeof b.visit_number === 'number' ? b.visit_number : Infinity;
+      if (visitA !== visitB) return visitA - visitB;
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return dateA - dateB;
+    });
+    let runningDate = selectedPlan?.start_date || selectedPlan?.created_at;
+    return sortedTreatments.map((treatment, index) => {
+      let estimatedVisitDate;
+      if (index === 0) {
+        estimatedVisitDate = format(parseISO(runningDate), 'yyyy-MM-dd');
+      } else {
+        const previousTreatment = sortedTreatments[index - 1];
+        runningDate = calculateEstimatedDate(runningDate, previousTreatment.time_gap);
+        estimatedVisitDate = runningDate;
+      }
+      return { ...treatment, estimatedVisitDate };
+    });
+  }, [selectedPlan?.treatments, selectedPlan?.start_date, selectedPlan?.created_at]);
 
   return (
     <>
@@ -384,12 +560,91 @@ export function PatientList() {
                 open={showAddPlanDialog}
                 onOpenChange={setShowAddPlanDialog}
                 onSubmit={async (data, toothIds) => {
-                  await treatmentService.createTreatmentPlan({ ...data, patient_id: selectedPatientForPlans.id }, toothIds);
+                  // 1. Split metadata fields and only keep valid main plan fields
+                  const {
+                    clinical_considerations,
+                    key_materials,
+                    post_treatment_care,
+                    total_visits,
+                    condition, // metadata
+                    domain,    // metadata
+                    symptoms,  // not in main table
+                    materials, // not in main table
+                    estimated_duration, // not in main table
+                    initialTreatments, // not in main table
+                    originalAISuggestion, // AI suggestion to attach
+                    ...rest
+                  } = data;
+
+                  // Explicitly construct the main plan object with only allowed fields
+                  const mainPlanFields = {
+                    title: data.title || data.symptoms || 'Untitled Plan',
+                    description: data.description || '',
+                    patient_id: data.patient_id,
+                    status: data.status || 'planned',
+                    start_date: data.start_date || new Date().toISOString().split('T')[0],
+                    priority: data.priority || 'medium',
+                    ai_generated: data.ai_generated || false,
+                  };
+
+                  // 2. Create the main plan (treatment_plans)
+                  const planResult = await treatmentService.createTreatmentPlan(mainPlanFields, toothIds);
+                  if (!planResult || planResult.error || !planResult.data || !planResult.data.id) {
+                    toast({ title: 'Error', description: 'Failed to create treatment plan.', variant: 'destructive' });
+                    return;
+                  }
+                  const planId = planResult.data.id;
+
+                  // 3. Create the metadata (treatment_plan_metadata)
+                  const metadataResult = await api.patients.createTreatmentPlanMetadata({
+                    treatment_plan_id: planId,
+                    clinical_considerations: clinical_considerations || null,
+                    key_materials: key_materials || null,
+                    post_treatment_care: post_treatment_care || null,
+                    total_visits: total_visits ? Number(total_visits) : 0,
+                    completed_visits: 0,
+                    originalAISuggestion: originalAISuggestion || null // Save the AI suggestion in metadata
+                  });
+                  if (metadataResult && metadataResult.error) {
+                    toast({ title: 'Error', description: 'Failed to save plan metadata.', variant: 'destructive' });
+                    return;
+                  }
+
                   setShowAddPlanDialog(false);
-                  refreshTreatmentPlans(selectedPatientForPlans.id);
+                  refreshTreatmentPlans(mainPlanFields.patient_id);
+
+                  // 4. Fetch the full plan details (ensure all treatments, metadata, etc.)
+                  let fullPlan = null;
+                  let planError = null;
+                  if (planId) {
+                    const detailsResult = await api.patients.getTreatmentPlanDetails(planId);
+                    if (detailsResult && detailsResult.data) {
+                      fullPlan = detailsResult.data;
+                      // Attach the originalAISuggestion to the plan object for the details dialog
+                      if (originalAISuggestion) {
+                        fullPlan.originalAISuggestion = originalAISuggestion;
+                      }
+                    } else if (detailsResult && detailsResult.error) {
+                      planError = detailsResult.error;
+                    }
+                  }
+
+                  // 5. Defensive: Only open details if plan is valid
+                  if (planError || !fullPlan || fullPlan.error) {
+                    toast({ title: 'Error', description: 'Failed to fetch full plan details. Please try again.', variant: 'destructive' });
+                    return;
+                  }
+
+                  setSelectedPlan({
+                    ...fullPlan,
+                    treatments: fullPlan.visits || [], // Map visits to treatments for compatibility
+                  });
+                  setShowPlanDetailsDialog(true);
+                  setAiInitialSuggestion(originalAISuggestion || null);
                 }}
                 patients={patientsList}
                 loading={false}
+                initialData={{ patient_id: selectedPatientForPlans.id }}
               />
             )}
           </DialogContent>
@@ -462,35 +717,64 @@ export function PatientList() {
         {/* Treatment Plan Details Dialog (nested) */}
         <Dialog open={showPlanDetailsDialog} onOpenChange={handleClosePlanDetails}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            {selectedPlan && (
-              <TreatmentPlanDetails
-                open={showPlanDetailsDialog}
-                onOpenChange={handleClosePlanDetails}
-                plan={selectedPlan}
-                onRefresh={async () => { if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id); }}
-                onAddTreatment={() => handleAddTreatment(selectedPlan)}
-                onStatusChange={async (planId, status) => {
-                  await treatmentService.updateTreatmentPlan(planId, { status });
-                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
-                }}
-                onDeletePlan={async (planId) => {
-                  await treatmentService.deleteTreatmentPlan(planId);
-                  setShowPlanDetailsDialog(false);
-                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
-                }}
-                onTreatmentStatusChange={async (treatmentId, status) => {
-                  await treatmentService.updateTreatment(treatmentId, { status });
-                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
-                }}
-                onDeleteTreatment={async (treatmentId) => {
-                  await treatmentService.deleteTreatment(treatmentId);
-                  if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
-                }}
-                onEditTreatment={(treatment) => handleEditTreatment(selectedPlan, treatment)}
-                loading={false}
-                navigateToPatient={() => {}}
-                aiInitialSuggestion={null}
-              />
+            {selectedPlan && !selectedPlan.error && (
+              <>
+                <TreatmentPlanDetails
+                  open={showPlanDetailsDialog}
+                  onOpenChange={handleClosePlanDetails}
+                  plan={selectedPlan}
+                  onRefresh={async () => { 
+                    if (selectedPatientForPlans) {
+                      // Determine if this refresh is immediately after an AI treatment creation.
+                      // This is a heuristic. A more robust way might involve TreatmentPlanDetails passing a flag.
+                      // For now, if TreatmentPlanDetails calls onRefresh, and it's for AI suggested treatments,
+                      // it likely just created them. Let's assume it's an AI-triggered refresh.
+                      // The `handleCreateAiSuggestedTreatments` in TreatmentPlanDetails calls onRefresh.
+                      // We will pass `true` to indicate treatments are expected.
+                      refreshTreatmentPlans(selectedPatientForPlans.id, true); 
+                    }
+                  }}
+                  onAddTreatment={() => handleAddTreatment(selectedPlan)}
+                  onStatusChange={async (planId, status) => {
+                    await treatmentService.updateTreatmentPlan(planId, { status });
+                    if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                  }}
+                  onDeletePlan={async (planId) => {
+                    await treatmentService.deleteTreatmentPlan(planId);
+                    setShowPlanDetailsDialog(false);
+                    if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                  }}
+                  onTreatmentStatusChange={async (treatmentId, status) => {
+                    await treatmentService.updateTreatment(treatmentId, { status });
+                    if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                  }}
+                  onDeleteTreatment={async (treatmentId) => {
+                    await treatmentService.deleteTreatment(treatmentId);
+                    if (selectedPatientForPlans) refreshTreatmentPlans(selectedPatientForPlans.id);
+                  }}
+                  onEditTreatment={(treatment) => handleEditTreatment(selectedPlan, treatment)}
+                  loading={false}
+                  navigateToPatient={() => {}}
+                  aiInitialSuggestion={aiInitialSuggestion}
+                />
+                {/* PrintableContent for direct print support */}
+                <PrintableContent 
+                  plan={{
+                    ...selectedPlan,
+                    patient: {
+                      full_name: selectedPlan.patientName,
+                      age: selectedPlan.patient?.age || 0,
+                      gender: selectedPlan.patient?.gender || '',
+                      registration_number: selectedPlan.patient?.registration_number || '',
+                      ...selectedPlan.patient
+                    }
+                  }}
+                  treatmentsWithEstimatedDates={treatmentsWithEstimatedDates}
+                />
+              </>
+            )}
+            {selectedPlan && selectedPlan.error && (
+              <div className="text-red-500">Error loading treatment plan: {selectedPlan.error.message}</div>
             )}
           </DialogContent>
         </Dialog>
@@ -758,4 +1042,39 @@ export function PatientDetails() {
       </Dialog>
     </div>
   );
+}
+
+function calculateEstimatedDate(baseDateStr, timeGapStr) {
+  if (!timeGapStr) {
+    try {
+      return format(parseISO(baseDateStr), 'yyyy-MM-dd');
+    } catch (e) {
+      try {
+        const parsedDate = new Date(baseDateStr);
+        if (!isNaN(parsedDate.getTime())) {
+          return format(parsedDate, 'yyyy-MM-dd');
+        }
+        return baseDateStr;
+      } catch {
+        return baseDateStr;
+      }
+    }
+  }
+  let baseDate;
+  try { baseDate = parseISO(baseDateStr); } catch { baseDate = new Date(baseDateStr); }
+  if (isNaN(baseDate.getTime())) return 'Invalid Date';
+  try {
+    const parts = timeGapStr.toLowerCase().split(' ');
+    if (parts.length !== 2) return format(baseDate, 'yyyy-MM-dd');
+    const amount = parseInt(parts[0], 10);
+    const unit = parts[1].endsWith('s') ? parts[1] : parts[1] + 's';
+    if (isNaN(amount)) return format(baseDate, 'yyyy-MM-dd');
+    let duration = {};
+    if (unit === 'days') duration = { days: amount };
+    else if (unit === 'weeks') duration = { weeks: amount };
+    else if (unit === 'months') duration = { months: amount };
+    else if (unit === 'years') duration = { years: amount };
+    else return format(baseDate, 'yyyy-MM-dd');
+    return format(add(baseDate, duration), 'yyyy-MM-dd');
+  } catch { return format(baseDate, 'yyyy-MM-dd'); }
 }

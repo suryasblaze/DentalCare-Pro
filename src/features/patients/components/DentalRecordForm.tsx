@@ -75,7 +75,7 @@ const dentalRecordSchema = z.object({
     dosage: z.string(),
     frequency: z.string(),
     duration: z.string(),
-    instructions: z.string()
+    special_instructions: z.string().optional(),
   })).optional(),
   
   // Patient Instructions
@@ -151,8 +151,41 @@ export function DentalRecordForm({
       .finally(() => setLoadingDoctors(false));
   }, []);
 
+  const uploadFileToSupabase = async (file: File, patientId: string, type: string) => {
+    return await api.storage.uploadFile(file, patientId);
+  };
+
   const handleFormSubmit = async (values: DentalRecordFormValues) => {
-    await onSubmit(values, customNotes);
+    // Helper to upload and map files
+    const processFiles = async (files: any[], type: string) => {
+      const uploaded = [];
+      for (const file of files) {
+        if (file instanceof File) {
+          const result = await uploadFileToSupabase(file, patientId, type);
+          if (result) uploaded.push({ ...result, type });
+        } else if (file && file.url) {
+          // Already uploaded (editing)
+          uploaded.push(file);
+        }
+      }
+      return uploaded;
+    };
+
+    // Upload all files and replace arrays
+    const xray_images = await processFiles(values.xray_images || [], 'xray');
+    const clinical_photos = await processFiles(values.clinical_photos || [], 'photo');
+    const documents = await processFiles(values.documents || [], 'document');
+
+    // Pass the processed values to onSubmit
+    await onSubmit(
+      {
+        ...values,
+        xray_images,
+        clinical_photos,
+        documents,
+      },
+      customNotes
+    );
   };
 
   const tabOrder = [
@@ -220,21 +253,21 @@ export function DentalRecordForm({
   };
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="w-full max-w-4xl mx-auto p-2 sm:p-4 md:p-6">
       {/* Patient Info Header */}
-      <Card className="mb-6 max-w-5xl w-full mx-auto">
+      <Card className="mb-6 w-full">
         <CardHeader>
           <CardTitle className="text-2xl">Dental Record - {patientName}</CardTitle>
           <p className="text-sm text-muted-foreground">Patient ID: {patientId}</p>
         </CardHeader>
       </Card>
 
-      <Card className="max-w-5xl w-full mx-auto">
+      <Card className="w-full">
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-2">
               <Tabs value={activeTab} onValueChange={() => {}} className="w-full">
-                <TabsList className="flex w-full justify-between mb-2">
+                <TabsList className="flex w-full justify-between mb-2 flex-wrap">
                   <TabsTrigger value="examination" data-disabled>Clinical Examination</TabsTrigger>
                   <TabsTrigger value="diagnosis" data-disabled>Diagnosis & Treatment</TabsTrigger>
                   <TabsTrigger value="prescription" data-disabled>Prescription & Instructions</TabsTrigger>
@@ -455,20 +488,23 @@ export function DentalRecordForm({
                 <TabsContent value="prescription" className="space-y-3">
                   <div>
                     <h2 className="text-xl font-bold mb-2">Prescription</h2>
-                    <ScrollArea className="max-h-[300px] pr-2">
+                    <ScrollArea className="h-[300px] pr-2 border bg-white rounded-md">
                       {form.watch("prescriptions")?.map((_, index) => (
-                        <PrescriptionFields
-                          key={index}
-                          index={index}
-                          form={form}
-                          onRemove={() => {
-                            const prescriptions = form.getValues("prescriptions") || [];
-                            form.setValue(
-                              "prescriptions",
-                              prescriptions.filter((_, i) => i !== index)
-                            );
-                          }}
-                        />
+                        <div key={index} className="mb-4 p-4 border rounded bg-gray-50 relative shadow-sm">
+                          <div className="font-semibold mb-2">Prescription {index + 1}</div>
+                          <PrescriptionFields
+                            index={index}
+                            form={form}
+                            onRemove={() => {
+                              const prescriptions = form.getValues("prescriptions") || [];
+                              form.setValue(
+                                "prescriptions",
+                                prescriptions.filter((_, i) => i !== index),
+                                { shouldDirty: true, shouldTouch: true, shouldValidate: true }
+                              );
+                            }}
+                          />
+                        </div>
                       ))}
                     </ScrollArea>
                     <Button 
@@ -476,10 +512,14 @@ export function DentalRecordForm({
                       variant="outline"
                       onClick={() => {
                         const prescriptions = form.getValues("prescriptions") || [];
-                        form.setValue("prescriptions", [
-                          ...prescriptions,
-                          { medication: "", dosage: "", frequency: "", duration: "", instructions: "" }
-                        ]);
+                        form.setValue(
+                          "prescriptions",
+                          [
+                            ...prescriptions,
+                            { medication: "", dosage: "", frequency: "", duration: "", special_instructions: "" }
+                          ],
+                          { shouldDirty: true, shouldTouch: true, shouldValidate: true }
+                        );
                       }}
                     >
                       Add Prescription
@@ -521,9 +561,25 @@ export function DentalRecordForm({
                 <TabsContent value="labresults" className="space-y-3">
                   <div>
                     <h2 className="text-xl font-bold mb-2">Lab Result Details</h2>
-                    <ScrollArea className="max-h-[300px] pr-2">
+                    <ScrollArea className="h-[300px] pr-2 border bg-white">
                       {(form.watch('lab_results') || []).map((_, index) => (
-                        <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end mb-2 border-b pb-2">
+                        <div key={index} className="relative grid grid-cols-1 md:grid-cols-4 gap-2 items-end mb-2 border-b pb-2">
+                          {/* Cancel/Remove icon */}
+                          <button
+                            type="button"
+                            className="absolute right-2 top-2 z-10 text-gray-400 hover:text-red-600"
+                            title="Remove Lab Result"
+                            onClick={() => {
+                              const results = form.getValues('lab_results') || [];
+                              form.setValue(
+                                'lab_results',
+                                results.filter((_, i) => i !== index),
+                                { shouldDirty: true, shouldTouch: true, shouldValidate: true }
+                              );
+                            }}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
                           <FormField
                             control={form.control}
                             name={`lab_results.${index}.test_name` as const}
@@ -580,10 +636,14 @@ export function DentalRecordForm({
                       variant="outline"
                       onClick={() => {
                         const results = form.getValues('lab_results') || [];
-                        form.setValue('lab_results', [
-                          ...results,
-                          { test_name: '', result_value: '', units: '', reference_range: '' }
-                        ]);
+                        form.setValue(
+                          'lab_results',
+                          [
+                            ...results,
+                            { test_name: '', result_value: '', units: '', reference_range: '' }
+                          ],
+                          { shouldDirty: true, shouldTouch: true, shouldValidate: true }
+                        );
                       }}
                     >
                       Add Result
