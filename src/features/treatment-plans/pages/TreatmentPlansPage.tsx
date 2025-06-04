@@ -20,6 +20,7 @@ import { Plus } from 'lucide-react';
 import { Search } from 'lucide-react';
 import { Stethoscope } from 'lucide-react';
 import { Wand2 } from 'lucide-react'; // Added Wand2 icon
+import { Activity } from 'lucide-react'; // Add this import for the icon
 import { z } from 'zod';
 
 // Import the renamed function and the new type from the hook
@@ -248,6 +249,13 @@ export function TreatmentPlansPage() {
           <Button onClick={() => setShowNewPlanDialog(true)}>
             <Plus className="h-4 w-4 mr-2" />
             New Treatment Plan
+          </Button>
+          <Button
+            onClick={() => navigate('/treatment-plans/visit-lifecycle')}
+            className="bg-accent text-accent-foreground border-2 border-primary font-bold shadow-md flex items-center gap-2 px-5 hover:bg-primary hover:text-white hover:border-primary/80 focus:ring-2 focus:ring-primary"
+          >
+            <Activity className="h-4 w-4 mr-2" />
+            Visit Lifecycle
           </Button>
         </div>
       </PageHeader>

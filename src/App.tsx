@@ -36,6 +36,7 @@ import { Loader2 } from 'lucide-react';
 import LoginPage from './pages/LoginPage'; // Import the new Login page
 import SignUpPage from './pages/SignUpPage'; // Import the new Sign Up page
 import { ActivityLogPage } from './pages/ActivityLogPage'; // Import the new Activity Log page
+import VisitLifecyclePage from './features/treatment-plans/pages/VisitLifecyclePage';
 
 
 // Component to handle routing based on auth state
@@ -69,6 +70,7 @@ function AppContent() {
           <Route path="patients" element={<Patients />} />
           <Route path="patients/:id" element={<Patients />} /> {/* Detail/Edit */}
           <Route path="treatment-plans" element={<TreatmentPlansPage />} />
+          <Route path="treatment-plans/visit-lifecycle" element={<VisitLifecyclePage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<Settings />} />
           <Route path="payments-subscription" element={<PaymentsSubscriptionPage />} />

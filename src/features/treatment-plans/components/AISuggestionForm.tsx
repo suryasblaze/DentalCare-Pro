@@ -126,24 +126,47 @@ export function AISuggestionForm({
         throw new Error("VITE_N8N_WEBHOOK_URL_AI_SUGGESTION environment variable is not set.");
       }
 
+      // --- Ensure full patient details ---
+      let fullPatientRecord = patientRecord;
+      if (!fullPatientRecord || !fullPatientRecord.first_name) {
+        try {
+          // Dynamically import api if not already in scope
+          const apiModule = await import('@/lib/api');
+          fullPatientRecord = await apiModule.api.patients.getById(patientId);
+        } catch (e) {
+          toast({
+            title: 'Error',
+            description: 'Could not fetch full patient details.',
+            variant: 'destructive',
+          });
+          setIsGenerating(false);
+          clearTimeout(timeoutId);
+          return;
+        }
+      }
+
+      const payload = {
+        patientId,
+        toothIds,
+        domain,
+        condition,
+        treatment: selectedTreatment,
+        details: matrixDetails,
+        patientDetails: fullPatientRecord, // Always send full details
+        userInput: {
+          symptoms,
+          description,
+        },
+      };
+      // --- Patient Section Debug Log ---
+      console.log('[PATIENT SECTION][n8n webhook] Sending payload to n8n:', JSON.parse(JSON.stringify(payload)));
+
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          patientId,
-          toothIds,
-          domain,
-          condition,
-          treatment: selectedTreatment,
-          details: matrixDetails,
-          patientRecord: patientRecord,
-          userInput: {
-            symptoms,
-            description,
-          },
-        }),
+        body: JSON.stringify(payload),
         // signal: controller.signal, // Removed signal from fetch options
       });
 

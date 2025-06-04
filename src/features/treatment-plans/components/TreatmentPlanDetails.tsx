@@ -267,6 +267,7 @@ interface PrintableContentProps {
       registration_number?: string;
       full_name?: string;
     };
+    teeth?: { tooth_id: number }[] | null;
   };
   treatmentsWithEstimatedDates: Array<{
     id?: string;
@@ -279,6 +280,7 @@ interface PrintableContentProps {
     completed_date?: string;
     estimatedVisitDate?: string;
     cost?: number | string;
+    visit_number?: number;
   }>;
 }
 
@@ -313,6 +315,7 @@ export const PrintableContent = ({ plan, treatmentsWithEstimatedDates }: Printab
       <div style={{ marginBottom: 12 }}>
         <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#000' }}>Patient: {plan.patientName || plan.patient?.full_name || 'N/A'}</p>
         <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 700, color: '#000' }}>Reg. No: {plan.patient?.registration_number || 'N/A'}</p>
+        <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 700, color: '#000' }}>Affected Teeth: {plan.teeth && plan.teeth.length > 0 ? plan.teeth.map((t: { tooth_id: number }) => t.tooth_id).sort((a: number, b: number) => a - b).join(', ') : 'N/A'}</p>
       </div>
       <div style={{ borderBottom: '2px solid #0060df', marginBottom: 15 }}></div>
 
@@ -463,6 +466,8 @@ export function TreatmentPlanDetails({
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 5; 
   const [isCreatingAiTreatments, setIsCreatingAiTreatments] = useState(false); 
+  const [showVisitsLoadingOverlay, setShowVisitsLoadingOverlay] = useState(false); // Overlay for AI visits loading
+  const [visitsLoadingError, setVisitsLoadingError] = useState<string | null>(null); // Error for polling
 
   // --- BEGIN PATIENT SECTION DEBUG LOGS ---
   if (typeof console !== 'undefined' && console.groupCollapsed && console.log && console.groupEnd) {
@@ -1101,6 +1106,8 @@ export function TreatmentPlanDetails({
     }
 
     setIsCreatingAiTreatments(true);
+    setShowVisitsLoadingOverlay(true); // Show overlay
+    setVisitsLoadingError(null);
     let treatmentsCreatedCount = 0;
     const totalSuggestions = aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails.length;
 
@@ -1129,10 +1136,28 @@ export function TreatmentPlanDetails({
 
       toast({
         title: "Success",
-        description: `${treatmentsCreatedCount} of ${totalSuggestions} AI suggested treatments created. Refreshing...`,
+        description: `${treatmentsCreatedCount} of ${totalSuggestions} AI suggested treatments created. Waiting for visits to appear...`,
       });
       setAiInitialSuggestion(null); // Clear internal AI suggestion state after successful creation
-      await onRefresh();
+      // Modern loading: poll for visits
+      let attempts = 0;
+      const maxAttempts = 10;
+      let foundVisits = false;
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s
+        await onRefresh();
+        // Check if visits are present in the plan (treatments)
+        if (plan && plan.treatments && plan.treatments.length > 0) {
+          foundVisits = true;
+          break;
+        }
+        attempts++;
+      }
+      if (!foundVisits) {
+        setVisitsLoadingError('AI suggested visits could not be loaded in time. Please try refreshing the page.');
+      } else {
+        setShowVisitsLoadingOverlay(false);
+      }
     } catch (error) {
       console.error("Error creating AI suggested treatments:", error);
       toast({
@@ -1140,15 +1165,11 @@ export function TreatmentPlanDetails({
         description: `Failed to create some or all AI suggested treatments. ${treatmentsCreatedCount} created. ${(error as Error).message}`,
         variant: "destructive",
       });
-      // Only refresh if some treatments were actually created, to reflect partial success.
-      // Don't clear internal AI suggestion on full failure, so user can potentially retry.
-      if (treatmentsCreatedCount > 0) {
-        await onRefresh();
-      }
+      setVisitsLoadingError('An error occurred while creating visits. Please try again.');
     } finally {
       setIsCreatingAiTreatments(false);
     }
-};
+  };
 
   if (!plan) return null;
 
@@ -1261,6 +1282,46 @@ export function TreatmentPlanDetails({
 
   return (
     <>
+      {/* Modern loading overlay for AI visits creation and polling */}
+      {showVisitsLoadingOverlay && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'rgba(30, 41, 59, 0.18)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backdropFilter: 'blur(2px)',
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: 20,
+            boxShadow: '0 8px 32px rgba(30,41,59,0.18)',
+            padding: '2.5rem 2.5rem',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            minWidth: 340,
+            maxWidth: '90vw',
+          }}>
+            <svg className="animate-spin" style={{width: 56, height: 56, color: '#1B56FD', marginBottom: 20}} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+            <div style={{fontWeight: 700, fontSize: 22, color: '#1B56FD', marginBottom: 10}}>Finalizing Your AI Visits...</div>
+            <div style={{fontSize: 16, color: '#444', textAlign: 'center', maxWidth: 320, marginBottom: 10}}>
+              Please wait while we load your AI suggested visits. This may take a few seconds.<br />
+              <span style={{color:'#888', fontSize:13}}>Do not close or refresh the page.</span>
+            </div>
+            {visitsLoadingError && (
+              <div style={{color:'#e11d48', fontWeight:600, fontSize:16, marginTop:16, textAlign:'center'}}>
+                {visitsLoadingError}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
@@ -1950,7 +2011,7 @@ export function TreatmentPlanDetails({
 }
 
 // Exported PDF Download Handler for use in other files
-export async function handleDownloadPdf(plan, treatmentsWithEstimatedDates) {
+export async function handleDownloadPdf(plan: PrintableContentProps['plan'], treatmentsWithEstimatedDates: PrintableContentProps['treatmentsWithEstimatedDates']) {
   if (!plan) return;
 
   const doc = new jsPDF();
@@ -1960,7 +2021,7 @@ export async function handleDownloadPdf(plan, treatmentsWithEstimatedDates) {
   let currentY = 20; // Initial Y position
 
   doc.setFont('helvetica', 'normal');
-  const addSectionLine = (y) => {
+  const addSectionLine = (y: number) => {
     doc.setDrawColor(200, 200, 200);
     doc.line(pdfMargin, y, pageWidth - pdfMargin, y);
   };

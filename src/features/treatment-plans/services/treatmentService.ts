@@ -232,18 +232,15 @@ export const treatmentService = {
       const totalTreatments = plan.treatments?.length || 0;
       const progress = totalTreatments ? Math.round((completedTreatments / totalTreatments) * 100) : 0;
 
-      // Extract teeth data
-      const teeth = Array.isArray(plan.treatment_plan_teeth)
-        ? plan.treatment_plan_teeth
-            .map((tpt: any) => tpt.teeth) // Extract the teeth object
-            .filter((tooth: any) => tooth !== null) // Filter out nulls
+      // Extract teeth data from plan.teeth (array of {tooth_id})
+      const teeth = Array.isArray(plan.teeth)
+        ? plan.teeth.map((t: any) => ({ tooth_id: t.tooth_id })).filter((t: any) => t.tooth_id != null)
         : [];
-      
-      // Remove the junction table data from the plan object before returning
+
+      // Remove any old junction table property if present
       const planWithoutJunction = { ...plan };
       delete planWithoutJunction.treatment_plan_teeth;
 
-      // Keep the patient details from the API response if available, otherwise use the patientInfo
       const patient = plan.patient || (patientInfo ? {
         full_name: `${patientInfo.first_name} ${patientInfo.last_name}`,
         age: patientInfo.age,
@@ -252,14 +249,14 @@ export const treatmentService = {
       } : undefined);
 
       return {
-        ...planWithoutJunction, // Use the plan without the junction table data
+        ...planWithoutJunction,
         patientName: patient?.full_name || 'Unknown Patient',
         totalCost,
         progress,
         completedTreatments,
         totalTreatments,
-        teeth, // Add the processed teeth array
-        patient // Add the patient details
+        teeth,
+        patient
       };
     });
   },

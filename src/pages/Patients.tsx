@@ -188,7 +188,9 @@ export function PatientList() {
             aiSuggestion = null;
           }
         }
-        setSelectedPlan(fullPlan);
+        // Debug log for teeth
+        console.log('[DEBUG] handleViewPlanDetails - fullPlan.teeth:', fullPlan.teeth);
+        setSelectedPlan({ ...fullPlan, teeth: fullPlan.teeth });
         setAiInitialSuggestion(aiSuggestion);
       } else {
         toast({ title: 'Error', description: 'Failed to fetch plan details.', variant: 'destructive' });
@@ -255,6 +257,8 @@ export function PatientList() {
             const detailsResult = await api.patients.getTreatmentPlanDetails(updatedPlanInList.id);
 
             if (detailsResult && detailsResult.data) {
+              // Debug log for teeth
+              console.log('[DEBUG] refreshTreatmentPlans - detailsResult.data.teeth:', detailsResult.data.teeth);
               if (expectTreatmentsOnSelectedPlan) {
                 if (detailsResult.data.treatments && detailsResult.data.treatments.length > 0) {
                   console.log(`[Patients.tsx REFRESH ATTEMPT ${attempts + 1}] Treatments found for plan ${selectedPlan.id}.`);
@@ -294,7 +298,11 @@ export function PatientList() {
             const allPlans = await treatmentService.getPatientTreatmentPlans(selectedPatientForPlans.id);
             const fullFreshPlan = allPlans.find(p => p.id === (fullFreshPlanData.id || (selectedPlan && selectedPlan.id)));
             if (fullFreshPlan) {
-              setSelectedPlan(fullFreshPlan);
+              setSelectedPlan({
+                ...fullFreshPlan,
+                treatments: fullFreshPlan.visits || [],
+                teeth: fullFreshPlan.teeth || [],
+              });
               console.log('[Patients.tsx REFRESH] fullFreshPlan after attempts:', JSON.parse(JSON.stringify(fullFreshPlan)));
               console.log('[Patients.tsx REFRESH] fullFreshPlan.treatments:', JSON.parse(JSON.stringify(fullFreshPlan.treatments || [])));
               console.log('[Patients.tsx REFRESH] fullFreshPlan.originalAISuggestion:', JSON.parse(JSON.stringify(fullFreshPlan.originalAISuggestion || null)));
@@ -644,6 +652,21 @@ export function PatientList() {
                     ...rest
                   } = data;
 
+                  // --- Extract affected teeth from AI suggestion if present ---
+                  let finalToothIds = toothIds || [];
+                  if (
+                    originalAISuggestion &&
+                    originalAISuggestion.caseOverview &&
+                    originalAISuggestion.caseOverview.teethInvolved
+                  ) {
+                    const aiTeeth = originalAISuggestion.caseOverview.teethInvolved
+                      .split(',')
+                      .map(t => parseInt(t.trim(), 10))
+                      .filter(n => !isNaN(n));
+                    if (aiTeeth.length > 0) {
+                      finalToothIds = aiTeeth;
+                    }
+                  }
                   // Explicitly construct the main plan object with only allowed fields
                   const mainPlanFields = {
                     title: data.title || data.symptoms || 'Untitled Plan',
@@ -656,7 +679,7 @@ export function PatientList() {
                   };
 
                   // 2. Create the main plan (treatment_plans)
-                  const planResult = await treatmentService.createTreatmentPlan(mainPlanFields, toothIds);
+                  const planResult = await treatmentService.createTreatmentPlan(mainPlanFields, finalToothIds);
                   if (!planResult || planResult.error || !planResult.data || !planResult.data.id) {
                     toast({ title: 'Error', description: 'Failed to create treatment plan.', variant: 'destructive' });
                     return;
@@ -708,6 +731,7 @@ export function PatientList() {
                   setSelectedPlan({
                     ...fullPlan,
                     treatments: fullPlan.visits || [], // Map visits to treatments for compatibility
+                    teeth: fullPlan.teeth || [],
                   });
                   setShowPlanDetailsDialog(true);
                   setAiInitialSuggestion(originalAISuggestion || null);
@@ -742,6 +766,7 @@ export function PatientList() {
                     setSelectedPlan({
                       ...fullPlan,
                       treatments: fullPlan.visits || [],
+                      teeth: fullPlan.teeth || [],
                     });
                   }
                 }}
@@ -805,10 +830,25 @@ export function PatientList() {
                 <TreatmentPlanDetails
                   open={showPlanDetailsDialog}
                   onOpenChange={handleClosePlanDetails}
-                  plan={selectedPlan}
-                  onRefresh={async () => { 
-                    if (selectedPatientForPlans) {
-                      refreshTreatmentPlans(selectedPatientForPlans.id, true); 
+                  plan={{ ...selectedPlan, teeth: selectedPlan?.teeth || [] }}
+                  onRefresh={async () => {
+                    if (selectedPatientForPlans && selectedPlan) {
+                      // Fetch the latest plan from the backend
+                      const allPlans = await treatmentService.getPatientTreatmentPlans(selectedPatientForPlans.id);
+                      const fullPlan = allPlans.find(p => p.id === selectedPlan.id);
+                      if (fullPlan) {
+                        // Debug log for mapping
+                        console.log('[PATIENTS MODAL PLAN REFRESH] Raw plan from backend (with visits):', JSON.parse(JSON.stringify(fullPlan)));
+                        const mappedPlan = {
+                          ...fullPlan,
+                          treatments: fullPlan.treatments && fullPlan.treatments.length > 0
+                            ? fullPlan.treatments
+                            : (fullPlan.visits || []),
+                          teeth: fullPlan.teeth || [],
+                        };
+                        console.log('[PATIENTS MODAL PLAN REFRESH] Mapped plan (with treatments):', JSON.parse(JSON.stringify(mappedPlan)));
+                        setSelectedPlan(mappedPlan);
+                      }
                     }
                   }}
                   onAddTreatment={() => handleAddTreatment(selectedPlan)}
@@ -860,7 +900,7 @@ export function PatientList() {
       </div>
       {/* Always render PrintableContent at the root for print support */}
       <PrintableContent
-        plan={selectedPlan}
+        plan={{ ...selectedPlan, teeth: selectedPlan?.teeth || [] }}
         treatmentsWithEstimatedDates={treatmentsWithEstimatedDates}
       />
     </>
