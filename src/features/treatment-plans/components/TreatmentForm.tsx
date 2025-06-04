@@ -54,6 +54,7 @@ interface TreatmentFormProps {
   loading?: boolean;
   initialData?: TreatmentVisit | null; // For pre-filling the form in edit mode
   isEditMode?: boolean; // To differentiate between add and edit mode
+  hidePatientField?: boolean; // NEW: Hide patient selection field
 }
 
 export function TreatmentForm({
@@ -63,7 +64,8 @@ export function TreatmentForm({
   planId,
   loading = false,
   initialData,
-  isEditMode = false
+  isEditMode = false,
+  hidePatientField = false // NEW
 }: TreatmentFormProps) {
   const form = useForm<TreatmentFormValues>({
     resolver: zodResolver(treatmentSchema),
@@ -164,6 +166,23 @@ export function TreatmentForm({
         
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-2 pr-2">
+            {/* Patient selection field - only show if NOT hidden */}
+            {!hidePatientField && (
+              <FormField
+                control={form.control}
+                name="patient_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Patient *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter patient ID or select patient" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            
             <FormField
               control={form.control}
               name="type"

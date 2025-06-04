@@ -85,6 +85,7 @@ interface TreatmentPlanFormProps {
   patients: any[];
   loading?: boolean;
   initialData?: TreatmentPlanFormValues;
+  lockPatientId?: string;
 }
 
 interface ToothConditionData {
@@ -172,6 +173,7 @@ export function TreatmentPlanForm({
   patients,
   loading = false,
   initialData,
+  lockPatientId
 }: TreatmentPlanFormProps) {
   // State for patient search
   const [searchTerm, setSearchTerm] = useState('');
@@ -842,6 +844,15 @@ export function TreatmentPlanForm({
     onOpenChange(false); // Actually close the dialog
   };
 
+  // If lockPatientId is provided, always use it
+  useEffect(() => {
+    if (lockPatientId) {
+      setSelectedPatientId(lockPatientId);
+      setSelectedPatientName(null);
+      form.setValue('patient_id', lockPatientId);
+    }
+  }, [lockPatientId]);
+
   // Need to wrap the return in a Fragment as Dialogs are siblings
   return (
     <>
@@ -856,76 +867,78 @@ export function TreatmentPlanForm({
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 pb-6">
-              {/* Patient Search Input */}
-              <FormField
-                control={form.control}
-                name="patient_id"
-                render={({ field }) => (
-                  <FormItem className="relative">
-                    <FormLabel htmlFor="patient-search">Patient *</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="search"
-                        id="patient-search"
-                        value={searchTerm}
-                        onChange={(e) => {
-                          setSearchTerm(e.target.value);
-                          setSelectedPatientName(null);
-                        }}
-                        placeholder={selectedPatientName || "Search by name, phone, or registration..."}
-                        disabled={isLoadingPatients}
-                        className="w-full"
-                      />
-                    </FormControl>
-                    {isLoadingPatients && <p className="text-sm text-muted-foreground mt-1">Loading patients...</p>}
-                    {errorPatients && <p className="text-sm text-destructive mt-1">{errorPatients}</p>}
-                    {/* Search Results Dropdown */}
-                    {searchTerm && !isLoadingPatients && !errorPatients && (
-                      <ScrollArea className="absolute z-10 w-full bg-background border rounded-md shadow-lg mt-1 max-h-60">
-                        <div className="p-2">
-                          {patients.filter(patient => {
-                            const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
-                            const phone = patient.phone?.toLowerCase() || '';
-                            const regNum = patient.registration_number?.toLowerCase() || '';
-                            const searchLower = searchTerm.toLowerCase();
-                            return name.includes(searchLower) || phone.includes(searchLower) || regNum.includes(searchLower);
-                          }).length > 0 ? (
-                            patients
-                              .filter(patient => {
-                                const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
-                                const phone = patient.phone?.toLowerCase() || '';
-                                const regNum = patient.registration_number?.toLowerCase() || '';
-                                const searchLower = searchTerm.toLowerCase();
-                                return name.includes(searchLower) || phone.includes(searchLower) || regNum.includes(searchLower);
-                              })
-                              .map((patient) => (
-                                <Button
-                                  key={patient.id}
-                                  variant="ghost"
-                                  className="w-full justify-start text-left h-auto py-2 px-3 mb-1"
-                                  onClick={() => handlePatientSelect(patient)}
-                                  type="button"
-                                >
-                                  <div>
-                                    <div>{`${patient.first_name || ''} ${patient.last_name || ''}`.trim()}</div>
-                                    <div className="text-xs text-muted-foreground">
-                                      {patient.registration_number && `Reg: ${patient.registration_number}`}
-                                      {patient.registration_number && patient.phone && " | "}
-                                      {patient.phone && `Ph: ${patient.phone}`}
+              {/* Patient Search Input - only show if NOT locked */}
+              {!lockPatientId && (
+                <FormField
+                  control={form.control}
+                  name="patient_id"
+                  render={({ field }) => (
+                    <FormItem className="relative">
+                      <FormLabel htmlFor="patient-search">Patient *</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="search"
+                          id="patient-search"
+                          value={searchTerm}
+                          onChange={(e) => {
+                            setSearchTerm(e.target.value);
+                            setSelectedPatientName(null);
+                          }}
+                          placeholder={selectedPatientName || "Search by name, phone, or registration..."}
+                          disabled={isLoadingPatients}
+                          className="w-full"
+                        />
+                      </FormControl>
+                      {isLoadingPatients && <p className="text-sm text-muted-foreground mt-1">Loading patients...</p>}
+                      {errorPatients && <p className="text-sm text-destructive mt-1">{errorPatients}</p>}
+                      {/* Search Results Dropdown */}
+                      {searchTerm && !isLoadingPatients && !errorPatients && (
+                        <ScrollArea className="absolute z-10 w-full bg-background border rounded-md shadow-lg mt-1 max-h-60">
+                          <div className="p-2">
+                            {patients.filter(patient => {
+                              const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
+                              const phone = patient.phone?.toLowerCase() || '';
+                              const regNum = patient.registration_number?.toLowerCase() || '';
+                              const searchLower = searchTerm.toLowerCase();
+                              return name.includes(searchLower) || phone.includes(searchLower) || regNum.includes(searchLower);
+                            }).length > 0 ? (
+                              patients
+                                .filter(patient => {
+                                  const name = `${patient.first_name || ''} ${patient.last_name || ''}`.toLowerCase();
+                                  const phone = patient.phone?.toLowerCase() || '';
+                                  const regNum = patient.registration_number?.toLowerCase() || '';
+                                  const searchLower = searchTerm.toLowerCase();
+                                  return name.includes(searchLower) || phone.includes(searchLower) || regNum.includes(searchLower);
+                                })
+                                .map((patient) => (
+                                  <Button
+                                    key={patient.id}
+                                    variant="ghost"
+                                    className="w-full justify-start text-left h-auto py-2 px-3 mb-1"
+                                    onClick={() => handlePatientSelect(patient)}
+                                    type="button"
+                                  >
+                                    <div>
+                                      <div>{`${patient.first_name || ''} ${patient.last_name || ''}`.trim()}</div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {patient.registration_number && `Reg: ${patient.registration_number}`}
+                                        {patient.registration_number && patient.phone && " | "}
+                                        {patient.phone && `Ph: ${patient.phone}`}
+                                      </div>
                                     </div>
-                                  </div>
-                                </Button>
-                              ))
-                          ) : (
-                            <p className="text-sm text-muted-foreground p-2">No patients found matching "{searchTerm}"</p>
-                          )}
-                        </div>
-                      </ScrollArea>
-                    )}
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                                  </Button>
+                                ))
+                            ) : (
+                              <p className="text-sm text-muted-foreground p-2">No patients found matching "{searchTerm}"</p>
+                            )}
+                          </div>
+                        </ScrollArea>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               {/* Domain Selection - MOVED UP */}
               {selectedPatientId && ( // Show Domain only after patient is selected

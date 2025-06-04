@@ -284,389 +284,157 @@ interface PrintableContentProps {
 
 // Update the PrintableContent component with types
 export const PrintableContent = ({ plan, treatmentsWithEstimatedDates }: PrintableContentProps) => {
+  // Debug log for patient section print
+  console.log('[PrintableContent PATIENT SECTION] plan:', plan);
+  console.log('[PrintableContent PATIENT SECTION] treatmentsWithEstimatedDates:', treatmentsWithEstimatedDates);
   if (!plan) return null;
 
-  const HeaderContent = () => (
-    <>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '15px'
-      }}>
-        <img 
-          src="https://i.postimg.cc/j2qGSXwJ/facetslogo.png" 
-          alt="Facets Logo" 
-          style={{ height: '35px' }}
-        />
-        <div style={{ textAlign: 'right' }}>
-          <h1 style={{ 
-            fontSize: '22px', 
-            margin: '0', 
-            color: '#0060df',
-            fontWeight: '700'
-          }}>Treatment Plan</h1>
-          <p style={{ 
-            margin: '4px 0 0', 
-            color: '#666', 
-            fontSize: '12px',
-            fontWeight: '500'
-          }}>
-            Generated on: {format(new Date(), 'MMM d, yyyy')}
-          </p>
-        </div>
-      </div>
+  const formatDate = (dateStr?: string) => dateStr ? format(new Date(dateStr), 'MMM d, yyyy') : 'N/A';
+  const formatStatus = (status?: string) => status ? status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ') : 'N/A';
+  const formatPriority = (priority?: string) => priority ? priority.charAt(0).toUpperCase() + priority.slice(1) : 'N/A';
 
-      <div style={{ marginBottom: '12px' }}>
-        <p style={{ margin: '0', fontSize: '13px', fontWeight: '700', color: '#000' }}>
-          Patient: {plan.patientName}
-        </p>
-        <p style={{ margin: '4px 0 0', fontSize: '13px', fontWeight: '700', color: '#000' }}>
-          Reg. No: {plan.patient?.registration_number || 'N/A'}
-        </p>
-      </div>
-
-      <div style={{ borderBottom: '2px solid #0060df', marginBottom: '15px' }}></div>
-    </>
-  );
-  
   return (
-    <div id="printable-content" className="print-only" style={{ 
-      display: 'none', 
-      padding: '20px', 
+    <div id="printable-content" className="print-only" style={{
+      display: 'none',
+      padding: '20px',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       backgroundColor: 'white',
-      color: '#000'
+      color: '#000',
+      minHeight: '100vh',
     }}>
-      {/* First Page */}
-      <div style={{ 
-        maxWidth: '210mm', 
-        margin: '0 auto',
-        backgroundColor: 'white',
-        position: 'relative',
-        minHeight: 'auto'
-      }}>
-        <HeaderContent />
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+        <img src="https://i.postimg.cc/j2qGSXwJ/facetslogo.png" alt="Facets Logo" style={{ height: '35px' }} />
+        <div style={{ textAlign: 'right' }}>
+          <h1 style={{ fontSize: 22, margin: 0, color: '#0060df', fontWeight: 700 }}>Treatment Plan</h1>
+          <p style={{ margin: '4px 0 0', color: '#666', fontSize: 12, fontWeight: 500 }}>Generated on: {format(new Date(), 'MMM d, yyyy')}</p>
+        </div>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#000' }}>Patient: {plan.patientName || plan.patient?.full_name || 'N/A'}</p>
+        <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 700, color: '#000' }}>Reg. No: {plan.patient?.registration_number || 'N/A'}</p>
+      </div>
+      <div style={{ borderBottom: '2px solid #0060df', marginBottom: 15 }}></div>
 
-        {/* Patient Details Section */}
-        <div style={{ marginBottom: '20px' }}>
-          <h2 style={{ 
-            fontSize: '15px', 
-            color: '#0060df', 
-            marginBottom: '12px',
-            fontWeight: '700'
-          }}>Patient Details</h2>
-
-          <div style={{ 
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '12px',
-            fontSize: '13px',
-            marginBottom: '15px'
-          }}>
-            <div>
-              <p style={{ margin: '0 0 3px', color: '#666', fontWeight: '500' }}>Gender</p>
-              <p style={{ margin: '0', color: '#000', fontWeight: '700' }}>
-                {plan.patient?.gender || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p style={{ margin: '0 0 3px', color: '#666', fontWeight: '500' }}>Age</p>
-              <p style={{ margin: '0', color: '#000', fontWeight: '700' }}>
-                {plan.patient?.age ? `${plan.patient.age} years` : 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p style={{ margin: '0 0 3px', color: '#666', fontWeight: '500' }}>Plan Title</p>
-              <p style={{ margin: '0', color: '#000', fontWeight: '700' }}>
-                {plan.title}
-              </p>
-            </div>
-            <div>
-              <p style={{ margin: '0 0 3px', color: '#666', fontWeight: '500' }}>Priority</p>
-              <p style={{ margin: '0', color: '#0060df', fontWeight: '700' }}>
-                {plan.priority ? plan.priority.charAt(0).toUpperCase() + plan.priority.slice(1) : 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p style={{ margin: '0 0 3px', color: '#666', fontWeight: '500' }}>Status</p>
-              <p style={{ margin: '0', color: '#000', fontWeight: '700' }}>
-                {plan.status ? plan.status.charAt(0).toUpperCase() + plan.status.slice(1) : 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p style={{ margin: '0 0 3px', color: '#666', fontWeight: '500' }}>Start Date</p>
-              <p style={{ margin: '0', color: '#000', fontWeight: '700' }}>
-                {format(new Date(plan.start_date), 'MMM d, yyyy')}
-              </p>
-            </div>
-          </div>
-
-          {/* Description */}
+      {/* Plan Details */}
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 16, color: '#0060df', marginBottom: 10, fontWeight: 700 }}>Plan Details</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13, marginBottom: 10 }}>
           <div>
-            <p style={{ 
-              margin: '0 0 4px', 
-              color: '#666',
-              fontSize: '13px',
-              fontWeight: '500'
-            }}>Description</p>
-            <div style={{ 
-              border: '1px solid #e5e7eb',
-              padding: '10px',
-              fontSize: '13px',
-              lineHeight: '1.4',
-              color: '#000',
-              fontWeight: '500'
-            }}>
-              {plan.description || 'No description available.'}
-            </div>
+            <p style={{ margin: 0, color: '#666', fontWeight: 500 }}>Plan Title</p>
+            <p style={{ margin: 0, color: '#000', fontWeight: 700 }}>{plan.title || 'N/A'}</p>
+          </div>
+          <div>
+            <p style={{ margin: 0, color: '#666', fontWeight: 500 }}>Priority</p>
+            <p style={{ margin: 0, color: '#0060df', fontWeight: 700 }}>{formatPriority(plan.priority)}</p>
+          </div>
+          <div>
+            <p style={{ margin: 0, color: '#666', fontWeight: 500 }}>Status</p>
+            <p style={{ margin: 0, color: '#000', fontWeight: 700 }}>{formatStatus(plan.status)}</p>
+          </div>
+          <div>
+            <p style={{ margin: 0, color: '#666', fontWeight: 500 }}>Start Date</p>
+            <p style={{ margin: 0, color: '#000', fontWeight: 700 }}>{formatDate(plan.start_date)}</p>
+          </div>
+          <div>
+            <p style={{ margin: 0, color: '#666', fontWeight: 500 }}>End Date</p>
+            <p style={{ margin: 0, color: '#000', fontWeight: 700 }}>{formatDate(plan.end_date)}</p>
           </div>
         </div>
-
-        {/* Treatment Details */}
-        <div style={{ marginBottom: '20px' }}>
-          <h2 style={{ 
-            fontSize: '15px', 
-            color: '#0060df', 
-            marginBottom: '12px',
-            fontWeight: '700'
-          }}>Treatment Details</h2>
-
-          <table style={{ 
-            width: '100%', 
-            borderCollapse: 'collapse',
-            fontSize: '13px'
-          }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #0060df' }}>
-                <th style={{ 
-                  textAlign: 'left', 
-                  padding: '8px 10px 8px 0',
-                  fontWeight: '700',
-                  color: '#000'
-                }}>Treatment</th>
-                <th style={{ 
-                  textAlign: 'left', 
-                  padding: '8px 10px',
-                  fontWeight: '700',
-                  color: '#000'
-                }}>Description</th>
-                <th style={{ 
-                  textAlign: 'center', 
-                  padding: '8px 10px',
-                  fontWeight: '700',
-                  color: '#000',
-                  width: '80px'
-                }}>Status</th>
-                <th style={{ 
-                  textAlign: 'center', 
-                  padding: '8px 10px',
-                  fontWeight: '700',
-                  color: '#000',
-                  width: '90px'
-                }}>Date</th>
-                <th style={{ 
-                  textAlign: 'right', 
-                  padding: '8px 0 8px 10px',
-                  fontWeight: '700',
-                  color: '#000',
-                  width: '80px'
-                }}>Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {treatmentsWithEstimatedDates.map((treatment, index) => (
-                <tr key={treatment.id || index} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  <td style={{ 
-                    padding: '10px 10px 10px 0', 
-                    verticalAlign: 'top',
-                    color: '#000',
-                    fontWeight: '700'
-                  }}>
-                    {treatment.type || treatment.title || `Visit ${index + 1}`}
-                  </td>
-                  <td style={{ 
-                    padding: '10px', 
-                    verticalAlign: 'top',
-                    color: '#000',
-                    fontWeight: '500'
-                  }}>
-                    {treatment.description || treatment.procedures || 'N/A'}
-                  </td>
-                  <td style={{ 
-                    padding: '10px', 
-                    textAlign: 'center', 
-                    verticalAlign: 'top'
-                  }}>
-                    <span style={{ 
-                      color: treatment.status === 'pending' ? '#f97316' : '#000',
-                      fontWeight: '700'
-                    }}>
-                      {treatment.status ? treatment.status.charAt(0).toUpperCase() + treatment.status.slice(1) : 'N/A'}
-                    </span>
-                  </td>
-                  <td style={{ 
-                    padding: '10px', 
-                    textAlign: 'center', 
-                    verticalAlign: 'top',
-                    color: '#000',
-                    fontWeight: '700'
-                  }}>
-                    {treatment.scheduled_date ? format(new Date(treatment.scheduled_date), 'MMM d, yyyy') :
-                     treatment.estimatedVisitDate ? format(new Date(treatment.estimatedVisitDate), 'MMM d, yyyy') : 'N/A'}
-                  </td>
-                  <td style={{ 
-                    padding: '10px 0 10px 10px', 
-                    textAlign: 'right', 
-                    verticalAlign: 'top',
-                    color: '#000',
-                    fontWeight: '700'
-                  }}>
-                    {treatment.cost ? formatCurrency(parseFloat(String(treatment.cost))) : 'N/A'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Page numbers */}
-        <div style={{ 
-          position: 'absolute', 
-          bottom: '15px', 
-          right: '0', 
-          fontSize: '11px',
-          color: '#666',
-          fontWeight: '500'
-        }}>
-          Page 1 of 2
+        {/* Description */}
+        <div>
+          <p style={{ margin: '0 0 4px', color: '#666', fontSize: 13, fontWeight: 500 }}>Description</p>
+          <div style={{ border: '1px solid #e5e7eb', padding: 10, fontSize: 13, lineHeight: 1.4, color: '#000', fontWeight: 500 }}>
+            {plan.description || 'No description available.'}
+          </div>
         </div>
       </div>
 
-      {/* Page Break */}
-      <div style={{ pageBreakBefore: 'always' }}></div>
+      {/* Treatments Table */}
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 16, color: '#0060df', marginBottom: 10, fontWeight: 700 }}>Treatments / Visits</h2>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid #0060df' }}>
+              <th style={{ textAlign: 'left', padding: '8px 10px 8px 0', fontWeight: 700, color: '#000' }}>#</th>
+              <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700, color: '#000' }}>Treatment</th>
+              <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700, color: '#000' }}>Description</th>
+              <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 700, color: '#000', width: 80 }}>Status</th>
+              <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 700, color: '#000', width: 90 }}>Date</th>
+              <th style={{ textAlign: 'right', padding: '8px 0 8px 10px', fontWeight: 700, color: '#000', width: 80 }}>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(treatmentsWithEstimatedDates && treatmentsWithEstimatedDates.length > 0) ? (
+              treatmentsWithEstimatedDates.map((treatment, index) => (
+                <tr key={treatment.id || index} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                  <td style={{ padding: '10px 10px 10px 0', verticalAlign: 'top', color: '#000', fontWeight: 700 }}>{treatment.visit_number || (index + 1)}</td>
+                  <td style={{ padding: '10px', verticalAlign: 'top', color: '#000', fontWeight: 700 }}>{treatment.type || treatment.title || `Visit ${index + 1}`}</td>
+                  <td style={{ padding: '10px', verticalAlign: 'top', color: '#000', fontWeight: 500 }}>{treatment.description || treatment.procedures || 'N/A'}</td>
+                  <td style={{ padding: '10px', textAlign: 'center', verticalAlign: 'top' }}>
+                    <span style={{ color: treatment.status === 'pending' ? '#f97316' : '#000', fontWeight: 700 }}>{formatStatus(treatment.status)}</span>
+                  </td>
+                  <td style={{ padding: '10px', textAlign: 'center', verticalAlign: 'top', color: '#000', fontWeight: 700 }}>{treatment.scheduled_date ? formatDate(treatment.scheduled_date) : treatment.estimatedVisitDate ? formatDate(treatment.estimatedVisitDate) : 'N/A'}</td>
+                  <td style={{ padding: '10px 0 10px 10px', textAlign: 'right', verticalAlign: 'top', color: '#000', fontWeight: 700 }}>{treatment.cost ? formatCurrency(parseFloat(String(treatment.cost))) : 'N/A'}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'center', padding: 20, color: '#888' }}>No treatments or visits recorded for this plan.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
-      {/* Second Page */}
-      <div style={{ 
-        maxWidth: '210mm', 
-        margin: '0 auto',
-        backgroundColor: 'white',
-        position: 'relative'
-      }}>
-        <HeaderContent />
-
-        {/* Additional Information */}
-        <div style={{ marginBottom: '20px' }}>
-          <h2 style={{ 
-            fontSize: '15px', 
-            color: '#0060df', 
-            marginBottom: '12px',
-            fontWeight: '700'
-          }}>Additional Information</h2>
-
-          {/* Post Treatment Care */}
-          <div style={{ marginBottom: '15px' }}>
-            <h3 style={{ 
-              fontSize: '13px', 
-              margin: '0 0 6px',
-              fontWeight: '700',
-              color: '#000'
-            }}>Post-Treatment Care</h3>
-            <div style={{ 
-              border: '1px solid #e5e7eb',
-              padding: '10px',
-              fontSize: '13px',
-              lineHeight: '1.4',
-              color: '#000',
-              fontWeight: '500'
-            }}>
-              {plan.metadata?.[0]?.post_treatment_care || 'No post-treatment care instructions available.'}
-            </div>
+      {/* Financial Summary */}
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 16, color: '#0060df', marginBottom: 10, fontWeight: 700 }}>Financial Summary</h2>
+        <div style={{ border: '1px solid #e5e7eb', fontSize: 13 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: 10, borderBottom: '1px solid #e5e7eb' }}>
+            <span style={{ color: '#0060df', fontWeight: 700 }}>Total Treatment Cost:</span>
+            <span style={{ fontWeight: 700 }}>{formatCurrency(plan.totalCost || 0)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: 10, borderBottom: '1px solid #e5e7eb' }}>
+            <span style={{ color: '#0060df', fontWeight: 700 }}>Insurance Coverage (Est.):</span>
+            <span style={{ fontWeight: 700 }}>{formatCurrency(plan.insurance_coverage || 0)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: 10 }}>
+            <span style={{ color: '#0060df', fontWeight: 700 }}>Patient Responsibility:</span>
+            <span style={{ fontWeight: 700 }}>{formatCurrency((plan.totalCost || 0) - (plan.insurance_coverage || 0))}</span>
           </div>
         </div>
+      </div>
 
-        {/* Financial Summary */}
-        <div style={{ marginBottom: '20px' }}>
-          <h2 style={{ 
-            fontSize: '15px', 
-            color: '#0060df', 
-            marginBottom: '12px',
-            fontWeight: '700'
-          }}>Financial Summary</h2>
-
-          <div style={{ 
-            border: '1px solid #e5e7eb',
-            fontSize: '13px'
-          }}>
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between',
-              padding: '10px',
-              borderBottom: '1px solid #e5e7eb'
-            }}>
-              <span style={{ color: '#0060df', fontWeight: '700' }}>Total Treatment Cost:</span>
-              <span style={{ fontWeight: '700' }}>{formatCurrency(plan.totalCost || 0)}</span>
-            </div>
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between',
-              padding: '10px',
-              borderBottom: '1px solid #e5e7eb'
-            }}>
-              <span style={{ color: '#0060df', fontWeight: '700' }}>Insurance Coverage (Est.):</span>
-              <span style={{ fontWeight: '700' }}>{formatCurrency(plan.insurance_coverage || 0)}</span>
-            </div>
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between',
-              padding: '10px'
-            }}>
-              <span style={{ color: '#0060df', fontWeight: '700' }}>Patient Responsibility:</span>
-              <span style={{ fontWeight: '700' }}>{formatCurrency((plan.totalCost || 0) - (plan.insurance_coverage || 0))}</span>
-            </div>
+      {/* Additional Information */}
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 16, color: '#0060df', marginBottom: 10, fontWeight: 700 }}>Additional Information</h2>
+        <div style={{ marginBottom: 15 }}>
+          <h3 style={{ fontSize: 13, margin: '0 0 6px', fontWeight: 700, color: '#000' }}>Post-Treatment Care</h3>
+          <div style={{ border: '1px solid #e5e7eb', padding: 10, fontSize: 13, lineHeight: 1.4, color: '#000', fontWeight: 500 }}>
+            {plan.metadata?.[0]?.post_treatment_care || 'No post-treatment care instructions available.'}
           </div>
         </div>
+      </div>
 
-        {/* Signature Section */}
-        <div style={{ marginTop: '30px' }}>
-          <div style={{ 
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginBottom: '30px'
-          }}>
-            <div style={{ width: '45%' }}>
-              <div style={{ borderBottom: '1px solid #000', marginBottom: '6px' }}></div>
-              <p style={{ margin: '0', fontSize: '13px', fontWeight: '700', color: '#000' }}>Doctor's Signature</p>
-            </div>
-            <div style={{ width: '45%' }}>
-              <div style={{ borderBottom: '1px solid #000', marginBottom: '6px' }}></div>
-              <p style={{ margin: '0', fontSize: '13px', fontWeight: '700', color: '#000' }}>Patient's Signature</p>
-            </div>
+      {/* Signature Section */}
+      <div style={{ marginTop: 30 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 30 }}>
+          <div style={{ width: '45%' }}>
+            <div style={{ borderBottom: '1px solid #000', marginBottom: 6 }}></div>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#000' }}>Doctor's Signature</p>
+          </div>
+          <div style={{ width: '45%' }}>
+            <div style={{ borderBottom: '1px solid #000', marginBottom: 6 }}></div>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#000' }}>Patient's Signature</p>
           </div>
         </div>
+      </div>
 
-        {/* Footer */}
-        <div style={{ 
-          textAlign: 'center',
-          color: '#000',
-          fontSize: '13px',
-          marginBottom: '20px'
-        }}>
-          <p style={{ margin: '0', color: '#000', fontWeight: '500' }}>This treatment plan is valid for 6 months from the date of issue.</p>
-          <p style={{ margin: '4px 0 0', color: '#000', fontWeight: '500' }}>For any queries, please contact your dental care provider.</p>
-        </div>
-
-        {/* Page numbers */}
-        <div style={{ 
-          position: 'absolute', 
-          bottom: '15px', 
-          right: '0', 
-          fontSize: '11px',
-          color: '#666',
-          fontWeight: '500'
-        }}>
-          Page 2 of 2
-        </div>
+      {/* Footer */}
+      <div style={{ textAlign: 'center', color: '#000', fontSize: 13, marginBottom: 20 }}>
+        <p style={{ margin: 0, color: '#000', fontWeight: 500 }}>This treatment plan is valid for 6 months from the date of issue.</p>
+        <p style={{ margin: '4px 0 0', color: '#000', fontWeight: 500 }}>For any queries, please contact your dental care provider.</p>
       </div>
     </div>
   );
@@ -2179,4 +1947,256 @@ export function TreatmentPlanDetails({
       />
     </>
   );
+}
+
+// Exported PDF Download Handler for use in other files
+export async function handleDownloadPdf(plan, treatmentsWithEstimatedDates) {
+  if (!plan) return;
+
+  const doc = new jsPDF();
+  const pageHeight = doc.internal.pageSize.height;
+  const pageWidth = doc.internal.pageSize.width;
+  const pdfMargin = 14; // Standard margin for PDF content
+  let currentY = 20; // Initial Y position
+
+  doc.setFont('helvetica', 'normal');
+  const addSectionLine = (y) => {
+    doc.setDrawColor(200, 200, 200);
+    doc.line(pdfMargin, y, pageWidth - pdfMargin, y);
+  };
+
+  // --- Document Header with Logo ---
+  try {
+    const logoResponse = await fetch('https://i.postimg.cc/j2qGSXwJ/facetslogo.png');
+    if (!logoResponse.ok) throw new Error(`Failed to fetch logo: ${logoResponse.status} ${logoResponse.statusText}`);
+    const blob = await logoResponse.blob();
+    if (blob.size === 0) throw new Error('Fetched logo blob is empty.');
+    const reader = new FileReader();
+    const dataUrl = await new Promise((resolve, reject) => {
+      reader.onloadend = () => reader.result ? resolve(reader.result) : reject(new Error('FileReader failed to read blob.'));
+      reader.onerror = (error) => reject(error);
+      reader.readAsDataURL(blob);
+    });
+    if (!dataUrl.startsWith('data:image')) throw new Error('Generated Data URL is not an image.');
+    const imgProps = doc.getImageProperties(dataUrl);
+    const logoHeight = 12;
+    const logoWidth = (imgProps.width * logoHeight) / imgProps.height;
+    const logoX = pdfMargin;
+    const logoY = currentY - 7;
+    doc.addImage(dataUrl, imgProps.fileType.toUpperCase(), logoX, logoY, logoWidth, logoHeight);
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    const titleX = logoX + logoWidth + 10;
+    const titleY = logoY + logoHeight / 2;
+    doc.text('Treatment Plan Report', titleX, titleY, { baseline: 'middle' });
+    doc.setFont('helvetica', 'normal');
+    currentY += Math.max(logoHeight, 10) + 10;
+  } catch (error) {
+    console.error('Error loading logo:', error);
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Treatment Plan Report', pageWidth / 2, currentY, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    currentY += 18;
+  }
+  addSectionLine(currentY);
+  currentY += 12;
+
+  // --- Patient and Plan Information ---
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Patient & Plan Details', pdfMargin, currentY);
+  doc.setFont('helvetica', 'normal');
+  currentY += 10;
+
+  const patientPlanDetailsRows = [
+    ['Patient Name:', plan.patientName],
+    ['Plan Title:', plan.title],
+    ['Plan Description:', plan.description || 'N/A'],
+    ['Plan Dates:', `${format(new Date(plan.start_date), 'MMM d, yyyy')}${plan.end_date ? ` to ${format(new Date(plan.end_date), 'MMM d, yyyy')}` : ''}`],
+    ['Priority:', plan.priority ? plan.priority.charAt(0).toUpperCase() + plan.priority.slice(1) : 'N/A'],
+    ['Status:', plan.status ? plan.status.replace('_', ' ').charAt(0).toUpperCase() + plan.status.replace('_', ' ').slice(1) : 'N/A'],
+  ];
+
+  autoTable(doc, {
+    body: patientPlanDetailsRows,
+    startY: currentY,
+    theme: 'plain',
+    styles: { fontSize: 8, cellPadding: 1.5, font: 'helvetica', valign: 'middle' },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45 }, 1: { cellWidth: 'auto' } },
+    didDrawPage: (data) => {
+      const pageCount = doc.getNumberOfPages();
+      doc.setFontSize(8);
+      doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, pageHeight - 10);
+    }
+  });
+  currentY = (doc).lastAutoTable.finalY + 10;
+  addSectionLine(currentY);
+  currentY += 12;
+
+  // --- Treatments/Visits Table ---
+  if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20; }
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Treatments / Visits', pdfMargin, currentY);
+  doc.setFont('helvetica', 'normal');
+  currentY += 10;
+
+  const tableColumn = ['#', 'Treatment / Visit', 'Procedures', 'Status', 'Date', 'Cost'];
+  const tableRows = [];
+  const treatmentVisitColWidth = 70;
+  const proceduresColWidth = 43;
+  const cellPaddingVal = 1.5;
+  const cellHorizontalPadding = cellPaddingVal * 2;
+  const maxTreatmentVisitTextWidth = treatmentVisitColWidth - cellHorizontalPadding;
+  const maxProcedureTextWidth = proceduresColWidth - cellHorizontalPadding;
+
+  (treatmentsWithEstimatedDates || []).forEach((treatmentWithDate, index) => {
+    const visitDate = treatmentWithDate.scheduled_date
+      ? format(new Date(treatmentWithDate.scheduled_date), 'MMM d, yyyy')
+      : (treatmentWithDate.completed_date
+        ? format(new Date(treatmentWithDate.completed_date), 'MMM d, yyyy')
+        : (treatmentWithDate.estimatedVisitDate
+          ? format(new Date(treatmentWithDate.estimatedVisitDate), 'MMM d, yyyy')
+          : 'N/A'));
+    const cost = treatmentWithDate.cost ? formatCurrency(parseFloat(String(treatmentWithDate.cost))) : 'N/A';
+    const rawTreatmentVisitText = treatmentWithDate.type || treatmentWithDate.title || 'N/A';
+    const treatmentVisitTextLines = doc.splitTextToSize(rawTreatmentVisitText, maxTreatmentVisitTextWidth);
+    const formattedTreatmentVisitText = treatmentVisitTextLines.join('\n');
+    const rawProcedureText = treatmentWithDate.description || treatmentWithDate.procedures || 'N/A';
+    const procedureTextLines = doc.splitTextToSize(rawProcedureText, maxProcedureTextWidth);
+    const formattedProcedureText = procedureTextLines.join('\n');
+    const treatmentData = [
+      treatmentWithDate.visit_number || (index + 1),
+      formattedTreatmentVisitText,
+      formattedProcedureText,
+      treatmentWithDate.status ? treatmentWithDate.status.charAt(0).toUpperCase() + treatmentWithDate.status.slice(1) : 'N/A',
+      visitDate,
+      cost,
+    ];
+    tableRows.push(treatmentData);
+  });
+  if (tableRows.length === 0) {
+    doc.setFontSize(9);
+    doc.text('No treatments or visits recorded for this plan.', pdfMargin, currentY);
+    currentY += 10;
+  } else {
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: currentY,
+      theme: 'grid',
+      headStyles: { fillColor: [0, 96, 223], textColor: 255, fontStyle: 'bold', font: 'helvetica', fontSize: 9, valign: 'middle' },
+      styles: { fontSize: 7, cellPadding: cellPaddingVal, font: 'helvetica', valign: 'middle' },
+      columnStyles: {
+        0: { cellWidth: 6, halign: 'center' },
+        1: { cellWidth: treatmentVisitColWidth },
+        2: { cellWidth: proceduresColWidth },
+        3: { cellWidth: 22, halign: 'center' },
+        4: { cellWidth: 16, halign: 'center' },
+        5: { cellWidth: 25, halign: 'right', cellPadding: { top: cellPaddingVal, bottom: cellPaddingVal, left: cellPaddingVal, right: 2 } },
+      },
+      didDrawPage: (data) => {
+        const pageCount = doc.getNumberOfPages();
+        doc.setFontSize(8);
+        doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, pageHeight - 10);
+      }
+    });
+    currentY = (doc).lastAutoTable.finalY + 15;
+  }
+  addSectionLine(currentY);
+  currentY += 12;
+
+  // --- Financial Summary ---
+  if (currentY > pageHeight - 75) { doc.addPage(); currentY = 20; }
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Financial Summary', pdfMargin, currentY);
+  doc.setFont('helvetica', 'normal');
+  currentY += 10;
+  const financialTableColumn = ['Item', 'Amount'];
+  const financialTableRows = [
+    ['Total Treatment Cost:', formatCurrency(plan.totalCost || 0)],
+    ['Insurance Coverage (Est.):', formatCurrency(plan.insurance_coverage || 0)],
+    ['Patient Responsibility:', formatCurrency((plan.totalCost || 0) - (plan.insurance_coverage || 0))],
+  ];
+  const financialItemColWidth = pageWidth - (pdfMargin * 2) - 50;
+  autoTable(doc, {
+    head: [financialTableColumn],
+    body: financialTableRows,
+    startY: currentY,
+    theme: 'grid',
+    headStyles: { fillColor: [0, 96, 223], textColor: 255, fontStyle: 'bold', halign: 'center', font: 'helvetica', fontSize: 9, valign: 'middle' },
+    styles: { fontSize: 8, cellPadding: 2, font: 'helvetica', valign: 'middle' },
+    columnStyles: { 0: { cellWidth: financialItemColWidth, fontStyle: 'bold' }, 1: { cellWidth: 50, halign: 'right', cellPadding: { top: 2, bottom: 2, left: 2, right: 3 } } },
+    didDrawPage: (data) => {
+      const pageCount = doc.getNumberOfPages();
+      doc.setFontSize(8);
+      doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, pageHeight - 10);
+    }
+  });
+  currentY = (doc).lastAutoTable.finalY + 15;
+  addSectionLine(currentY);
+  currentY += 12;
+
+  // --- Clinical Information ---
+  if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20; }
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Clinical Information', pdfMargin, currentY);
+  doc.setFont('helvetica', 'normal');
+  currentY += 10;
+  doc.setFontSize(9);
+  if (plan.metadata && plan.metadata.length > 0) {
+    const meta = plan.metadata[0];
+    const clinicalFields = [
+      { label: 'Clinical Considerations:', value: meta.clinical_considerations },
+      { label: 'Key Materials:', value: meta.key_materials },
+      { label: 'Post-Treatment Care:', value: meta.post_treatment_care },
+    ];
+    clinicalFields.forEach(field => {
+      if (currentY > pageHeight - 25) { doc.addPage(); currentY = 20; }
+      doc.setFont('helvetica', 'bold');
+      doc.text(field.label, pdfMargin, currentY);
+      currentY += 6;
+      doc.setFont('helvetica', 'normal');
+      const textContent = field.value || 'Not Specified';
+      const lines = doc.splitTextToSize(textContent, pageWidth - (pdfMargin * 2));
+      doc.text(lines, pdfMargin, currentY);
+      currentY += (lines.length * 4.5) + 5;
+    });
+  } else {
+    doc.text('No additional clinical information available.', pdfMargin, currentY);
+    currentY += 7;
+  }
+  currentY += 8;
+  addSectionLine(currentY);
+  currentY += 12;
+
+  // --- Signatures ---
+  const signatureSectionHeight = 50;
+  if (pageHeight - currentY < signatureSectionHeight) {
+    doc.addPage();
+    currentY = pdfMargin;
+  }
+  const signatureLineLength = (pageWidth / 2) - pdfMargin - 35;
+  const signatureYPos = pageHeight - 35;
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Doctor Signature:', pdfMargin, signatureYPos);
+  doc.line(pdfMargin + doc.getTextWidth('Doctor Signature:') + 5, signatureYPos + 1, pdfMargin + doc.getTextWidth('Doctor Signature:') + 5 + signatureLineLength, signatureYPos + 1);
+  const patientSigX = pageWidth / 2 + 15;
+  doc.text('Patient Signature:', patientSigX, signatureYPos);
+  doc.line(patientSigX + doc.getTextWidth('Patient Signature:') + 5, signatureYPos + 1, patientSigX + doc.getTextWidth('Patient Signature:') + 5 + signatureLineLength, signatureYPos + 1);
+  const totalPdfPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPdfPages; i++) {
+    doc.setPage(i);
+    if ((doc).lastAutoTable && i <= (doc).lastAutoTable.pageCount) {
+      // Already drawn
+    } else {
+      doc.setFontSize(8);
+      doc.text(`Page ${i} of ${totalPdfPages}`, pdfMargin, pageHeight - 10);
+    }
+  }
+  doc.save(`Treatment_Plan_${plan.patientName.replace(/[^a-zA-Z0-9]/g, '_')}_${plan.id.substring(0,8)}.pdf`);
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Search, Plus, User, Phone, Mail, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,7 @@ import { TreatmentPlanForm } from '@/features/treatment-plans/components/Treatme
 import { TreatmentForm } from '@/features/treatment-plans/components/TreatmentForm';
 import { PrintableContent } from '@/features/treatment-plans/components/TreatmentPlanDetails';
 import { format, add, parseISO } from 'date-fns';
+import { handleDownloadPdf } from '@/features/treatment-plans/components/TreatmentPlanDetails';
 
 interface PatientFormDialogProps {
   open: boolean;
@@ -75,6 +76,8 @@ export function PatientList() {
   const [treatmentFormPlanId, setTreatmentFormPlanId] = useState<string | null>(null);
   const [patientsList, setPatientsList] = useState<any[]>([]);
   const [aiInitialSuggestion, setAiInitialSuggestion] = useState<any>(null);
+  const [printablePlan, setPrintablePlan] = useState(null);
+  const [printableTreatments, setPrintableTreatments] = useState([]);
 
   useEffect(() => {
     fetchPatients();
@@ -173,7 +176,9 @@ export function PatientList() {
     if (plan && plan.id) {
       // Use getPatientTreatmentPlans to get the plan with treatments array
       const allPlans = await treatmentService.getPatientTreatmentPlans(plan.patient_id);
-      const fullPlan = allPlans.find(p => p.id === plan.id);
+      // Process plans to ensure patientName and patient fields are set
+      const processedPlans = treatmentService.processTreatmentPlanData(allPlans, patientsList);
+      const fullPlan = processedPlans.find(p => p.id === plan.id);
       if (fullPlan) {
         let aiSuggestion = null;
         if (!fullPlan.treatments || fullPlan.treatments.length === 0) {
@@ -190,7 +195,7 @@ export function PatientList() {
         setShowPlanDetailsDialog(false);
       }
     }
-  }, []);
+  }, [patientsList]);
 
   const handleClosePlanDetails = () => {
     setShowPlanDetailsDialog(false);
@@ -381,6 +386,69 @@ export function PatientList() {
       return { ...treatment, estimatedVisitDate };
     });
   }, [selectedPlan?.treatments, selectedPlan?.start_date, selectedPlan?.created_at]);
+
+  // Clear printable state after print
+  useEffect(() => {
+    const afterPrint = () => {
+      setPrintablePlan(null);
+      setPrintableTreatments([]);
+    };
+    window.addEventListener('afterprint', afterPrint);
+    return () => window.removeEventListener('afterprint', afterPrint);
+  }, []);
+
+  // Print handler
+  const handlePrintPlan = () => {
+    if (!selectedPlan) return;
+    setPrintablePlan({
+      ...selectedPlan,
+      patient: {
+        full_name: selectedPlan.patientName,
+        age: selectedPlan.patient?.age || 0,
+        gender: selectedPlan.patient?.gender || '',
+        registration_number: selectedPlan.patient?.registration_number || '',
+        ...selectedPlan.patient
+      }
+    });
+    setPrintableTreatments(treatmentsWithEstimatedDates);
+    setTimeout(() => {
+      window.print();
+    }, 100);
+  };
+
+  // PDF Download handler for patient section
+  const handleDownloadPdfPatient = async () => {
+    if (!selectedPlan) return;
+    await handleDownloadPdf(selectedPlan, treatmentsWithEstimatedDates || []);
+  };
+
+  // Direct Print Handler (identical to main treatment plan)
+  const handleDirectPrint = () => {
+    const printStyleId = 'print-styles';
+    let styleElement = document.getElementById(printStyleId);
+    if (!styleElement) {
+      styleElement = document.createElement('style');
+      styleElement.id = printStyleId;
+    }
+    styleElement.innerHTML = `
+      @media print {
+        body * { visibility: hidden; }
+        #printable-content, #printable-content * { visibility: visible; color: black; }
+        #printable-content { position: absolute; left: 0; top: 0; width: 100%; background: white; }
+        @page { size: auto; margin: 20mm; }
+      }
+    `;
+    document.head.appendChild(styleElement);
+    const printContent = document.getElementById('printable-content');
+    if (printContent) printContent.style.display = 'block';
+    window.print();
+    const afterPrint = () => {
+      if (printContent) printContent.style.display = 'none';
+      if (styleElement && styleElement.parentNode) styleElement.parentNode.removeChild(styleElement);
+      window.removeEventListener('afterprint', afterPrint);
+    };
+    window.addEventListener('afterprint', afterPrint);
+  };
 
   return (
     <>
@@ -619,7 +687,9 @@ export function PatientList() {
                   if (planId) {
                     const detailsResult = await api.patients.getTreatmentPlanDetails(planId);
                     if (detailsResult && detailsResult.data) {
-                      fullPlan = detailsResult.data;
+                      // Process the plan to ensure patientName and patient fields are set
+                      const processedPlanArr = treatmentService.processTreatmentPlanData([detailsResult.data], patientsList);
+                      fullPlan = processedPlanArr[0];
                       // Attach the originalAISuggestion to the plan object for the details dialog
                       if (originalAISuggestion) {
                         fullPlan.originalAISuggestion = originalAISuggestion;
@@ -645,6 +715,7 @@ export function PatientList() {
                 patients={patientsList}
                 loading={false}
                 initialData={{ patient_id: selectedPatientForPlans.id }}
+                lockPatientId={selectedPatientForPlans.id}
               />
             )}
           </DialogContent>
@@ -663,6 +734,16 @@ export function PatientList() {
                   await treatmentService.updateTreatmentPlan(editPlanInitialData.id, { ...data, patient_id: selectedPatientForPlans.id });
                   setShowEditPlanDialog(false);
                   refreshTreatmentPlans(selectedPatientForPlans.id);
+                  // After update, fetch and process the updated plan for details dialog if needed
+                  const detailsResult = await api.patients.getTreatmentPlanDetails(editPlanInitialData.id);
+                  if (detailsResult && detailsResult.data) {
+                    const processedPlanArr = treatmentService.processTreatmentPlanData([detailsResult.data], patientsList);
+                    const fullPlan = processedPlanArr[0];
+                    setSelectedPlan({
+                      ...fullPlan,
+                      treatments: fullPlan.visits || [],
+                    });
+                  }
                 }}
                 patients={patientsList}
                 loading={false}
@@ -688,6 +769,7 @@ export function PatientList() {
                 }}
                 planId={treatmentFormPlanId}
                 loading={false}
+                hidePatientField={true}
               />
             )}
           </DialogContent>
@@ -710,6 +792,7 @@ export function PatientList() {
                 loading={false}
                 initialData={editTreatmentInitialData}
                 isEditMode={true}
+                hidePatientField={true}
               />
             )}
           </DialogContent>
@@ -725,12 +808,6 @@ export function PatientList() {
                   plan={selectedPlan}
                   onRefresh={async () => { 
                     if (selectedPatientForPlans) {
-                      // Determine if this refresh is immediately after an AI treatment creation.
-                      // This is a heuristic. A more robust way might involve TreatmentPlanDetails passing a flag.
-                      // For now, if TreatmentPlanDetails calls onRefresh, and it's for AI suggested treatments,
-                      // it likely just created them. Let's assume it's an AI-triggered refresh.
-                      // The `handleCreateAiSuggestedTreatments` in TreatmentPlanDetails calls onRefresh.
-                      // We will pass `true` to indicate treatments are expected.
                       refreshTreatmentPlans(selectedPatientForPlans.id, true); 
                     }
                   }}
@@ -757,20 +834,22 @@ export function PatientList() {
                   navigateToPatient={() => {}}
                   aiInitialSuggestion={aiInitialSuggestion}
                 />
-                {/* PrintableContent for direct print support */}
-                <PrintableContent 
-                  plan={{
-                    ...selectedPlan,
-                    patient: {
-                      full_name: selectedPlan.patientName,
-                      age: selectedPlan.patient?.age || 0,
-                      gender: selectedPlan.patient?.gender || '',
-                      registration_number: selectedPlan.patient?.registration_number || '',
-                      ...selectedPlan.patient
-                    }
-                  }}
-                  treatmentsWithEstimatedDates={treatmentsWithEstimatedDates}
-                />
+                <Button
+                  className="mt-4"
+                  variant="outline"
+                  onClick={handleDirectPrint}
+                  disabled={!selectedPlan}
+                >
+                  Print Plan
+                </Button>
+                <Button
+                  className="mt-4 ml-2"
+                  variant="outline"
+                  onClick={handleDownloadPdfPatient}
+                  disabled={!selectedPlan}
+                >
+                  Download PDF
+                </Button>
               </>
             )}
             {selectedPlan && selectedPlan.error && (
@@ -779,6 +858,11 @@ export function PatientList() {
           </DialogContent>
         </Dialog>
       </div>
+      {/* Always render PrintableContent at the root for print support */}
+      <PrintableContent
+        plan={selectedPlan}
+        treatmentsWithEstimatedDates={treatmentsWithEstimatedDates}
+      />
     </>
   );
 
