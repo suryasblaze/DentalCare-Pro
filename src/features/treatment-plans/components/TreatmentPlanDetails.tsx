@@ -466,8 +466,6 @@ export function TreatmentPlanDetails({
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 5; 
   const [isCreatingAiTreatments, setIsCreatingAiTreatments] = useState(false); 
-  const [showVisitsLoadingOverlay, setShowVisitsLoadingOverlay] = useState(false); // Overlay for AI visits loading
-  const [visitsLoadingError, setVisitsLoadingError] = useState<string | null>(null); // Error for polling
 
   // --- BEGIN PATIENT SECTION DEBUG LOGS ---
   if (typeof console !== 'undefined' && console.groupCollapsed && console.log && console.groupEnd) {
@@ -701,18 +699,17 @@ export function TreatmentPlanDetails({
         reader.onerror = (error) => reject(error);
         reader.readAsDataURL(blob);
       });
-      
-      if (!dataUrl.startsWith('data:image')) {
+      const dataUrlStr: string = dataUrl as string; // Explicitly type as string
+      if (!dataUrlStr.startsWith('data:image')) {
         throw new Error('Generated Data URL is not an image.');
       }
-
-      const imgProps = doc.getImageProperties(dataUrl);
+      const imgProps = doc.getImageProperties(dataUrlStr);
       const logoHeight = 12; // Adjusted logo height
       const logoWidth = (imgProps.width * logoHeight) / imgProps.height;
       const logoX = pdfMargin;
       const logoY = currentY - 7; // Position logo slightly above the title line
 
-      doc.addImage(dataUrl, imgProps.fileType.toUpperCase(), logoX, logoY, logoWidth, logoHeight);
+      doc.addImage(dataUrlStr, imgProps.fileType.toUpperCase(), logoX, logoY, logoWidth, logoHeight);
       
       doc.setFontSize(20);
       doc.setFont('helvetica', 'bold');
@@ -784,7 +781,7 @@ export function TreatmentPlanDetails({
     currentY += 10; // Increased spacing
 
     const tableColumn = ["#", "Treatment / Visit", "Procedures", "Status", "Date", "Cost"];
-    const tableRows: (string | number)[][] = [];
+    const tableRows: any[] = [];
 
     // Adjusted column widths for better text fitting
     const treatmentVisitColWidth = 70; // Increased from 60
@@ -1104,60 +1101,34 @@ export function TreatmentPlanDetails({
       });
       return;
     }
-
     setIsCreatingAiTreatments(true);
-    setShowVisitsLoadingOverlay(true); // Show overlay
-    setVisitsLoadingError(null);
     let treatmentsCreatedCount = 0;
     const totalSuggestions = aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails.length;
-
     try {
       for (const [index, sitting] of aiInitialSuggestion.planDetails.appointmentPlan.sittingDetails.entries()) {
         const treatmentDescription = sitting.procedures || 'No procedures detailed.';
         const proceduresSummary = treatmentDescription.substring(0, 50) + (treatmentDescription.length > 50 ? '...' : '');
         const treatmentTitle = `${sitting.visit || `Visit ${index + 1}`} - ${proceduresSummary}`;
-        
         const formattedDuration = parseAndFormatDurationForInterval(sitting.estimatedDuration);
-
         const treatmentData = {
           type: treatmentTitle,
           description: treatmentDescription,
           status: 'pending' as const,
           priority: 'medium' as const,
-          cost: "0", // Defaulting cost to 0 for AI suggestions, can be edited later
+          cost: "0",
           estimated_duration: formattedDuration,
           time_gap: sitting.timeGap || null,
           plan_id: plan.id
         };
-
         await treatmentService.createTreatment(treatmentData);
         treatmentsCreatedCount++;
       }
-
       toast({
         title: "Success",
         description: `${treatmentsCreatedCount} of ${totalSuggestions} AI suggested treatments created. Waiting for visits to appear...`,
       });
-      setAiInitialSuggestion(null); // Clear internal AI suggestion state after successful creation
-      // Modern loading: poll for visits
-      let attempts = 0;
-      const maxAttempts = 10;
-      let foundVisits = false;
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s
-        await onRefresh();
-        // Check if visits are present in the plan (treatments)
-        if (plan && plan.treatments && plan.treatments.length > 0) {
-          foundVisits = true;
-          break;
-        }
-        attempts++;
-      }
-      if (!foundVisits) {
-        setVisitsLoadingError('AI suggested visits could not be loaded in time. Please try refreshing the page.');
-      } else {
-        setShowVisitsLoadingOverlay(false);
-      }
+      setAiInitialSuggestion(null);
+      await onRefresh(); // Just refresh once after creation
     } catch (error) {
       console.error("Error creating AI suggested treatments:", error);
       toast({
@@ -1165,7 +1136,6 @@ export function TreatmentPlanDetails({
         description: `Failed to create some or all AI suggested treatments. ${treatmentsCreatedCount} created. ${(error as Error).message}`,
         variant: "destructive",
       });
-      setVisitsLoadingError('An error occurred while creating visits. Please try again.');
     } finally {
       setIsCreatingAiTreatments(false);
     }
@@ -1282,46 +1252,6 @@ export function TreatmentPlanDetails({
 
   return (
     <>
-      {/* Modern loading overlay for AI visits creation and polling */}
-      {showVisitsLoadingOverlay && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          background: 'rgba(30, 41, 59, 0.18)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backdropFilter: 'blur(2px)',
-        }}>
-          <div style={{
-            background: 'white',
-            borderRadius: 20,
-            boxShadow: '0 8px 32px rgba(30,41,59,0.18)',
-            padding: '2.5rem 2.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            minWidth: 340,
-            maxWidth: '90vw',
-          }}>
-            <svg className="animate-spin" style={{width: 56, height: 56, color: '#1B56FD', marginBottom: 20}} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-            <div style={{fontWeight: 700, fontSize: 22, color: '#1B56FD', marginBottom: 10}}>Finalizing Your AI Visits...</div>
-            <div style={{fontSize: 16, color: '#444', textAlign: 'center', maxWidth: 320, marginBottom: 10}}>
-              Please wait while we load your AI suggested visits. This may take a few seconds.<br />
-              <span style={{color:'#888', fontSize:13}}>Do not close or refresh the page.</span>
-            </div>
-            {visitsLoadingError && (
-              <div style={{color:'#e11d48', fontWeight:600, fontSize:16, marginTop:16, textAlign:'center'}}>
-                {visitsLoadingError}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
@@ -2038,13 +1968,14 @@ export async function handleDownloadPdf(plan: PrintableContentProps['plan'], tre
       reader.onerror = (error) => reject(error);
       reader.readAsDataURL(blob);
     });
-    if (!dataUrl.startsWith('data:image')) throw new Error('Generated Data URL is not an image.');
-    const imgProps = doc.getImageProperties(dataUrl);
+    const dataUrlStr: string = dataUrl as string; // Explicitly type as string
+    if (!dataUrlStr.startsWith('data:image')) throw new Error('Generated Data URL is not an image.');
+    const imgProps = doc.getImageProperties(dataUrlStr);
     const logoHeight = 12;
     const logoWidth = (imgProps.width * logoHeight) / imgProps.height;
     const logoX = pdfMargin;
     const logoY = currentY - 7;
-    doc.addImage(dataUrl, imgProps.fileType.toUpperCase(), logoX, logoY, logoWidth, logoHeight);
+    doc.addImage(dataUrlStr, imgProps.fileType.toUpperCase(), logoX, logoY, logoWidth, logoHeight);
     doc.setFontSize(20);
     doc.setFont('helvetica', 'bold');
     const titleX = logoX + logoWidth + 10;
@@ -2091,7 +2022,7 @@ export async function handleDownloadPdf(plan: PrintableContentProps['plan'], tre
       doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, pageHeight - 10);
     }
   });
-  currentY = (doc).lastAutoTable.finalY + 10;
+  currentY = (doc as any).lastAutoTable.finalY + 10;
   addSectionLine(currentY);
   currentY += 12;
 
@@ -2104,7 +2035,7 @@ export async function handleDownloadPdf(plan: PrintableContentProps['plan'], tre
   currentY += 10;
 
   const tableColumn = ['#', 'Treatment / Visit', 'Procedures', 'Status', 'Date', 'Cost'];
-  const tableRows = [];
+  const tableRows: any[] = [];
   const treatmentVisitColWidth = 70;
   const proceduresColWidth = 43;
   const cellPaddingVal = 1.5;
@@ -2163,7 +2094,7 @@ export async function handleDownloadPdf(plan: PrintableContentProps['plan'], tre
         doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, pageHeight - 10);
       }
     });
-    currentY = (doc).lastAutoTable.finalY + 15;
+    currentY = (doc as any).lastAutoTable.finalY + 15;
   }
   addSectionLine(currentY);
   currentY += 12;
@@ -2196,7 +2127,7 @@ export async function handleDownloadPdf(plan: PrintableContentProps['plan'], tre
       doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, pageHeight - 10);
     }
   });
-  currentY = (doc).lastAutoTable.finalY + 15;
+  currentY = (doc as any).lastAutoTable.finalY + 15;
   addSectionLine(currentY);
   currentY += 12;
 
@@ -2252,7 +2183,7 @@ export async function handleDownloadPdf(plan: PrintableContentProps['plan'], tre
   const totalPdfPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPdfPages; i++) {
     doc.setPage(i);
-    if ((doc).lastAutoTable && i <= (doc).lastAutoTable.pageCount) {
+    if ((doc as any).lastAutoTable && i <= (doc as any).lastAutoTable.pageCount) {
       // Already drawn
     } else {
       doc.setFontSize(8);

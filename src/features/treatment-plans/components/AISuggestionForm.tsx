@@ -47,6 +47,7 @@ interface AISuggestionFormProps {
   patientRecord: any;
   onSuggestionApply: (suggestion: AISuggestion) => void;
   disabled?: boolean;
+  source?: string;
 }
 
 export interface AISuggestion {
@@ -90,6 +91,7 @@ export function AISuggestionForm({
   patientRecord,
   onSuggestionApply,
   disabled = false,
+  source,
 }: AISuggestionFormProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
@@ -158,8 +160,9 @@ export function AISuggestionForm({
           description,
         },
       };
-      // --- Patient Section Debug Log ---
-      console.log('[PATIENT SECTION][n8n webhook] Sending payload to n8n:', JSON.parse(JSON.stringify(payload)));
+      // --- Differentiated Debug Log ---
+      const sourceLabel = (typeof source === 'string' ? source : 'patient-section');
+      console.log(`[AI SUGGESTION][${sourceLabel}] Sending payload to n8n:`, JSON.parse(JSON.stringify(payload)));
 
       const response = await fetch(webhookUrl, {
         method: 'POST',

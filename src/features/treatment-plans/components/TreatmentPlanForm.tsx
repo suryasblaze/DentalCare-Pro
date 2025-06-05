@@ -669,7 +669,8 @@ export function TreatmentPlanForm({
         treatment: form.getValues('treatment') || '', 
         patientRecord: selectedPatientRecord, 
       };
-      console.log("Sending payload to n8n:", payload);
+      // --- Differentiated Debug Log ---
+      console.log('[AI SUGGESTION][main-treatment-plan] Sending payload to n8n:', JSON.parse(JSON.stringify(payload)));
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -1102,6 +1103,7 @@ export function TreatmentPlanForm({
                     patientRecord={selectedPatientRecord}
                     onSuggestionApply={handleApplySuggestion}
                     disabled={isGeneratingSuggestions || !selectedPatientId || selectedToothIds.length === 0 || !selectedDomain || isLoadingPatientDetails || !form.watch('treatment')}
+                    source="main-treatment-plan"
                   />
                 </div>
               )}
