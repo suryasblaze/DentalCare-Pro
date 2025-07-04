@@ -154,7 +154,8 @@ export function PatientList() {
     setTreatmentPlans([]);
     try {
       const plans = await treatmentService.getPatientTreatmentPlans(patient.id);
-      setTreatmentPlans(plans || []);
+      const processedPlans = treatmentService.processTreatmentPlanData(plans || [], patientsList);
+      setTreatmentPlans(processedPlans || []);
     } catch (e) {
       toast({ title: 'Error', description: 'Failed to load treatment plans', variant: 'destructive' });
       setTreatmentPlans([]);
